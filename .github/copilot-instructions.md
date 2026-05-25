@@ -224,7 +224,7 @@ pub fn compute_roi(/* ... */) -> Result<Vec<RoiRow>, CoreError> { /* ... */ }
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
-> **图例**：★ NEW = 来自 `agentprof-extras` plugin（vendored from `github/awesome-copilot`，安装路径 `~/.copilot/installed-plugins/_direct/agentprof-extras/`）；其余 = `obra/superpowers`。
+> **图例**：★ = 来自 `.github/skills/`（vendored from `github/awesome-copilot`，**入 git、跟随 clone**）；其余 = `obra/superpowers`（全局 plugin，全部项目共享）。
 
 ### 5.2 阶段一览表
 
@@ -269,12 +269,12 @@ pub fn compute_roi(/* ... */) -> Result<Vec<RoiRow>, CoreError> { /* ... */ }
 |---|---|---|---|---|
 | `using-superpowers` | obra | **每次会话开头**，回答任何问题前 | meta：决定其他 skills 怎么被使用 | Stage 0 |
 | `brainstorming` | obra | 任何"创意工作"前：新 feature / 新 adapter / 新 CLI 子命令 / 架构变动 / 设计决策 | `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`（架构变动还需更新 `docs/architecture.md`） | Stage 1 |
-| `create-architectural-decision-record` ★ | agentprof-extras | brainstorming 输出含"considered options" / 关键技术选型 | `docs/internals/adr-NNNN-<topic>.md`（L3 ADR） | Stage 2 |
+| `create-architectural-decision-record` ★ | `.github/skills/` | brainstorming 输出含"considered options" / 关键技术选型 | `docs/internals/adr-NNNN-<topic>.md`（L3 ADR） | Stage 2 |
 | `writing-plans` | obra | `brainstorming` 通过后、动手前 | `docs/superpowers/specs/YYYY-MM-DD-<topic>-plan.md` | Stage 3 |
 | `test-driven-development` | obra | 任何新实现 / bug fix | failing test → 实现 → 绿；测试落在 `crates/<name>/tests/` 或 `#[cfg(test)] mod` | Stage 4 |
 | `systematic-debugging` | obra | 任何 bug / test 失败 / CI 红 | 根因分析 → 失败测试复现 → 修复；复杂决策落 `docs/internals/<topic>.md` | Stage 6 |
 | `verification-before-completion` | obra | 任何"声称完成 / 通过 / 修复"之前 | 跑 §8 的本地 gate 全集；附输出证据；与 PR 模板 + `docs-sync` CI 配合 | Stage 7 |
-| `github-release` ★ | agentprof-extras | **release 时必装必用**：要打 tag / cargo publish / 出 binary 前 | SemVer 决策 + Keep-a-Changelog 自动 + GitHub Release | Stage 8 |
+| `github-release` ★ | `.github/skills/` | **release 时必装必用**：要打 tag / cargo publish / 出 binary 前 | SemVer 决策 + Keep-a-Changelog 自动 + GitHub Release | Stage 8 |
 
 ### 6.2 推荐（🟡 当场景命中时 invoke）
 
@@ -283,9 +283,9 @@ pub fn compute_roi(/* ... */) -> Result<Vec<RoiRow>, CoreError> { /* ... */ }
 | `executing-plans` | obra | 执行 `writing-plans` 产出的多步计划时（"跨 review checkpoint" 的实施会话） | Stage 4 |
 | `subagent-driven-development` | obra | 同一会话内并行推进多个独立 crate 的改动（5 crate 边界清晰，适合本项目） | Stage 4 |
 | `dispatching-parallel-agents` | obra | 并行 explore / research，例如 Phase 3 同时调研 Claude / Codex / Copilot 三家日志格式 | Stage 1 / Stage 4 |
-| `cli-mastery` ★ | agentprof-extras | 写 / 改 `agentprof-cli` 子命令、clap derive 结构、CLI UX 时 | Stage 4 |
-| `copilot-cli-quickstart` ★ | agentprof-extras | 集成 Copilot CLI 适配器、设计 agentprof 如何识别 Copilot CLI session 时 | Stage 4 |
-| `create-github-action-workflow-specification` ★ | agentprof-extras | 新增 / 修改 `.github/workflows/*.yml` 时；为已有 workflow 反向写 spec | Stage 5 |
+| `cli-mastery` ★ | `.github/skills/` | 写 / 改 `agentprof-cli` 子命令、clap derive 结构、CLI UX 时 | Stage 4 |
+| `copilot-cli-quickstart` ★ | `.github/skills/` | 集成 Copilot CLI 适配器、设计 agentprof 如何识别 Copilot CLI session 时 | Stage 4 |
+| `create-github-action-workflow-specification` ★ | `.github/skills/` | 新增 / 修改 `.github/workflows/*.yml` 时；为已有 workflow 反向写 spec | Stage 5 |
 | `requesting-code-review` | obra | 主要 feature 完成 / merge 前；与 PR 模板 + `docs-sync` 联动 | Stage 7 |
 | `receiving-code-review` | obra | 收到 review feedback 时（防止 performative agreement，要求技术验证） | Stage 7 |
 | `finishing-a-development-branch` | obra | 实现完成、所有测试通过、准备 merge/PR 时 | Stage 7 |
@@ -335,16 +335,16 @@ pub fn compute_roi(/* ... */) -> Result<Vec<RoiRow>, CoreError> { /* ... */ }
 
 **关于优先级**：当 `rust.instructions.md` / `update-docs-on-code-change.instructions.md` 与 `docs/architecture.md` 出现表述冲突时，**以 `docs/architecture.md` 为准**（它是项目 L1 权威）。`.instructions.md` 是上游 vendored 内容，未本地修改以便后续 sync 不冲突。
 
-### 6.7 Plugin 来源说明
+### 6.7 Skill 来源说明
 
-两个 plugin 同时启用，均在 `~/.copilot/installed-plugins/_direct/` 下：
+本项目的 skill 来自**两个独立位置**，Copilot CLI 会自动合并：
 
-| Plugin | 来源 | Skill 数 | 用途 |
-|---|---|---|---|
-| `obra--superpowers` | <https://github.com/obra/superpowers> | 14 个 | 工作流主框架（meta、TDD、brainstorming、verification 等） |
-| `agentprof-extras` | vendored from <https://github.com/github/awesome-copilot> | 5 个 ★ | 项目专属补充（Rust CLI / ADR / release / CI spec） |
+| 来源 | 物理位置 | 范围 | Skill 数 | 用途 |
+|---|---|---|---|---|
+| `obra/superpowers` plugin | `~/.copilot/installed-plugins/_direct/obra--superpowers/` | 全局（所有项目） | 14 | 工作流主框架（meta、TDD、brainstorming、verification 等） |
+| 本项目 project skills ★ | `<repo>/.github/skills/` | 仅本仓库（跟随 clone） | 5 ★ | 项目专属补充（Rust CLI / ADR / release / CI spec），vendored from `github/awesome-copilot` |
 
-★ 标记的 skill 均来自 `agentprof-extras`。可通过 `ls ~/.copilot/installed-plugins/_direct/agentprof-extras/skills/` 列出。
+★ 标记的 skill 均在 `<repo>/.github/skills/<name>/SKILL.md`。**入 git、跟随 `git clone`，无需任何全局安装**。Copilot CLI 启动时自动发现，可用 `/skills list` 验证、`/skills reload` 在线刷新。
 
 ---
 
@@ -466,7 +466,16 @@ agentprof/
 │   ├── internals/<topic>.md   L3：算法 / ADR
 │   └── superpowers/specs/     每个 feature 的 spec
 ├── .github/
-│   ├── copilot-instructions.md   本文件
+│   ├── copilot-instructions.md   本文件（AI 助手 entry point）
+│   ├── instructions/             Copilot 自动加载的 .instructions.md（Stage 0 常驻）
+│   │   ├── rust.instructions.md
+│   │   └── update-docs-on-code-change.instructions.md
+│   ├── skills/                   ★ project skills（入 git，跟随 clone）
+│   │   ├── cli-mastery/                              (Stage 4)
+│   │   ├── copilot-cli-quickstart/                   (Stage 4)
+│   │   ├── github-release/                           (Stage 8)
+│   │   ├── create-github-action-workflow-specification/  (Stage 5)
+│   │   └── create-architectural-decision-record/     (Stage 2)
 │   └── workflows/             ci / release / nightly-msrv
 ├── crates/
 │   ├── agentprof-core/        ├── Cargo.toml + README.md (L2) + src/

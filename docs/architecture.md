@@ -603,18 +603,18 @@ pub fn compute_roi(/* ... */) -> Result<Vec<RoiRow>, CoreError> {
 
 ### 14.7 Skills 与文档体系的映射（统一 9 阶段 pipeline）
 
-本项目使用**两个**已安装的 skill plugin 共同构成 AI 助手的工作流框架：
+本项目使用**两个独立来源**的 skill，Copilot CLI 启动时自动合并：
 
-| Plugin | 来源 | Skill 数 | 用途 |
-|---|---|---|---|
-| `obra--superpowers` | <https://github.com/obra/superpowers> | 14 | 工作流主框架（meta、TDD、brainstorming、verification 等） |
-| `agentprof-extras` | vendored from <https://github.com/github/awesome-copilot> | 5 ★ | 项目专属补充（Rust CLI / ADR / release / CI spec） |
+| 来源 | 物理位置 | 范围 | Skill 数 | 用途 |
+|---|---|---|---|---|
+| `obra/superpowers` | `~/.copilot/installed-plugins/_direct/obra--superpowers/` | 全局 plugin | 14 | 工作流主框架（meta、TDD、brainstorming、verification 等） |
+| 本项目 project skills | `<repo>/.github/skills/` | 入 git、跟随 clone | 5 ★ | 项目专属补充（Rust CLI / ADR / release / CI spec），vendored from `github/awesome-copilot` |
 
 **完整调用规约（含 9 阶段 pipeline、必选 / 推荐 / 可选三档、反模式）**统一在
-[`.github/copilot-instructions.md`](../.github/copilot-instructions.md) §5（pipeline）+ §6（清单）；
+[`.github/copilot-instructions.md`](../.github/copilot-instructions.md) §5（pipeline）+ §6（清单）+ §6.7（来源对照）；
 本节只给出**文档归宿**与本架构 L1/L2/L3 体系的对应关系。
 
-| Skill（★ = agentprof-extras） | Pipeline 阶段 | 触发场景 | 产物落点（文档等级） |
+| Skill（★ = `.github/skills/` 项目专属） | Pipeline 阶段 | 触发场景 | 产物落点（文档等级） |
 |---|---|---|---|
 | `using-superpowers` | 0 | 每次会话开头（meta） | 无产物，决定后续 skills 用法 |
 | `brainstorming` | 1 | 新 feature / 新 adapter / 新 CLI 子命令 / 架构变更 | `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`；架构变更同步落 §3 / §4 / §6 / §8 / §9 / §10（**L1**） |
@@ -634,7 +634,7 @@ pub fn compute_roi(/* ... */) -> Result<Vec<RoiRow>, CoreError> {
 | `finishing-a-development-branch` | 7 | 实现完、所有测试通过、准备 merge/PR | 触发 §14.5 `docs-sync` CI；CHANGELOG 必更 |
 | `github-release` ★ | 8 | 准备打 tag / cargo publish / 出 binary | `CHANGELOG.md` Keep-a-Changelog 段（**L1**）+ SemVer tag + GitHub Release |
 | `using-git-worktrees` | — | feature 需隔离 / 多 Phase 并行 | 无文档产物；worktree 内同样要满足 docs-sync |
-| `writing-skills` | — | 为本项目写自定义 skill 时（如未来补 ratatui 测试 / OTel Rust 缺口） | 自定义 skill 放 `~/.copilot/installed-plugins/_direct/agentprof-extras/skills/<name>/SKILL.md` |
+| `writing-skills` | — | 为本项目写自定义 skill 时（如未来补 ratatui 测试 / OTel Rust 缺口） | 自定义 skill 放 `.github/skills/<name>/SKILL.md`（入 git，跟随 clone） |
 
 ### 14.8 Stage 0 常驻 instructions（非 skill）
 
