@@ -13,6 +13,17 @@ prefix used in commit messages).
 
 ## [Unreleased]
 
+### Changed
+- **Pipeline 衔接性增强（§5 重写为三层结构）**：
+  - 流程图现明确分为**主线**（Stage 0→1→2→3→4→7→8）、**横切层**（Stage 5/6）、**Pipeline 外**（writing-skills），避免之前画成串行的误导。
+  - 新增 §5.5 「Stage 2 触发门槛」表格 + 判断口诀（*"半年后回头看会问『为什么这么做？』就写 ADR"*），区分 8 类场景。
+  - 新增 §5.6 「横切层规则」：Stage 5 不打断主线、Stage 6 修完返回触发它的 stage（不跳到 Stage 7）。
+  - 3 个原本"孤儿"的 skill 找到明确归属：
+    - `dispatching-parallel-agents` → Stage 1（并行调研多源） + Stage 4（并行多模块影响面）
+    - `using-git-worktrees` → Stage 3→4 之间的可选 env prep
+    - `writing-skills` → 标明为 "Pipeline 之外的元能力"
+  - §5.7 commit 粒度新增 Stage 6 规则（`fix:` 前缀 + 关联失败测试）。
+
 ### Added
 - **Skill pipeline integration (corrected layout)** — five curated skills from `github/awesome-copilot` placed at `<repo>/.github/skills/<name>/SKILL.md` (project-level path per [GitHub Copilot CLI skills docs](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills)), plus two `.instructions.md` files at `.github/instructions/`. All checked into git and propagated by `git clone` — no global install step required:
   - `cli-mastery` (Stage 4)

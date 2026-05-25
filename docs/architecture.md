@@ -626,15 +626,15 @@ pub fn compute_roi(/* ... */) -> Result<Vec<RoiRow>, CoreError> {
 | `dispatching-parallel-agents` | 1 / 4 | 并行 explore / research | 调研结论汇总到 `docs/internals/<topic>.md` 或对应 spec |
 | `cli-mastery` ★ | 4 | 写 `agentprof-cli` 子命令、clap derive 结构、CLI UX | 代码 + L3 rustdoc + L2 `agentprof-cli/README.md` 更新 |
 | `copilot-cli-quickstart` ★ | 4 | 集成 Copilot CLI 适配器、Copilot session 识别 | 代码 + L2 `agentprof-adapters/README.md` 更新 |
-| `create-github-action-workflow-specification` ★ | 5 | 改 `.github/workflows/*.yml` | `docs/internals/ci-<workflow>.md`（**L3**）+ §15.3 表更新（**L1**） |
-| `systematic-debugging` | 6 | 任何 bug / test 失败 / CI 红 | 复杂决策落 `docs/internals/<topic>.md`（**L3** ADR） |
+| `create-github-action-workflow-specification` ★ | 5（横切） | 改 `.github/workflows/*.yml` | `docs/internals/ci-<workflow>.md`（**L3**）+ §15.3 表更新（**L1**） |
+| `systematic-debugging` | 6（横切，返回原 stage） | 任何 bug / test 失败 / CI 红 | 复杂决策落 `docs/internals/<topic>.md`（**L3** ADR） |
 | `verification-before-completion` | 7 | 声称"完成 / 通过 / 修复"之前 | 跑本地 gate（见 [`.github/copilot-instructions.md`](../.github/copilot-instructions.md) §8）；输出证据写进 PR 描述 |
 | `requesting-code-review` | 7 | 主要 feature 完成 / merge 前 | review 结论落 PR 描述；不进文档 |
 | `receiving-code-review` | 7 | 收到 review feedback | 同上；如改架构 → 同步 L1 文档 |
 | `finishing-a-development-branch` | 7 | 实现完、所有测试通过、准备 merge/PR | 触发 §14.5 `docs-sync` CI；CHANGELOG 必更 |
 | `github-release` ★ | 8 | 准备打 tag / cargo publish / 出 binary | `CHANGELOG.md` Keep-a-Changelog 段（**L1**）+ SemVer tag + GitHub Release |
-| `using-git-worktrees` | — | feature 需隔离 / 多 Phase 并行 | 无文档产物；worktree 内同样要满足 docs-sync |
-| `writing-skills` | — | 为本项目写自定义 skill 时（如未来补 ratatui 测试 / OTel Rust 缺口） | 自定义 skill 放 `.github/skills/<name>/SKILL.md`（入 git，跟随 clone） |
+| `using-git-worktrees` | — (Stage 3→4 可选 env prep) | feature 需隔离 / 多 Phase 并行 | 无文档产物；worktree 内同样要满足 docs-sync |
+| `writing-skills` | — (Pipeline 之外的元能力) | 为本项目写自定义 skill 时（如未来补 ratatui 测试 / OTel Rust 缺口） | 自定义 skill 放 `.github/skills/<name>/SKILL.md`（入 git，跟随 clone） |
 
 ### 14.8 Stage 0 常驻 instructions（非 skill）
 
