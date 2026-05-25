@@ -1,0 +1,46 @@
+[package]
+name        = "agentprof-cli"
+description = "agentprof — perf flamegraph + ROI profiler for AI coding agents."
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+authors.workspace      = true
+version.workspace      = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "agentprof"
+path = "src/main.rs"
+
+[features]
+# `default = ["full"]` gives `cargo install agentprof` the batteries-included experience.
+default = ["full"]
+full    = ["anthropic-api", "otlp"]
+
+anthropic-api = ["agentprof-core/anthropic-api"]
+otlp          = ["agentprof-storage/otlp"]
+
+[dependencies]
+agentprof-core     = { workspace = true }
+agentprof-adapters = { workspace = true }
+agentprof-storage  = { workspace = true }
+agentprof-tui      = { workspace = true }
+
+clap               = { workspace = true }
+anyhow             = { workspace = true }
+tracing            = { workspace = true }
+tracing-subscriber = { workspace = true }
+serde              = { workspace = true }
+serde_json         = { workspace = true }
+chrono             = { workspace = true }
+directories        = { workspace = true }
+askama             = { workspace = true }
+
+[dev-dependencies]
+assert_cmd = { workspace = true }
+predicates = { workspace = true }
+insta      = { workspace = true }
+tempfile   = { workspace = true }

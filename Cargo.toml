@@ -1,0 +1,99 @@
+# agentprof —— workspace manifest.
+#
+# Every concrete crate is under `crates/<name>` and must inherit
+# `lints.workspace = true` + `package.*.workspace = true` from this file.
+#
+# Architecture authority: see `docs/architecture.md`.
+
+[workspace]
+members  = ["crates/*", "xtask"]
+resolver = "2"
+
+[workspace.package]
+edition      = "2021"
+rust-version = "1.78"
+license      = "MIT OR Apache-2.0"
+repository   = "https://github.com/agentprof/agentprof"
+homepage     = "https://github.com/agentprof/agentprof"
+authors      = ["agentprof contributors"]
+version      = "0.1.0"
+
+# -----------------------------------------------------------------------------
+# Workspace-wide lints (see docs/architecture.md §16 for the full coding rules).
+# -----------------------------------------------------------------------------
+[workspace.lints.rust]
+unsafe_code     = "forbid"
+missing_docs    = "warn"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+pedantic    = { level = "warn", priority = -1 }
+nursery     = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "warn"   # allowed only in main.rs and #[cfg(test)]
+dbg_macro   = "deny"
+todo        = "warn"
+
+# -----------------------------------------------------------------------------
+# Workspace-wide dependencies. Crates inherit via `<dep>.workspace = true`.
+# -----------------------------------------------------------------------------
+[workspace.dependencies]
+# core / shared
+serde              = { version = "1", features = ["derive"] }
+serde_json         = "1"
+thiserror          = "2"
+anyhow             = "1"
+chrono             = { version = "0.4", features = ["serde"] }
+tracing            = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# CLI
+clap        = { version = "4", features = ["derive", "env"] }
+directories = "5"
+askama      = "0.12"
+
+# adapters
+walkdir = "2"
+globset = "0.4"
+
+# TUI
+ratatui   = "0.29"
+crossterm = "0.28"
+
+# Tokenizer
+tiktoken-rs = "0.6"
+
+# Storage
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# Anthropic API (feature `anthropic-api`)
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+tokio   = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util", "net", "time"] }
+
+# OTLP receiver (feature `otlp`)
+opentelemetry      = "0.27"
+opentelemetry-otlp = "0.27"
+opentelemetry_sdk  = "0.27"
+tonic              = "0.12"
+
+# Test
+assert_cmd = "2"
+predicates = "3"
+insta      = { version = "1", features = ["json"] }
+tempfile   = "3"
+
+# Internal (workspace path deps)
+agentprof-core     = { path = "crates/agentprof-core",     version = "0.1.0" }
+agentprof-adapters = { path = "crates/agentprof-adapters", version = "0.1.0" }
+agentprof-storage  = { path = "crates/agentprof-storage",  version = "0.1.0" }
+agentprof-tui      = { path = "crates/agentprof-tui",      version = "0.1.0" }
+
+# -----------------------------------------------------------------------------
+# Release profile.
+# -----------------------------------------------------------------------------
+[profile.release]
+lto             = "thin"
+codegen-units   = 1
+strip           = "symbols"
+opt-level       = 3
+panic           = "abort"

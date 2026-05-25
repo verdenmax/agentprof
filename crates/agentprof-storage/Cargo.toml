@@ -1,0 +1,35 @@
+[package]
+name        = "agentprof-storage"
+description = "SQLite persistence and OTLP telemetry receiver for agentprof."
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+authors.workspace      = true
+version.workspace      = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# Enable the OTLP receiver (subscribes to Claude Code telemetry).
+otlp = ["dep:opentelemetry", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk", "dep:tonic", "dep:tokio"]
+
+[dependencies]
+agentprof-core = { workspace = true }
+serde          = { workspace = true }
+serde_json     = { workspace = true }
+thiserror      = { workspace = true }
+tracing        = { workspace = true }
+chrono         = { workspace = true }
+rusqlite       = { workspace = true }
+
+opentelemetry       = { workspace = true, optional = true }
+opentelemetry-otlp  = { workspace = true, optional = true }
+opentelemetry_sdk   = { workspace = true, optional = true }
+tonic               = { workspace = true, optional = true }
+tokio               = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

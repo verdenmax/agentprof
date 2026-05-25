@@ -1,0 +1,38 @@
+# Rust
+target/
+**/*.rs.bk
+*.pdb
+
+# Cargo
+# NOTE: Cargo.lock IS committed because this workspace contains binaries
+# (agentprof-cli, xtask). Per Rust convention, binary projects pin
+# Cargo.lock for reproducible builds.
+.cargo/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs / data
+*.log
+*.sqlite
+*.sqlite-journal
+*.db
+
+# agentprof local artifacts
+/data/
+/tmp/
+*.speedscope.json
+
+# insta pending snapshots
+*.pending-snap
+
+# Coverage
+coverage/
+*.profraw

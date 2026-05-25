@@ -1,0 +1,6 @@
+# Pin a stable channel for reproducible local builds.
+# MSRV (1.78) is verified by the `nightly-msrv` CI job; everyday development uses stable.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy", "rust-src"]
+profile = "minimal"

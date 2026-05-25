@@ -1,0 +1,22 @@
+[package]
+name        = "agentprof-tui"
+description = "Ratatui-based terminal views (flamegraph, ROI table, aggregate) for agentprof."
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+authors.workspace      = true
+version.workspace      = true
+
+[lints]
+workspace = true
+
+[dependencies]
+agentprof-core = { workspace = true }
+ratatui        = { workspace = true }
+crossterm      = { workspace = true }
+thiserror      = { workspace = true }
+tracing        = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }

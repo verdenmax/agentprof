@@ -1,0 +1,28 @@
+[package]
+name        = "agentprof-core"
+description = "Core domain model, tokenizer, analyzer, and exporters for agentprof."
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+authors.workspace      = true
+version.workspace      = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# Enable the optional Anthropic `count_tokens` HTTP API for precise tokenization.
+anthropic-api = ["dep:reqwest", "dep:tokio"]
+
+[dependencies]
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+thiserror   = { workspace = true }
+chrono      = { workspace = true }
+tracing     = { workspace = true }
+tiktoken-rs = { workspace = true }
+
+reqwest = { workspace = true, optional = true }
+tokio   = { workspace = true, optional = true }

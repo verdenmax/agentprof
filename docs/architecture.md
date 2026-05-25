@@ -1,0 +1,757 @@
+# agentprof —— 架构设计
+
+> 状态：架构定稿（Phase 1+2+3 整体设计）
+> 最后更新：2026-05-25
+> 关联文档：[`plan.md`](./plan.md)（问题陈述 / 现状盘点 / 路线图）
+
+本文档是 agentprof 项目的**长期架构档案**。所有 crate 边界、数据模型、CLI 协议、工程规范在此定稿；后续每个 feature 的实施计划另行写在 `docs/superpowers/specs/`。
+
+---
+
+## 1. 一句话定位
+
+> **agentprof = 给 AI agent 的 perf flamegraph + ROI 报告器**。读 Claude / Codex / Copilot CLI 留下的 session 日志，把 context window 里 `system / tools_schema / history / user / tool_result / output` 各自占多少 token 算清楚，标出"加载了但从没被调用"的 tools，导出 TUI / Speedscope JSON / HTML 三种视图。
+
+差异化：市面上同类工具（ccusage, tokscale, splitrail, claude-usage 等）都在做 "花了多少 token / 多少钱"，本项目做 "**花得值不值**"——schema 利用率 + Tool ROI 矩阵 + MCP server 浪费榜。
+
+---
+
+## 2. 技术栈
+
+| 维度 | 选择 | 备注 |
+|---|---|---|
+| 语言 | **Rust 2021**, MSRV **1.78** | 跟随 tokscale/splitrail 主流，单 binary 用户体验 |
+| 工程组织 | Cargo **workspace**, 5 个 lib/bin crate + 1 个 xtask | 边界清晰、编译可控 |
+| 异步运行时 | `tokio`（仅在 storage / OTLP / Anthropic API 处用） | core/adapters/tui 不强依赖 async |
+| TUI | `ratatui` + `crossterm` | 火焰图、ROI 表、聚合视图 |
+| Tokenizer | `tiktoken-rs`（本地）+ Anthropic `count_tokens` API（可选） | 本地优先策略，离线可用 |
+| 存储 | `rusqlite`（bundled） | 单文件 SQLite，XDG 路径 |
+| Telemetry receiver | `opentelemetry-otlp` + `tonic`（feature gated） | Phase 2 启用 |
+| HTML 渲染 | `askama`（编译期模板） + 内嵌 d3.js | 单文件 HTML 报告 |
+| CLI 解析 | `clap` derive | env + 默认值整合 |
+| 错误模型 | `thiserror`（lib） / `anyhow`（bin） | 严格分层 |
+| 日志 | `tracing` + `tracing-subscriber` | `RUST_LOG` env 控制 |
+| 测试 | 单元 + `assert_cmd` 集成 + `insta` snapshot + 可选 `proptest` | snapshot 用于 TUI/HTML |
+| 许可 | **MIT OR Apache-2.0**（双协议，Rust 生态惯例） | |
+| 发布 | `cargo-dist` 多平台 release + `cargo install agentprof` | tag push 触发 |
+
+---
+
+## 3. 系统分层
+
+```
+                         ┌───────────────────────────┐
+   User runs CLI ───────▶│   agentprof-cli (binary)   │
+                         └─────────────┬──────────────┘
+                                       │ uses
+       ┌───────────────────────────────┼───────────────────────────────┐
+       ▼                               ▼                               ▼
+┌──────────────┐           ┌──────────────────┐           ┌──────────────────┐
+│ agentprof-   │           │ agentprof-tui    │           │ agentprof-       │
+│  adapters    │           │ (ratatui views   │           │  storage         │
+│  - claude    │           │  + flamegraph    │           │  - SQLite        │
+│  - codex     │           │  + ROI table)    │           │  - OTLP receiver │
+│  - copilot   │           └────────┬─────────┘           │   (feature:otlp) │
+│  (impl       │                    │                     └────────┬─────────┘
+│   Adapter    │                    │                              │
+│   trait)     │                    │ renders                      │ persists
+└──────┬───────┘                    │                              │
+       │ produces                   │                              │
+       ▼                            ▼                              ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│                          agentprof-core                                  │
+│   model::{Session, Turn, ToolDef, ToolCall, TokenBucket, RoiRow, ...}    │
+│   tokenizer::{count_tokens(model, text), AnthropicApi (feature gated)}   │
+│   analyzer::{compute_roi, schema_utilization, waste_estimate, ...}       │
+│   export::{speedscope_json, markdown_report, html_report}                │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+### 3.1 依赖规则（无环）
+
+```
+agentprof-cli  ──▶  agentprof-tui
+       │                │
+       ├──────────────▶ agentprof-adapters ──▶ agentprof-core
+       │                                          ▲
+       └──▶ agentprof-storage ───────────────────┘
+```
+
+- `agentprof-core` 不依赖任何其他 workspace crate（叶子节点）
+- `agentprof-adapters` / `agentprof-storage` / `agentprof-tui` 只依赖 `core`
+- `agentprof-cli` 是唯一的组装层；**不允许**任何 lib crate 依赖 `agentprof-cli`
+- CI 用 `cargo deny` + 自定义 grep 校验依赖图
+
+---
+
+## 4. Crate 一览
+
+| Crate | 类型 | 关键模块 | 关键外部依赖 |
+|---|---|---|---|
+| `agentprof-core` | lib | `model`, `tokenizer`, `analyzer`, `export`, `error` | `serde`, `serde_json`, `tiktoken-rs`, `chrono`, `thiserror`, `reqwest`(opt, feature `anthropic-api`) |
+| `agentprof-adapters` | lib | `claude`, `codex`, `copilot`, `registry`, `discovery` | `serde_json`, `walkdir`, `globset` |
+| `agentprof-storage` | lib | `sqlite::{schema, migrations, queries}`, `otlp`(feature) | `rusqlite`(bundled), `opentelemetry-otlp`(opt), `tonic`(opt) |
+| `agentprof-tui` | lib | `app`, `views::{flamegraph, roi, aggregate}`, `theme` | `ratatui`, `crossterm` |
+| `agentprof-cli` | bin (`agentprof`) | `cmd::{analyze, list, aggregate, watch, ingest_otlp, export, config}`, `config`, `main` | `clap`, `tracing`, `tracing-subscriber`, `anyhow`, `directories`, `askama` |
+| `xtask` | bin | `anonymize`, `dist-check`, `release-notes` | `xshell` |
+
+---
+
+## 5. 核心数据模型
+
+```rust
+// agentprof-core/src/model/session.rs
+
+pub struct SessionId(pub String);  // adapter 定义，对全局唯一
+pub enum AgentKind { Claude, Codex, Copilot }
+pub struct ModelId(pub String);    // "claude-sonnet-4.5" 等
+
+pub struct RawSession {
+    pub id: SessionId,
+    pub agent: AgentKind,
+    pub started_at: DateTime<Utc>,
+    pub model: ModelId,
+    pub tool_defs: Vec<ToolDef>,
+    pub turns: Vec<Turn>,
+    pub raw_path: PathBuf,
+}
+
+pub enum ToolSource {
+    Builtin,
+    Mcp { server: String },
+    Skill { name: String },
+}
+
+pub struct ToolDef {
+    pub name: String,
+    pub source: ToolSource,
+    pub schema_text: String,         // 给 LLM 的 JSON 字符串原文
+    pub schema_tokens: u32,          // 由 tokenizer pass 填充
+}
+
+pub struct Turn {
+    pub index: u32,
+    pub timestamp: DateTime<Utc>,
+    pub payload: TurnPayload,
+    pub usage: Option<ApiUsage>,
+}
+
+pub enum TurnPayload {
+    System(String),
+    User(String),
+    Assistant { text: Option<String>, tool_calls: Vec<ToolCall> },
+    ToolResult { tool_name: String, content: String, is_error: bool },
+}
+
+pub struct ToolCall {
+    pub tool_name: String,
+    pub arguments_text: String,
+}
+
+pub struct ApiUsage {
+    pub input_tokens: u32,
+    pub output_tokens: u32,
+    pub cache_creation_tokens: u32,
+    pub cache_read_tokens: u32,
+}
+
+#[non_exhaustive]
+pub struct TokenBucket {              // 每个 assistant turn 一份
+    pub system: u32,
+    pub tools_schema: u32,
+    pub history: u32,
+    pub user: u32,
+    pub tool_result: u32,
+    pub assistant_output: u32,
+    pub cache_read: u32,
+    pub cache_creation: u32,
+}
+
+pub enum RoiScore { Star5, Star4, Star3, Star2, Star1, Wasted }
+
+#[non_exhaustive]
+pub struct RoiRow {
+    pub tool: String,
+    pub source: ToolSource,
+    pub schema_tokens: u32,
+    pub call_count: u32,
+    pub avg_result_tokens: u32,
+    pub roi_score: RoiScore,
+}
+
+#[non_exhaustive]
+pub struct AnalysisReport {
+    pub session: SessionId,
+    pub buckets_per_turn: Vec<TokenBucket>,
+    pub roi_rows: Vec<RoiRow>,
+    pub schema_utilization: f32,      // 0.0..=1.0
+    pub estimated_waste_usd: f32,
+}
+```
+
+---
+
+## 6. Adapter trait（多 agent 适配的核心抽象）
+
+```rust
+// agentprof-core/src/model/adapter.rs
+
+pub trait Adapter: Send + Sync {
+    fn agent_kind(&self) -> AgentKind;
+    fn default_session_root(&self) -> PathBuf;
+    fn discover_sessions(&self, root: &Path) -> Result<Vec<SessionRef>, CoreError>;
+    fn load_session(&self, sref: &SessionRef) -> Result<RawSession, CoreError>;
+}
+
+pub struct SessionRef {
+    pub id: SessionId,
+    pub agent: AgentKind,
+    pub path: PathBuf,
+    pub modified_at: SystemTime,
+}
+```
+
+**规则**：
+- Adapter 必须把"附在 prompt 里的 tools JSON"还原成发给 LLM 的实际 wire format（含 name + description + parameters JSON schema），后续 tokenizer 才能算准。各家 wire format 不同，由 Adapter 负责。
+- 新增 agent ＝ 在 `agentprof-adapters/src/{name}.rs` 实现 `Adapter` + 在 `registry.rs` 注册 + 至少 1 个 fixture + 至少 1 个 `assert_cmd` 集成测试。
+
+### 数据源默认路径
+
+| Agent | 默认路径 |
+|---|---|
+| Claude Code | `~/.claude/projects/**/*.jsonl` |
+| Codex CLI | `~/.codex/sessions/...`（具体格式以实际抓取为准） |
+| Copilot CLI | `~/.copilot/session-state/`（**TODO**：抓取一份真实日志确认 schema） |
+
+可在配置文件中覆盖。
+
+---
+
+## 7. 主数据流
+
+```
+       ┌─────────────────────┐
+       │ 1. Discover          │  Adapter::discover_sessions
+       │    ~/.claude/...     │  → Vec<SessionRef>
+       └──────────┬───────────┘
+                  ▼
+       ┌──────────────────────┐
+       │ 2. Load JSONL         │  Adapter::load_session
+       │    + parse turns      │  → RawSession { turns, tool_defs }
+       └──────────┬───────────┘
+                  ▼
+       ┌──────────────────────┐
+       │ 3. Tokenize           │  tokenizer::count_tokens
+       │    schema/system/etc  │  → TokenizedSession (buckets)
+       └──────────┬───────────┘
+                  ▼
+       ┌──────────────────────┐
+       │ 4. Analyze            │  analyzer::compute_roi
+       │    schema utilization │  analyzer::waste_estimate
+       │    ROI matrix         │
+       └──────────┬───────────┘
+                  ▼
+       ┌──────────────────────┐         persist
+       │ 5. AnalysisReport     │ ──────────────────▶ SQLite
+       └──────────┬───────────┘
+                  ▼
+       ┌──────────────────────┐
+       │ 6. Render (one of)    │
+       │    ratatui TUI        │
+       │    speedscope JSON    │
+       │    HTML (askama)      │
+       │    Markdown / CSV     │
+       └──────────────────────┘
+```
+
+### 7.1 关键算法
+
+- **schema_tokens(tool)** = tokenize 该 tool 在 wire format 中的完整 JSON 表示。
+- **schema_utilization(session)** = `Σ schema_tokens(called_tools) / Σ schema_tokens(loaded_tools)`，范围 `[0.0, 1.0]`。
+- **waste_estimate_usd(session)** = `Σ schema_tokens(unused_tools) × assistant_turn_count × input_price_per_token`。其中 `assistant_turn_count` 是 schema 实际被附加到 prompt 的次数（每个 assistant turn 一次）。
+- **roi_score(tool)**：基于 `tokens_per_call = schema_tokens / max(call_count, 1)` 的分位数打 1–5 星；`call_count == 0` → `RoiScore::Wasted`（建议 kill）。
+
+---
+
+## 8. CLI 协议（`agentprof <COMMAND>`）
+
+```
+analyze [--agent claude|codex|copilot|auto]
+        [--session <id>] [--path <p>]
+        [--export tui|speedscope|html|md|csv]
+        [--out <file>]
+        [--use-anthropic-api]
+    分析单个 session（默认最近一次），输出选择的视图。
+    --agent auto 用最近修改时间挑 session。
+
+list    [--agent ...] [--since 7d] [--limit 50]
+    列出可用的 session（id、时间、模型、turn 数、总 token、利用率）。
+
+aggregate [--agent ...] [--by tool|mcp-server|day|model]
+          [--since 30d]
+          [--export tui|html|md|csv]
+    跨 session 聚合：tool ROI、MCP server 浪费榜、利用率时间序列。
+
+watch   [--agent ...]
+    监听 session 目录变化，实时刷新 TUI。
+
+ingest-otlp [--listen 0.0.0.0:4317]
+    启动 OTLP receiver，订阅 Claude Code telemetry（feature: otlp）。
+
+export  <session> --format speedscope|html|md|csv [--out <p>]
+    纯导出，不进 TUI。
+
+config  [show | edit | path]
+    XDG 配置：~/.config/agentprof/config.toml。
+```
+
+### 8.1 退出码
+
+| code | 含义 |
+|---|---|
+| 0 | 成功 |
+| 1 | 用户错误（参数 / 路径 / 配置） |
+| 2 | 数据错误（session 无法解析）—— stderr 列出失败列表 |
+| 3 | 外部服务错误（Anthropic API / OTLP receiver） |
+| 130 | SIGINT |
+
+---
+
+## 9. SQLite Schema
+
+文件路径默认 `${XDG_DATA_HOME:-~/.local/share}/agentprof/agentprof.sqlite`，可在配置覆盖。
+
+```sql
+CREATE TABLE sessions (
+    id                    TEXT    PRIMARY KEY,
+    agent                 TEXT    NOT NULL,         -- 'claude' | 'codex' | 'copilot'
+    model                 TEXT,
+    started_at            INTEGER,                   -- unix epoch
+    duration_ms           INTEGER,
+    raw_path              TEXT,
+    schema_utilization    REAL,
+    total_input_tokens    INTEGER,
+    total_output_tokens   INTEGER,
+    estimated_waste_usd   REAL
+);
+
+CREATE TABLE tools_loaded (
+    session_id     TEXT REFERENCES sessions(id) ON DELETE CASCADE,
+    tool_name      TEXT,
+    source         TEXT,            -- 'builtin' | 'mcp:<server>' | 'skill:<name>'
+    schema_tokens  INTEGER,
+    call_count     INTEGER,
+    PRIMARY KEY (session_id, tool_name)
+);
+
+CREATE TABLE turn_buckets (
+    session_id           TEXT REFERENCES sessions(id) ON DELETE CASCADE,
+    turn_index           INTEGER,
+    system_tokens        INTEGER,
+    tools_schema_tokens  INTEGER,
+    history_tokens       INTEGER,
+    user_tokens          INTEGER,
+    tool_result_tokens   INTEGER,
+    output_tokens        INTEGER,
+    cache_read           INTEGER,
+    cache_creation       INTEGER,
+    PRIMARY KEY (session_id, turn_index)
+);
+
+CREATE INDEX idx_sessions_started ON sessions(started_at DESC);
+CREATE INDEX idx_tools_call_count ON tools_loaded(session_id, call_count);
+```
+
+Schema 由 `agentprof-storage/migrations/` 管理；每个迁移文件 `NNN_<name>.sql`，启动时自动执行（idempotent）。
+
+---
+
+## 10. 配置文件
+
+`~/.config/agentprof/config.toml`（XDG）：
+
+```toml
+[paths]
+claude  = "~/.claude/projects"
+codex   = "~/.codex/sessions"
+copilot = "~/.copilot/session-state"
+db      = "~/.local/share/agentprof/agentprof.sqlite"
+
+[tokenizer]
+anthropic_estimator   = "cl100k"          # cl100k | api
+anthropic_api_key_env = "ANTHROPIC_API_KEY"
+
+[pricing]                                  # USD per 1M tokens
+"claude-sonnet-4.5" = { input = 3.0,  output = 15.0 }
+"gpt-5.2"           = { input = 1.25, output = 10.0 }
+
+[otlp]
+listen  = "127.0.0.1:4317"
+enabled = false
+```
+
+---
+
+## 11. Tokenizer 策略
+
+- **默认（离线、无 API key）**：
+  - OpenAI/Codex/Copilot 系：用 `tiktoken-rs` 的对应 encoding（`cl100k_base` / `o200k_base` 等）
+  - Anthropic 系：用 `cl100k_base` 做近似估算，误差 ±5–10%
+- **可选精确化**（`--use-anthropic-api` 或配置 `anthropic_estimator = "api"`）：
+  - 调 Anthropic `count_tokens` HTTP API
+  - 需要环境变量（默认 `ANTHROPIC_API_KEY`）
+  - 启用 `agentprof-core` 的 `anthropic-api` feature
+- Tokenizer 缓存按 `(model, text_hash)` 内存缓存，避免重复 tokenize 大 schema
+
+---
+
+## 12. 错误处理策略
+
+### 12.1 分层
+
+| 层 | 错误类型 | 工具 |
+|---|---|---|
+| lib（core/adapters/storage/tui） | `CoreError`、`AdapterError`、`StorageError`、`TuiError`（强类型） | `thiserror` |
+| bin（cli） | `anyhow::Result<()>` | `anyhow` |
+
+**禁止 lib crate 用 `anyhow`**；**禁止 bin 把 anyhow Error 暴露成 pub API**。
+
+### 12.2 关键错误枚举（示例）
+
+```rust
+// agentprof-core/src/error.rs
+#[derive(thiserror::Error, Debug)]
+pub enum CoreError {
+    #[error("io error at {path}: {source}")]
+    Io { path: PathBuf, #[source] source: std::io::Error },
+
+    #[error("failed to parse session at {path}")]
+    Parse { path: PathBuf, #[source] source: serde_json::Error },
+
+    #[error("unknown agent: {0}")]
+    UnknownAgent(String),
+
+    #[error("unknown model: {0}")]
+    UnknownModel(String),
+
+    #[error("tokenizer error: {0}")]
+    Tokenizer(#[from] tiktoken_rs::error::TiktokenError),
+
+    #[cfg(feature = "anthropic-api")]
+    #[error("anthropic api error ({status}): {body}")]
+    AnthropicApi { status: u16, body: String },
+}
+```
+
+### 12.3 韧性规则
+
+- 解析单个 session 失败 **不能** 让 `aggregate` 命令整体崩溃 → 用 `Vec<Result<…>>` + `tracing::warn!`，末尾 stderr 输出失败计数和样例
+- TUI 中所有可能 panic 的调用走 `Result`；`main()` 安装 panic hook 还原终端 raw mode 再打印 backtrace
+- 错误消息必须包含：session id、文件路径、可执行的修复建议
+
+---
+
+## 13. 测试策略
+
+| 类型 | 位置 | 覆盖范围 | 命令 |
+|---|---|---|---|
+| 单元 | 各 crate `src/**/*.rs` 内 `#[cfg(test)] mod tests` | 纯函数：tokenize、ROI 打分、waste 公式、SQL builder | `cargo test -p <crate>` |
+| Adapter fixture | `crates/agentprof-adapters/tests/fixtures/{claude,codex,copilot}/*.jsonl` | 匿名化真实日志 → 解析正确性 | `cargo test -p agentprof-adapters` |
+| CLI 集成 | `crates/agentprof-cli/tests/cli.rs` | `assert_cmd` + `predicates`：子命令成功路径、错误路径、退出码 | `cargo test --workspace` |
+| Snapshot | `insta` | TUI 渲染（`ratatui::backend::TestBackend`）、HTML 模板、md/csv 报告 | `cargo insta test` / `cargo insta review` |
+| Property | `proptest`（feature `proptest-tests`） | analyzer ROI 排序、waste 单调性 | `cargo test --features proptest-tests` |
+| 文档 | `cargo test --doc` | 公开 API 的 `# Examples` 段 | 默认 |
+
+### 13.1 Fixture 规范
+
+- 每个 adapter 至少包含：≥1 个完全未调用的 tool / ≥1 个高频调用的 tool / ≥1 个失败的 tool_result，覆盖 ROI 三档
+- 真实日志通过 `cargo xtask anonymize <real-log> > fixture.jsonl` 匿名化路径、邮箱、token
+
+### 13.2 TDD 默认
+
+新增公开 API / bug fix 都先写测试再写实现。详见 `CONTRIBUTING.md`。
+
+---
+
+## 14. 文档体系（L1 / L2 / L3）—— 边写代码边写文档
+
+**核心原则**：文档与代码是一对孪生交付物。**不允许**"先合代码、文档后补"。任何变动代码语义、接口、模块边界、算法的 PR，都必须在**同一 commit** 内更新对应等级的文档。CI 会用启发式检查强制（见 §14.5）。
+
+### 14.1 三个等级的定义
+
+| 等级 | 名称 | 范围 / 受众 | 存放位置 | 长度参考 |
+|---|---|---|---|---|
+| **L1** | 代码架构 | 全局：分层、crate 边界、依赖图、数据流、CLI 协议、配置、关键规约。<br>受众：第一次进项目的人、AI agent、reviewer | `docs/architecture.md`（本文档，单一来源）<br>`docs/plan.md`（产品/路线图） | 单文件 1k–3k 行 |
+| **L2** | 每个功能 | crate / 模块 / feature 级：做什么、不做什么、对外接口、依赖、典型用法、与其他 crate 的关系。<br>受众：使用 / 修改这个 crate 的开发者 | `crates/<name>/README.md`（crate 级，**每个 crate 必有**）<br>`docs/features/<feature>.md`（跨 crate feature 级，如"OTLP receiver"、"HTML 报告"） | 每文件 100–500 行 |
+| **L3** | 详细细节 | 实现：函数/类型/字段语义、参数边界、错误条件、算法、为什么这么写。<br>受众：要改这段代码的人 | **首选**：Rust **rustdoc**（`///` + `# Examples` + `# Errors` + `# Panics`，强制 `missing_docs` warn）<br>**辅助**：`docs/internals/<topic>.md`（复杂算法 / 决策记录 / ADR） | rustdoc 跟代码走；internals 文件 100–800 行 |
+
+### 14.2 三个等级的写作时机与变更规则
+
+| 触发 | 必须同步更新的文档 |
+|---|---|
+| 新增 / 重命名 / 删除 crate | L1（架构图、依赖图、crate 一览）+ 对应 L2 `README.md` |
+| 新增 / 重命名 / 删除模块（mod） | 对应 crate 的 L2 README + 模块顶部 `//!` rustdoc |
+| 新增公开 trait / pub 函数 / pub struct | L3 rustdoc（**包含 `# Examples`**，缺失 → CI fail）+ 必要时 L2 README 的"对外接口"段 |
+| 修改公开 API 签名或语义 | L3 rustdoc 修改 + `CHANGELOG.md` 条目（破坏性 → `BREAKING:` 前缀） |
+| 新增 / 修改算法（analyzer / tokenizer / waste 公式等） | L3 rustdoc 解释 *what* + `docs/internals/<topic>.md` 解释 *why*（含被否决的方案） |
+| 新增 / 删除 CLI 子命令或参数 | L1（§8 CLI 协议）+ L2（`agentprof-cli/README.md`）+ rustdoc + `README.md`（用户向） |
+| 新增 / 修改 SQLite migration | L1（§9 schema）+ L2（`agentprof-storage/README.md`） |
+| 新增 / 修改配置字段 | L1（§10 配置）+ L2（`agentprof-cli/README.md`） |
+| 新增 adapter | L1（§6 适配 + §17 路线图）+ `crates/agentprof-adapters/src/<name>.rs` 顶部 `//!` + `docs/adapters.md` |
+
+### 14.3 L2 `crates/<name>/README.md` 模板（每个 crate 复用）
+
+```markdown
+# <crate-name>
+
+> 一句话定位（"做什么、不做什么"）
+
+## 在 agentprof 架构中的位置
+（一段，指向 docs/architecture.md 相应小节）
+
+## 对外接口
+- 关键 trait / struct（链接到 rustdoc）
+- 典型用法（一段最短的 Rust 代码片段）
+
+## 模块（mod）一览
+| 模块 | 用途 |
+|---|---|
+| ... | ... |
+
+## Features
+| Feature | 默认 | 作用 |
+|---|---|---|
+| ... | ... | ... |
+
+## 依赖
+- workspace 内：...
+- 外部关键依赖：...
+
+## 测试与本地命令
+\`\`\`
+cargo test -p <crate>
+cargo doc -p <crate> --open
+\`\`\`
+
+## 变更历史
+（指向 CHANGELOG.md 中本 crate 的章节）
+```
+
+### 14.4 L3 rustdoc 最低要求
+
+```rust
+/// 一行简介，动词开头。
+///
+/// 多行展开：语义、副作用、与相邻 API 的关系。
+///
+/// # Examples
+///
+/// ```
+/// use agentprof_core::analyzer::compute_roi;
+/// // ...
+/// ```
+///
+/// # Errors
+///
+/// 列举何种 `CoreError` 变体会被返回，及对应的触发条件。
+///
+/// # Panics
+///
+/// 如果会 panic，明确说明。否则**不需要**写此段（默认不 panic）。
+pub fn compute_roi(/* ... */) -> Result<Vec<RoiRow>, CoreError> {
+    // ...
+}
+```
+
+**`docs/internals/<topic>.md`** 用 ADR（Architecture Decision Record）风格：
+```markdown
+# <主题>
+
+## Context
+（要解决什么问题、为什么现在解决）
+
+## Considered options
+1. 方案 A —— 利弊
+2. 方案 B —— 利弊
+
+## Decision
+（选了哪个、为什么）
+
+## Consequences
+（带来的好处、付出的代价、留下的尾巴）
+```
+
+### 14.5 文档同步的 CI 强制
+
+启发式检查（`ci.yml` 中一个 `docs-sync` job）：
+
+1. **rustdoc 缺失** → `RUSTDOCFLAGS=-Dwarnings cargo doc --no-deps --workspace`（`missing_docs` warn 已升级为 error）
+2. **新建 crate 但无 `README.md`** → 检测 `crates/<name>/Cargo.toml` 存在而 `crates/<name>/README.md` 不存在 → fail
+3. **`pub fn` / `pub struct` / `pub trait` 新增但无 `# Examples`** → 用 `cargo-rdme` 或脚本 grep `pub (fn|struct|trait)` 后检查 rustdoc 段
+4. **API 改动但 CHANGELOG 未变** → `git diff` 检测 `pub fn` 签名变化 但 `CHANGELOG.md` 未在本 PR 修改 → warn（PR 必填一条豁免理由）
+
+### 14.6 工作流：边写代码边写文档的实际步骤
+
+每个 feature / bug-fix 的 commit 顺序：
+
+1. 在 `docs/superpowers/specs/YYYY-MM-DD-<topic>.md` 写 spec（决策点 / API 草案 / 测试列表）
+2. 写 failing test（TDD）
+3. 实现代码 + **同一 commit** 内写 L3 rustdoc
+4. 如果引入新模块/feature/crate → **同一 PR** 内更新 L2 README + L1 architecture.md
+5. PR 描述里列出"动了哪些文档"，reviewer 用清单核对
+6. 合并前 `docs-sync` job 必须绿
+
+---
+
+## 15. 工程化
+
+### 15.1 仓库结构
+
+```
+agentprof/
+├── Cargo.toml                    # workspace + 共享 lints
+├── rust-toolchain.toml           # channel = "stable", components = [rustfmt, clippy]
+├── rustfmt.toml                  # max_width=100, group_imports=StdExternalCrate
+├── clippy.toml                   # MSRV、avoid-breaking-exported-api
+├── deny.toml                     # cargo-deny: license allowlist, banned crates
+├── .editorconfig
+├── .gitignore
+├── LICENSE-MIT
+├── LICENSE-APACHE
+├── README.md                     # 用户向（L1 的极简入口）
+├── CHANGELOG.md                  # Keep-a-Changelog + SemVer
+├── CONTRIBUTING.md               # 包含 "边写代码边写文档" 规则
+├── docs/
+│   ├── plan.md                   # L1：产品/路线图
+│   ├── architecture.md           # L1：代码架构（本文档）
+│   ├── adapters.md               # L2：怎么加新 agent
+│   ├── features/                 # L2：跨 crate feature 文档
+│   │   ├── otlp-receiver.md
+│   │   ├── html-report.md
+│   │   └── ...
+│   ├── internals/                # L3：算法/决策记录（ADR 风格）
+│   │   ├── waste-formula.md
+│   │   ├── tokenizer-strategy.md
+│   │   └── ...
+│   └── superpowers/specs/        # 每个 feature 的 spec（brainstorming 产物）
+├── .github/
+│   ├── copilot-instructions.md   # Copilot/AI agent 入口指南
+│   ├── workflows/
+│   │   ├── ci.yml                # 含 docs-sync job
+│   │   ├── release.yml
+│   │   └── nightly-msrv.yml
+│   └── ISSUE_TEMPLATE/
+├── crates/
+│   ├── agentprof-core/
+│   │   ├── Cargo.toml
+│   │   ├── README.md             # L2：本 crate 的"对外接口 + 模块一览"
+│   │   └── src/
+│   │       └── lib.rs            # 顶部 //! 与 README 内容呼应
+│   ├── agentprof-adapters/
+│   │   ├── Cargo.toml
+│   │   ├── README.md
+│   │   └── src/
+│   ├── agentprof-storage/
+│   │   ├── Cargo.toml
+│   │   ├── README.md
+│   │   └── src/
+│   ├── agentprof-tui/
+│   │   ├── Cargo.toml
+│   │   ├── README.md
+│   │   └── src/
+│   └── agentprof-cli/
+│       ├── Cargo.toml
+│       ├── README.md
+│       └── src/
+└── xtask/
+    ├── Cargo.toml
+    ├── README.md
+    └── src/
+```
+
+### 15.2 workspace `Cargo.toml` 共享配置
+
+```toml
+[workspace]
+members  = ["crates/*", "xtask"]
+resolver = "2"
+
+[workspace.package]
+edition      = "2021"
+rust-version = "1.78"
+license      = "MIT OR Apache-2.0"
+repository   = "https://github.com/<user>/agentprof"
+
+[workspace.lints.rust]
+unsafe_code      = "forbid"
+missing_docs     = "warn"
+unused_must_use  = "deny"
+
+[workspace.lints.clippy]
+pedantic    = { level = "warn", priority = -1 }
+nursery     = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "warn"     # 仅允许 main.rs / tests
+dbg_macro   = "deny"
+todo        = "warn"
+```
+
+### 15.3 CI 矩阵（`.github/workflows/ci.yml`）
+
+| Job | 触发 | 步骤 |
+|---|---|---|
+| `lint` | PR + push | `cargo fmt --check`、`cargo clippy --workspace --all-targets --all-features -- -D warnings` |
+| `test` | PR + push | matrix: Linux/macOS/Windows × stable/beta；`cargo test --workspace --all-features`、`cargo insta test --check` |
+| `deny` | PR + push | `cargo deny check` |
+| `msrv` | weekly | `cargo +1.78 check --workspace` |
+| `docs` | PR + push | `RUSTDOCFLAGS=-Dwarnings cargo doc --no-deps --workspace` |
+| `docs-sync` | PR + push | 见 §14.5：rustdoc 完整性、L2 README 存在性、CHANGELOG 联动检查 |
+| `release` | tag `v*` | `cargo-dist`：x86_64/aarch64 × Linux/macOS/Windows |
+
+### 15.4 Feature flags
+
+- `agentprof-core/features = ["anthropic-api"]` —— 启用真实 token API 精确化
+- `agentprof-storage/features = ["otlp"]` —— 启用 OTLP receiver（Phase 2）
+- `agentprof-cli/features = ["full"]` = `core/anthropic-api + storage/otlp`（默认）
+
+---
+
+## 16. 编码规约
+
+1. **Lib 用 `thiserror`，bin 用 `anyhow`**。lib 出现 anyhow → CI 失败。
+2. **禁止 `unwrap()`**；`expect()` 仅限 `main.rs` 和 tests。
+3. **公开 API 必带 doc + 至少一个 `# Examples` 段**（`missing_docs` warn 强制；缺失 → CI fail）。这是 L3 文档的硬要求。
+4. **边写代码边写文档**：每个 PR 内**同步**更新对应等级文档（L1/L2/L3）；改动语义而文档不变 → CI fail。详见 §14。
+5. **每个 crate 必须有 `README.md`**（L2），与 `lib.rs` 顶部 `//!` 内容一致。
+6. **新增/修改公开 trait 或破坏性变更** → 同 PR 更新 `CHANGELOG.md`（破坏性用 `BREAKING:`）。
+7. **新增 adapter** 走 `agentprof-adapters/src/{name}.rs` + `registry.rs` 注册 + ≥1 fixture + ≥1 `assert_cmd` 集成测试 + 更新 `docs/adapters.md`（L2）。
+8. **CLI 子命令逻辑只能放在 `agentprof-cli`**，不允许塞进 lib crate。
+9. **错误消息面向用户**：包含 session id、文件路径、可执行的修复建议。
+10. **公共结构体优先 `#[non_exhaustive]`**，便于无破坏性扩展字段。
+11. **TUI 内绝不 panic**：可能 panic 的调用全部 `Result`，main 装 `set_hook` 还原 raw mode。
+12. **Commits 用 Conventional Commits**（`feat:` / `fix:` / `refactor:` / `docs:` / `test:` / `chore:`），自动生成 CHANGELOG。
+13. **TDD 默认**：新功能与 bug fix 先有 failing test 再写实现。
+14. **依赖图无环**：lib crate 之间不允许有 cycle，CI 校验。
+
+---
+
+## 17. 路线图与本架构的关系
+
+本架构一次性覆盖了 plan.md 中的 Phase 1 + 2 + 3。**实际实施顺序**仍按 plan.md 的 Phase 推进，每个 Phase 启动前在 `docs/superpowers/specs/` 写一份 spec：
+
+| Phase | 启用的 crate / feature | 里程碑 |
+|---|---|---|
+| **Phase 0** prototype | `agentprof-core` + `agentprof-adapters::claude` + `agentprof-cli`（只 `analyze --export md`） | 跑出"自己的 schema 利用率"数字 |
+| **Phase 1** MVP | + `agentprof-tui`（火焰图 + ROI 表）+ `analyze --export tui` + `aggregate` | TUI 可交互 |
+| **Phase 2** 工程化 | + `agentprof-storage`（SQLite + 持久化）+ `ingest-otlp` 子命令（启用 `otlp` feature） | 跨 session 数据库 + 实时 OTLP |
+| **Phase 3** 多 agent | + `agentprof-adapters::codex` + `agentprof-adapters::copilot` | 三 agent 全支持 |
+
+---
+
+## 18. 待回答 / 后续 spec 化的问题
+
+- [ ] Copilot CLI 日志的真实 schema（需要先抓一份 `~/.copilot/session-state/**/*` 看格式）
+- [ ] Speedscope JSON 用 "evented" 还是 "sampled" 格式（取决于 turn-level 还是 token-level 粒度）
+- [ ] HTML 报告是否走 single-file（base64 内嵌 d3.js）还是多文件
+- [ ] OTLP receiver 是否对外暴露作为独立 binary（如 `agentprof-otlp-collector`）
+- [ ] 是否要做 prompt caching 优化建议（识别"可缓存"的稳定 schema 前缀）
