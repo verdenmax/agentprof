@@ -136,14 +136,126 @@ pub fn compute_roi(/* ... */) -> Result<Vec<RoiRow>, CoreError> { /* ... */ }
 
 ---
 
-## 5. 工作流（每个 feature / bug-fix 都走这个）
+## 5. 工作流：统一 9 阶段 pipeline
 
-1. **写 spec**（如果是新 feature）：`docs/superpowers/specs/YYYY-MM-DD-<topic>.md`，列出决策点 / API 草案 / 测试列表
-2. **写 failing test**（TDD）：先有红，再写绿
-3. **写实现 + L3 rustdoc**（**同一 commit**）
-4. 如引入新模块/feature/crate → **同一 PR** 更新 L2 README + L1 `architecture.md`
-5. PR 描述里列 "动了哪些文档"，reviewer 用清单核对
-6. 合并前所有 CI job 必须绿（含 `docs-sync`）
+每个 feature / bug-fix / refactor 都按这个 **9 阶段 pipeline** 推进。每个阶段**自动触发**特定 skill，**绝不跳步**。Stage 0 是常驻规则（instructions 层，会话期间始终生效），Stage 1–8 是会话内的 skill invoke。
+
+### 5.1 Pipeline 流程图
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│ Stage 0  [Session boot / always-on]                                       │
+│  - skill:        using-superpowers (meta)                                 │
+│  - 常驻规则:     .github/instructions/rust.instructions.md                │
+│                  .github/instructions/update-docs-on-code-change.…md      │
+│  - 进入会话即生效，无需 invoke                                            │
+└──────────────────────────────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│ Stage 1  [Discovery / Design]    触发: 新 feature / 新 adapter / 架构变更 │
+│  - skill:        brainstorming                                            │
+│  - 产物:         docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md      │
+│  - 出口判据:     user approves design                                     │
+└──────────────────────────────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│ Stage 2  [Decision Records]      触发: design 中存在"considered options"  │
+│  - skill:        create-architectural-decision-record  (★ NEW)            │
+│  - 产物:         docs/internals/adr-NNNN-<topic>.md (L3 ADR)              │
+│  - 出口判据:     每个被否决的方案都有 rationale                           │
+└──────────────────────────────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│ Stage 3  [Planning]              触发: design + ADRs 完成                 │
+│  - skill:        writing-plans                                            │
+│  - 产物:         docs/superpowers/specs/YYYY-MM-DD-<topic>-plan.md        │
+│  - 出口判据:     user approves plan                                       │
+└──────────────────────────────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│ Stage 4  [Implementation]        触发: plan 已 approve                    │
+│  - 必:           test-driven-development                                  │
+│  - 条件 invoke:  executing-plans         (跨 review checkpoint 时)        │
+│                  subagent-driven-development (同会话并行多 crate)         │
+│                  cli-mastery              (★ NEW, 写 CLI 子命令时)        │
+│                  copilot-cli-quickstart   (★ NEW, 集成 Copilot CLI 时)    │
+│  - 产物:         代码 + L3 rustdoc + 测试; 同 commit 更新 L2 README       │
+│  - 出口判据:     全部测试绿 + L1/L2/L3 文档已同步                         │
+└──────────────────────────────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│ Stage 5  [CI / Infra]            触发: 新增/修改 .github/workflows/       │
+│  - skill:        create-github-action-workflow-specification  (★ NEW)     │
+│  - 产物:         .github/workflows/*.yml + L1 §15.3 表更新                │
+│  - 出口判据:     workflow spec 文档化 + CI 通过                           │
+└──────────────────────────────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│ Stage 6  [Debugging]             触发: bug / test 失败 / CI 红            │
+│  - skill:        systematic-debugging                                     │
+│  - 产物:         失败测试复现 → 修复; 复杂决策 → docs/internals/<topic>.md│
+│  - 出口判据:     失败测试转绿                                             │
+└──────────────────────────────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│ Stage 7  [Completion verification]  触发: 准备 commit / open PR / merge   │
+│  - 必:           verification-before-completion                           │
+│  - 条件 invoke:  requesting-code-review    (open PR 时)                   │
+│                  receiving-code-review     (收到 review feedback)         │
+│                  finishing-a-development-branch (准备 merge)              │
+│  - 产物:         本地 gate 输出证据 → PR 描述; CHANGELOG entry            │
+│  - 出口判据:     CI 全绿 + reviewer approve                               │
+└──────────────────────────────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│ Stage 8  [Release]               触发: 准备打 tag / cargo publish         │
+│  - skill:        github-release  (★ NEW)                                  │
+│  - 产物:         CHANGELOG.md (Keep-a-Changelog) + SemVer tag             │
+│                  + GitHub Release (cargo-dist 多平台 binary)              │
+│  - 出口判据:     tag 推送 + release.yml 绿                                │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+> **图例**：★ NEW = 来自 `agentprof-extras` plugin（vendored from `github/awesome-copilot`，安装路径 `~/.copilot/installed-plugins/_direct/agentprof-extras/`）；其余 = `obra/superpowers`。
+
+### 5.2 阶段一览表
+
+| Stage | 阶段 | 触发 | 主 Skill | 辅 Skill | 产物 | 进入下一阶段 |
+|---|---|---|---|---|---|---|
+| 0 | Boot | 会话开始 | `using-superpowers` | `rust.instructions` + `update-docs-on-code-change.instructions`（常驻） | 加载 meta + 规则 | 立即 |
+| 1 | Discovery | 新需求 | `brainstorming` | — | `*-design.md` | user approve design |
+| 2 | Decision | design 含考虑过的方案 | `create-architectural-decision-record` ★ | — | `adr-NNNN-*.md` | ADR 完整 |
+| 3 | Planning | design + ADR 完成 | `writing-plans` | — | `*-plan.md` | user approve plan |
+| 4 | Implementation | plan approve | `test-driven-development` | `executing-plans`, `subagent-driven`, `cli-mastery` ★, `copilot-cli-quickstart` ★ | 代码 + rustdoc + 测试 | 测试绿 + 文档同步 |
+| 5 | CI / Infra | 改 workflow | `create-github-action-workflow-specification` ★ | — | `*.yml` + L1 §15.3 | CI 通过 |
+| 6 | Debugging | bug / fail | `systematic-debugging` | — | 失败测试 + 修复 | 测试转绿 |
+| 7 | Completion | 准备 commit/PR | `verification-before-completion` | `requesting-code-review`, `receiving-code-review`, `finishing-a-development-branch` | gate 证据 + PR | merge 完成 |
+| 8 | Release | 准备 tag | `github-release` ★ | `cargo-dist` | CHANGELOG + tag + Release | 发布完成 |
+
+### 5.3 唯一允许的快通道
+
+任何越级（如直接 Stage 4 不经 1–3）都是反模式。**仅这两种快通道**：
+
+- **Trivial 修改**（typo / 注释 / lint fix）：Stage 0 → Stage 4（TDD 可省）→ Stage 7
+- **Hotfix**（生产 bug）：Stage 0 → Stage 6 → Stage 7 → Stage 8；事后**必须**补 Stage 2 ADR 解释 hotfix 决策
+
+所有其他工作走完整 9 阶段。
+
+### 5.4 commit 粒度规则
+
+- Stage 1/2/3 的产物（spec/ADR/plan）各**一个独立 commit**
+- Stage 4 的实现可以**多 commit**，但每个 commit 满足 `code + rustdoc + 测试同 commit`
+- Stage 5 workflow 改动 **一个 commit**（含对应 spec 更新）
+- Stage 7 完成验证后**一个**"Closes #N"风格的 PR 描述 commit
+- Stage 8 release：tag 之前最后一个 commit 是 `chore(release): v0.X.Y` + CHANGELOG 同步
 
 ---
 
@@ -153,42 +265,50 @@ pub fn compute_roi(/* ... */) -> Result<Vec<RoiRow>, CoreError> { /* ... */ }
 
 ### 6.1 必选（🔴 MUST，不 invoke = 违规）
 
-| Skill | 何时 invoke | 产物 / 落点 |
-|---|---|---|
-| `using-superpowers` | **每次会话开头**，回答任何问题前 | meta：决定其他 skills 怎么被使用 |
-| `brainstorming` | 任何"创意工作"前：新 feature / 新 adapter / 新 CLI 子命令 / 架构变动 / 设计决策 | 产物 → `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`（架构变动还需更新 `docs/architecture.md`） |
-| `writing-plans` | `brainstorming` 通过后、动手前 | 产物 → `docs/superpowers/specs/YYYY-MM-DD-<topic>-plan.md` |
-| `test-driven-development` | 任何新实现 / bug fix | failing test → 实现 → 绿；测试落在 `crates/<name>/tests/` 或 `#[cfg(test)] mod` |
-| `systematic-debugging` | 任何 bug / test 失败 / CI 红 | 根因分析 → 失败测试复现 → 修复；复杂决策落 `docs/internals/<topic>.md` |
-| `verification-before-completion` | 任何"声称完成 / 通过 / 修复"之前 | 跑 §8 的本地 gate 全集；附输出证据；与 PR 模板 + `docs-sync` CI 配合 |
+| Skill | 来源 | 何时 invoke | 产物 / 落点 | Pipeline 阶段 |
+|---|---|---|---|---|
+| `using-superpowers` | obra | **每次会话开头**，回答任何问题前 | meta：决定其他 skills 怎么被使用 | Stage 0 |
+| `brainstorming` | obra | 任何"创意工作"前：新 feature / 新 adapter / 新 CLI 子命令 / 架构变动 / 设计决策 | `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`（架构变动还需更新 `docs/architecture.md`） | Stage 1 |
+| `create-architectural-decision-record` ★ | agentprof-extras | brainstorming 输出含"considered options" / 关键技术选型 | `docs/internals/adr-NNNN-<topic>.md`（L3 ADR） | Stage 2 |
+| `writing-plans` | obra | `brainstorming` 通过后、动手前 | `docs/superpowers/specs/YYYY-MM-DD-<topic>-plan.md` | Stage 3 |
+| `test-driven-development` | obra | 任何新实现 / bug fix | failing test → 实现 → 绿；测试落在 `crates/<name>/tests/` 或 `#[cfg(test)] mod` | Stage 4 |
+| `systematic-debugging` | obra | 任何 bug / test 失败 / CI 红 | 根因分析 → 失败测试复现 → 修复；复杂决策落 `docs/internals/<topic>.md` | Stage 6 |
+| `verification-before-completion` | obra | 任何"声称完成 / 通过 / 修复"之前 | 跑 §8 的本地 gate 全集；附输出证据；与 PR 模板 + `docs-sync` CI 配合 | Stage 7 |
+| `github-release` ★ | agentprof-extras | **release 时必装必用**：要打 tag / cargo publish / 出 binary 前 | SemVer 决策 + Keep-a-Changelog 自动 + GitHub Release | Stage 8 |
 
 ### 6.2 推荐（🟡 当场景命中时 invoke）
 
-| Skill | 何时 invoke |
-|---|---|
-| `executing-plans` | 执行 `writing-plans` 产出的多步计划时（"跨 review checkpoint" 的实施会话） |
-| `subagent-driven-development` | 同一会话内并行推进多个独立 crate 的改动（5 crate 边界清晰，适合本项目） |
-| `dispatching-parallel-agents` | 并行 explore / research，例如 Phase 3 同时调研 Claude / Codex / Copilot 三家日志格式 |
-| `requesting-code-review` | 主要 feature 完成 / merge 前；与 PR 模板 + `docs-sync` 联动 |
-| `receiving-code-review` | 收到 review feedback 时（防止 performative agreement，要求技术验证） |
-| `finishing-a-development-branch` | 实现完成、所有测试通过、准备 merge/PR 时 |
+| Skill | 来源 | 何时 invoke | Pipeline 阶段 |
+|---|---|---|---|
+| `executing-plans` | obra | 执行 `writing-plans` 产出的多步计划时（"跨 review checkpoint" 的实施会话） | Stage 4 |
+| `subagent-driven-development` | obra | 同一会话内并行推进多个独立 crate 的改动（5 crate 边界清晰，适合本项目） | Stage 4 |
+| `dispatching-parallel-agents` | obra | 并行 explore / research，例如 Phase 3 同时调研 Claude / Codex / Copilot 三家日志格式 | Stage 1 / Stage 4 |
+| `cli-mastery` ★ | agentprof-extras | 写 / 改 `agentprof-cli` 子命令、clap derive 结构、CLI UX 时 | Stage 4 |
+| `copilot-cli-quickstart` ★ | agentprof-extras | 集成 Copilot CLI 适配器、设计 agentprof 如何识别 Copilot CLI session 时 | Stage 4 |
+| `create-github-action-workflow-specification` ★ | agentprof-extras | 新增 / 修改 `.github/workflows/*.yml` 时；为已有 workflow 反向写 spec | Stage 5 |
+| `requesting-code-review` | obra | 主要 feature 完成 / merge 前；与 PR 模板 + `docs-sync` 联动 | Stage 7 |
+| `receiving-code-review` | obra | 收到 review feedback 时（防止 performative agreement，要求技术验证） | Stage 7 |
+| `finishing-a-development-branch` | obra | 实现完成、所有测试通过、准备 merge/PR 时 | Stage 7 |
 
 ### 6.3 可选（🟢 仅特定情况）
 
-| Skill | 何时 invoke |
-|---|---|
-| `using-git-worktrees` | feature 需要从当前工作区隔离 / 多 Phase 并行开发时（单人单线开发可跳过） |
-| `writing-skills` | 仅当确认要为本项目写一个自定义 skill 时 |
+| Skill | 来源 | 何时 invoke |
+|---|---|---|
+| `using-git-worktrees` | obra | feature 需要从当前工作区隔离 / 多 Phase 并行开发时（单人单线开发可跳过） |
+| `writing-skills` | obra | 仅当确认要为本项目写一个自定义 skill 时（如未来填补 ratatui-TUI 测试 / OTel Rust 缺口） |
 
 ### 6.4 Skills 与文档体系的映射
 
-| Skill 产物 | 文档等级 | 路径 |
+| Skill / Instructions 产物 | 文档等级 | 路径 |
 |---|---|---|
 | `brainstorming` 设计 | L1/L2 spec | `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md` |
+| `create-architectural-decision-record` ADR ★ | L3 | `docs/internals/adr-NNNN-<topic>.md` |
 | `writing-plans` 计划 | L2 spec | `docs/superpowers/specs/YYYY-MM-DD-<topic>-plan.md` |
 | 架构变动确认后的归档 | **L1** | `docs/architecture.md`（必须同 PR 更新） |
 | 新 feature 跨 crate 文档 | L2 | `docs/features/<feature>.md` |
 | `systematic-debugging` 重大 ADR | L3 | `docs/internals/<topic>.md` |
+| `create-github-action-workflow-specification` 输出 ★ | L1/L2 | `docs/internals/ci-<workflow>.md` + `docs/architecture.md` §15.3 |
+| `github-release` 输出 ★ | L1 | `CHANGELOG.md` + `[Unreleased]` 段 + tag |
 | TDD 测试 | 代码内 | `crates/<name>/tests/`、`#[cfg(test)] mod tests` |
 | 公开 API doc + Examples | L3 | rustdoc（`///`） |
 
@@ -196,9 +316,35 @@ pub fn compute_roi(/* ... */) -> Result<Vec<RoiRow>, CoreError> { /* ... */ }
 
 - ❌ "这是个简单问题，不用 invoke skill" —— 任何 1% 可能命中 skill 的场景都必须 invoke
 - ❌ 跳过 `brainstorming` 直接开写代码（"我已经知道怎么写"也不行）
+- ❌ 跳过 `create-architectural-decision-record` ★ 把架构选型当"显然的事" —— 任何 "选 A 不选 B" 的决策必须 ADR
 - ❌ 跳过 `verification-before-completion` 就说"完成了" —— 必须附本地 gate 输出证据
 - ❌ 跳过 `using-superpowers` 直接回答问题 —— 这是 meta skill，每次会话开头都要 invoke
-- ❌ `subagent-driven-development` 给子 agent 用比当前会话弱的模型 —— 见用户的 `customize-cloud-agent` 偏好：子 agent 用主会话同款模型
+- ❌ 越级（如直接 Stage 4 不经 Stage 1–3）—— 唯一例外见 §5.3
+- ❌ `github-release` ★ release 时不更新 `CHANGELOG.md`，或 SemVer bump 不与 commit 类型对应
+- ❌ `subagent-driven-development` 给子 agent 用比当前会话弱的模型 —— 子 agent 用主会话同款模型
+- ❌ 改 `.rs` 文件不顺手改对应 rustdoc / L2 README —— 违反 `update-docs-on-code-change.instructions.md`
+
+### 6.6 Stage 0 常驻 instructions（非 skill，永远生效）
+
+下面两个文件是 **always-on 规则**，由 Copilot CLI / VS Code Copilot 在每次会话和每次编辑自动加载，**不需要也不可能"invoke"**——它们是工作上下文的一部分。
+
+| Instruction 文件 | applyTo | 强制规则 | 与项目规约的对应 |
+|---|---|---|---|
+| `.github/instructions/rust.instructions.md` | `**/*.rs` | 基于 Rust API Guidelines + RFC 430 + The Rust Book 的 idiomatic Rust 风格、错误处理、API 设计、文档/测试要求 | 与 `docs/architecture.md` §16 编码规约完全兼容；前者更细，后者更项目特定 |
+| `.github/instructions/update-docs-on-code-change.instructions.md` | `**/*.{md,rs,...}` | 改代码必同 PR 改文档；含 changelog 维护、API doc sync、迁移指南等触发条件 | 是 `docs/architecture.md` §14 L1/L2/L3 系统的官方机械化版本，与之**逻辑等价** |
+
+**关于优先级**：当 `rust.instructions.md` / `update-docs-on-code-change.instructions.md` 与 `docs/architecture.md` 出现表述冲突时，**以 `docs/architecture.md` 为准**（它是项目 L1 权威）。`.instructions.md` 是上游 vendored 内容，未本地修改以便后续 sync 不冲突。
+
+### 6.7 Plugin 来源说明
+
+两个 plugin 同时启用，均在 `~/.copilot/installed-plugins/_direct/` 下：
+
+| Plugin | 来源 | Skill 数 | 用途 |
+|---|---|---|---|
+| `obra--superpowers` | <https://github.com/obra/superpowers> | 14 个 | 工作流主框架（meta、TDD、brainstorming、verification 等） |
+| `agentprof-extras` | vendored from <https://github.com/github/awesome-copilot> | 5 个 ★ | 项目专属补充（Rust CLI / ADR / release / CI spec） |
+
+★ 标记的 skill 均来自 `agentprof-extras`。可通过 `ls ~/.copilot/installed-plugins/_direct/agentprof-extras/skills/` 列出。
 
 ---
 

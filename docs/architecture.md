@@ -601,26 +601,51 @@ pub fn compute_roi(/* ... */) -> Result<Vec<RoiRow>, CoreError> {
 5. PR 描述里列出"动了哪些文档"，reviewer 用清单核对
 6. 合并前 `docs-sync` job 必须绿
 
-### 14.7 Skills 与文档体系的映射（superpowers 系列）
+### 14.7 Skills 与文档体系的映射（统一 9 阶段 pipeline）
 
-本项目使用 `obra--superpowers` 系列 skills 作为 AI 助手的工作流框架。每个 skill 的产物落点与本文档定义的 L1/L2/L3 体系一一对应。AI 助手使用 skills 的完整清单与触发场景见 [`.github/copilot-instructions.md`](../.github/copilot-instructions.md) §6；这里只给出文档归宿。
+本项目使用**两个**已安装的 skill plugin 共同构成 AI 助手的工作流框架：
 
-| Skill | 触发场景 | 产物落点（文档等级） |
+| Plugin | 来源 | Skill 数 | 用途 |
+|---|---|---|---|
+| `obra--superpowers` | <https://github.com/obra/superpowers> | 14 | 工作流主框架（meta、TDD、brainstorming、verification 等） |
+| `agentprof-extras` | vendored from <https://github.com/github/awesome-copilot> | 5 ★ | 项目专属补充（Rust CLI / ADR / release / CI spec） |
+
+**完整调用规约（含 9 阶段 pipeline、必选 / 推荐 / 可选三档、反模式）**统一在
+[`.github/copilot-instructions.md`](../.github/copilot-instructions.md) §5（pipeline）+ §6（清单）；
+本节只给出**文档归宿**与本架构 L1/L2/L3 体系的对应关系。
+
+| Skill（★ = agentprof-extras） | Pipeline 阶段 | 触发场景 | 产物落点（文档等级） |
+|---|---|---|---|
+| `using-superpowers` | 0 | 每次会话开头（meta） | 无产物，决定后续 skills 用法 |
+| `brainstorming` | 1 | 新 feature / 新 adapter / 新 CLI 子命令 / 架构变更 | `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`；架构变更同步落 §3 / §4 / §6 / §8 / §9 / §10（**L1**） |
+| `create-architectural-decision-record` ★ | 2 | brainstorming 含"considered options"；关键技术选型 | `docs/internals/adr-NNNN-<topic>.md`（**L3** ADR） |
+| `writing-plans` | 3 | `brainstorming` 通过后、动手前 | `docs/superpowers/specs/YYYY-MM-DD-<topic>-plan.md`（**L2** 计划） |
+| `executing-plans` | 4 | 跨 checkpoint 执行 plan 时 | 无独立产物；commit 信息引用 plan 文件 |
+| `test-driven-development` | 4 | 任何新实现 / bug fix | failing test → `crates/<name>/tests/` 或 `#[cfg(test)] mod tests`；rustdoc `# Examples` 同时作 doctest |
+| `subagent-driven-development` | 4 | 同会话并行多 crate 改动 | 无独立产物；每子任务走完整 L1/L2/L3 规则 |
+| `dispatching-parallel-agents` | 1 / 4 | 并行 explore / research | 调研结论汇总到 `docs/internals/<topic>.md` 或对应 spec |
+| `cli-mastery` ★ | 4 | 写 `agentprof-cli` 子命令、clap derive 结构、CLI UX | 代码 + L3 rustdoc + L2 `agentprof-cli/README.md` 更新 |
+| `copilot-cli-quickstart` ★ | 4 | 集成 Copilot CLI 适配器、Copilot session 识别 | 代码 + L2 `agentprof-adapters/README.md` 更新 |
+| `create-github-action-workflow-specification` ★ | 5 | 改 `.github/workflows/*.yml` | `docs/internals/ci-<workflow>.md`（**L3**）+ §15.3 表更新（**L1**） |
+| `systematic-debugging` | 6 | 任何 bug / test 失败 / CI 红 | 复杂决策落 `docs/internals/<topic>.md`（**L3** ADR） |
+| `verification-before-completion` | 7 | 声称"完成 / 通过 / 修复"之前 | 跑本地 gate（见 [`.github/copilot-instructions.md`](../.github/copilot-instructions.md) §8）；输出证据写进 PR 描述 |
+| `requesting-code-review` | 7 | 主要 feature 完成 / merge 前 | review 结论落 PR 描述；不进文档 |
+| `receiving-code-review` | 7 | 收到 review feedback | 同上；如改架构 → 同步 L1 文档 |
+| `finishing-a-development-branch` | 7 | 实现完、所有测试通过、准备 merge/PR | 触发 §14.5 `docs-sync` CI；CHANGELOG 必更 |
+| `github-release` ★ | 8 | 准备打 tag / cargo publish / 出 binary | `CHANGELOG.md` Keep-a-Changelog 段（**L1**）+ SemVer tag + GitHub Release |
+| `using-git-worktrees` | — | feature 需隔离 / 多 Phase 并行 | 无文档产物；worktree 内同样要满足 docs-sync |
+| `writing-skills` | — | 为本项目写自定义 skill 时（如未来补 ratatui 测试 / OTel Rust 缺口） | 自定义 skill 放 `~/.copilot/installed-plugins/_direct/agentprof-extras/skills/<name>/SKILL.md` |
+
+### 14.8 Stage 0 常驻 instructions（非 skill）
+
+下面两个 instruction 文件**永远生效**，由 Copilot CLI / VS Code Copilot 在每次会话和每次编辑自动加载，不需要也不可能 "invoke"——它们是工作上下文的一部分。
+
+| 文件 | applyTo | 与本架构的关系 |
 |---|---|---|
-| `using-superpowers` | 每次会话开头（meta） | 无产物，只决定后续 skills 用法 |
-| `brainstorming` | 任何新 feature / 新 adapter / 新 CLI 子命令 / 架构变更前 | `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`（spec），架构变更同步落 §3 / §4 / §6 / §8 / §9 / §10 等相应小节（**L1**） |
-| `writing-plans` | `brainstorming` 通过后、动手前 | `docs/superpowers/specs/YYYY-MM-DD-<topic>-plan.md`（**L2** 实施计划） |
-| `executing-plans` | 跨 checkpoint 执行 plan 时 | 无独立产物；commit 信息引用 plan 文件 |
-| `test-driven-development` | 任何新实现 / bug fix | failing test → `crates/<name>/tests/` 或 `#[cfg(test)] mod tests`（无独立文档；rustdoc 内的 `# Examples` 同时作为 doctest） |
-| `systematic-debugging` | 任何 bug / test 失败 / CI 红 | 复杂决策落 `docs/internals/<topic>.md`（**L3** ADR） |
-| `subagent-driven-development` | 同会话并行做多 crate 改动 | 无独立产物；每个子任务遵循正常 L1/L2/L3 规则 |
-| `dispatching-parallel-agents` | 并行 explore / research | 调研结论汇总到 `docs/internals/<topic>.md` 或对应 spec |
-| `requesting-code-review` | 主要 feature 完成 / merge 前 | review 结论落 PR 描述；不进文档 |
-| `receiving-code-review` | 收到 review feedback 时 | 与上同；如改架构 → 同步 L1 文档 |
-| `finishing-a-development-branch` | 实现完、所有测试通过、准备 merge/PR | 触发 §14.5 `docs-sync` CI；CHANGELOG 必更 |
-| `verification-before-completion` | 声称"完成 / 通过 / 修复"之前 | 跑本地 gate（见 [`.github/copilot-instructions.md`](../.github/copilot-instructions.md) §8）；输出证据写进 PR 描述 |
-| `using-git-worktrees` | feature 需隔离 / 多 Phase 并行 | 无文档产物；记得在 worktree 内同样满足 docs-sync |
-| `writing-skills` | 为本项目写自定义 skill 时 | 自定义 skill 放 `docs/superpowers/skills/<name>/SKILL.md`（如果将来需要） |
+| `.github/instructions/rust.instructions.md` | `**/*.rs` | 基于 Rust API Guidelines + RFC 430 + The Rust Book；与 §16 编码规约**逻辑兼容**（前者细，后者项目特定）。冲突时以本文档（§16）为准。 |
+| `.github/instructions/update-docs-on-code-change.instructions.md` | `**/*.{md,rs,…}` | 是 §14 L1/L2/L3 文档同步系统的官方机械化版本，与之**逻辑等价**。冲突时以本文档（§14）为准。 |
+
+两个文件均来自 `github/awesome-copilot` 上游、未本地修改，便于将来按需同步更新。
 
 ---
 
