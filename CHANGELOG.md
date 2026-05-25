@@ -14,6 +14,9 @@ prefix used in commit messages).
 ## [Unreleased]
 
 ### Added
+- Skills usage matrix (`obra--superpowers` series) integrated into both AI and architecture docs:
+  - `.github/copilot-instructions.md` §6 — enforcement list with 🔴 MUST / 🟡 recommended / 🟢 optional tiers, plus anti-patterns.
+  - `docs/architecture.md` §14.7 — mapping table from each skill's output to the L1/L2/L3 documentation layer.
 - Workspace skeleton with five crates (`agentprof-core`, `agentprof-adapters`, `agentprof-storage`, `agentprof-tui`, `agentprof-cli`) and an `xtask` helper.
 - Architecture authority document (`docs/architecture.md`, L1).
 - AI-assistant guide (`.github/copilot-instructions.md`).

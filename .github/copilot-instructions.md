@@ -147,7 +147,62 @@ pub fn compute_roi(/* ... */) -> Result<Vec<RoiRow>, CoreError> { /* ... */ }
 
 ---
 
-## 6. 关键编码规约（违反 = CI fail）
+## 6. Skills 使用清单（superpowers 系列）
+
+本项目使用 `obra--superpowers` 系列 skills 来约束 AI 助手的工作流。**所有标 🔴 MUST 的 skill 必须在对应触发场景下被显式 invoke**（在 Copilot CLI 里用 `skill` 工具；在 Claude Code 里用 `Skill` 工具）。
+
+### 6.1 必选（🔴 MUST，不 invoke = 违规）
+
+| Skill | 何时 invoke | 产物 / 落点 |
+|---|---|---|
+| `using-superpowers` | **每次会话开头**，回答任何问题前 | meta：决定其他 skills 怎么被使用 |
+| `brainstorming` | 任何"创意工作"前：新 feature / 新 adapter / 新 CLI 子命令 / 架构变动 / 设计决策 | 产物 → `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`（架构变动还需更新 `docs/architecture.md`） |
+| `writing-plans` | `brainstorming` 通过后、动手前 | 产物 → `docs/superpowers/specs/YYYY-MM-DD-<topic>-plan.md` |
+| `test-driven-development` | 任何新实现 / bug fix | failing test → 实现 → 绿；测试落在 `crates/<name>/tests/` 或 `#[cfg(test)] mod` |
+| `systematic-debugging` | 任何 bug / test 失败 / CI 红 | 根因分析 → 失败测试复现 → 修复；复杂决策落 `docs/internals/<topic>.md` |
+| `verification-before-completion` | 任何"声称完成 / 通过 / 修复"之前 | 跑 §8 的本地 gate 全集；附输出证据；与 PR 模板 + `docs-sync` CI 配合 |
+
+### 6.2 推荐（🟡 当场景命中时 invoke）
+
+| Skill | 何时 invoke |
+|---|---|
+| `executing-plans` | 执行 `writing-plans` 产出的多步计划时（"跨 review checkpoint" 的实施会话） |
+| `subagent-driven-development` | 同一会话内并行推进多个独立 crate 的改动（5 crate 边界清晰，适合本项目） |
+| `dispatching-parallel-agents` | 并行 explore / research，例如 Phase 3 同时调研 Claude / Codex / Copilot 三家日志格式 |
+| `requesting-code-review` | 主要 feature 完成 / merge 前；与 PR 模板 + `docs-sync` 联动 |
+| `receiving-code-review` | 收到 review feedback 时（防止 performative agreement，要求技术验证） |
+| `finishing-a-development-branch` | 实现完成、所有测试通过、准备 merge/PR 时 |
+
+### 6.3 可选（🟢 仅特定情况）
+
+| Skill | 何时 invoke |
+|---|---|
+| `using-git-worktrees` | feature 需要从当前工作区隔离 / 多 Phase 并行开发时（单人单线开发可跳过） |
+| `writing-skills` | 仅当确认要为本项目写一个自定义 skill 时 |
+
+### 6.4 Skills 与文档体系的映射
+
+| Skill 产物 | 文档等级 | 路径 |
+|---|---|---|
+| `brainstorming` 设计 | L1/L2 spec | `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md` |
+| `writing-plans` 计划 | L2 spec | `docs/superpowers/specs/YYYY-MM-DD-<topic>-plan.md` |
+| 架构变动确认后的归档 | **L1** | `docs/architecture.md`（必须同 PR 更新） |
+| 新 feature 跨 crate 文档 | L2 | `docs/features/<feature>.md` |
+| `systematic-debugging` 重大 ADR | L3 | `docs/internals/<topic>.md` |
+| TDD 测试 | 代码内 | `crates/<name>/tests/`、`#[cfg(test)] mod tests` |
+| 公开 API doc + Examples | L3 | rustdoc（`///`） |
+
+### 6.5 反模式（🚫 绝对不要）
+
+- ❌ "这是个简单问题，不用 invoke skill" —— 任何 1% 可能命中 skill 的场景都必须 invoke
+- ❌ 跳过 `brainstorming` 直接开写代码（"我已经知道怎么写"也不行）
+- ❌ 跳过 `verification-before-completion` 就说"完成了" —— 必须附本地 gate 输出证据
+- ❌ 跳过 `using-superpowers` 直接回答问题 —— 这是 meta skill，每次会话开头都要 invoke
+- ❌ `subagent-driven-development` 给子 agent 用比当前会话弱的模型 —— 见用户的 `customize-cloud-agent` 偏好：子 agent 用主会话同款模型
+
+---
+
+## 7. 关键编码规约（违反 = CI fail）
 
 1. **错误模型分层**：lib crate 用 `thiserror` 定义强类型错误（`CoreError` / `AdapterError` 等）；bin（cli）用 `anyhow::Result<()>`。**lib 里出现 `anyhow` → fail**。
 2. **禁止 `unwrap()`**（clippy `unwrap_used = "deny"`）；`expect()` 仅限 `main.rs` 与 `#[cfg(test)]`。
@@ -164,7 +219,7 @@ pub fn compute_roi(/* ... */) -> Result<Vec<RoiRow>, CoreError> { /* ... */ }
 
 ---
 
-## 7. 关键命令（提交前必跑）
+## 8. 关键命令（提交前必跑）
 
 ```bash
 # 格式 & lint
@@ -195,9 +250,9 @@ cargo run -p agentprof-cli -- aggregate --by mcp-server --since 30d --export md
 
 ---
 
-## 8. 加新东西的菜谱
+## 9. 加新东西的菜谱
 
-### 8.1 加一个新 adapter（如 `gemini`）
+### 9.1 加一个新 adapter（如 `gemini`）
 
 1. `crates/agentprof-adapters/src/gemini.rs` —— 实现 `Adapter` trait，文件顶部写 `//!` 模块文档
 2. `crates/agentprof-adapters/src/registry.rs` —— 在 `register_default_adapters()` 里登记
@@ -207,7 +262,7 @@ cargo run -p agentprof-cli -- aggregate --by mcp-server --since 30d --export md
 6. **文档**：`docs/architecture.md` §6（添加默认路径）+ `docs/adapters.md`（详细指南）+ `crates/agentprof-adapters/README.md`（"支持的 agent"段）+ rustdoc
 7. `CHANGELOG.md` 加 `feat: add gemini adapter`
 
-### 8.2 加一个新 CLI 子命令
+### 9.2 加一个新 CLI 子命令
 
 1. `crates/agentprof-cli/src/cmd/<name>.rs` —— 实现 + clap derive 结构
 2. `crates/agentprof-cli/src/main.rs` —— 在主枚举里挂上
@@ -215,7 +270,7 @@ cargo run -p agentprof-cli -- aggregate --by mcp-server --since 30d --export md
 4. `crates/agentprof-cli/tests/cli.rs` —— 成功 + 错误退出码两条 case
 5. `CHANGELOG.md` 加条目
 
-### 8.3 加一个新 feature flag
+### 9.3 加一个新 feature flag
 
 1. 对应 crate 的 `Cargo.toml` `[features]` 段
 2. 用 `#[cfg(feature = "<name>")]` 标记代码
@@ -223,7 +278,7 @@ cargo run -p agentprof-cli -- aggregate --by mcp-server --since 30d --export md
 4. `CHANGELOG.md` 加条目
 5. CI 已经跑 `--all-features`，但**也要**确保关闭该 feature 时能编译：`cargo check -p <crate> --no-default-features`
 
-### 8.4 加一个新 crate
+### 9.4 加一个新 crate
 
 1. `crates/agentprof-<name>/` —— `Cargo.toml`（继承 workspace.lints / workspace.package）+ `src/lib.rs`（含 `//!`）+ `README.md`（L2）
 2. 根 `Cargo.toml` 的 `members` 里登记
@@ -233,7 +288,7 @@ cargo run -p agentprof-cli -- aggregate --by mcp-server --since 30d --export md
 
 ---
 
-## 9. AI 助手特别注意事项
+## 10. AI 助手特别注意事项
 
 1. **不要从 plan.md 的"待回答问题"里随机挑一个就开干**——那些是 spec 化前的开放问题。先在 `docs/superpowers/specs/` 写 spec 走 brainstorming 流程，决策完再写代码。
 2. **不要为了"看起来更简单"而把 lib 逻辑塞进 `agentprof-cli`**——保持依赖图无环、lib/bin 分层。
@@ -248,7 +303,7 @@ cargo run -p agentprof-cli -- aggregate --by mcp-server --since 30d --export md
 
 ---
 
-## 10. 仓库地图速查
+## 11. 仓库地图速查
 
 ```
 agentprof/
@@ -278,7 +333,7 @@ agentprof/
 
 ---
 
-## 11. 最后的话
+## 12. 最后的话
 
 > 你（AI 助手）每次准备结束一次回答时，自问：
 >

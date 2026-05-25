@@ -601,6 +601,27 @@ pub fn compute_roi(/* ... */) -> Result<Vec<RoiRow>, CoreError> {
 5. PR 描述里列出"动了哪些文档"，reviewer 用清单核对
 6. 合并前 `docs-sync` job 必须绿
 
+### 14.7 Skills 与文档体系的映射（superpowers 系列）
+
+本项目使用 `obra--superpowers` 系列 skills 作为 AI 助手的工作流框架。每个 skill 的产物落点与本文档定义的 L1/L2/L3 体系一一对应。AI 助手使用 skills 的完整清单与触发场景见 [`.github/copilot-instructions.md`](../.github/copilot-instructions.md) §6；这里只给出文档归宿。
+
+| Skill | 触发场景 | 产物落点（文档等级） |
+|---|---|---|
+| `using-superpowers` | 每次会话开头（meta） | 无产物，只决定后续 skills 用法 |
+| `brainstorming` | 任何新 feature / 新 adapter / 新 CLI 子命令 / 架构变更前 | `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`（spec），架构变更同步落 §3 / §4 / §6 / §8 / §9 / §10 等相应小节（**L1**） |
+| `writing-plans` | `brainstorming` 通过后、动手前 | `docs/superpowers/specs/YYYY-MM-DD-<topic>-plan.md`（**L2** 实施计划） |
+| `executing-plans` | 跨 checkpoint 执行 plan 时 | 无独立产物；commit 信息引用 plan 文件 |
+| `test-driven-development` | 任何新实现 / bug fix | failing test → `crates/<name>/tests/` 或 `#[cfg(test)] mod tests`（无独立文档；rustdoc 内的 `# Examples` 同时作为 doctest） |
+| `systematic-debugging` | 任何 bug / test 失败 / CI 红 | 复杂决策落 `docs/internals/<topic>.md`（**L3** ADR） |
+| `subagent-driven-development` | 同会话并行做多 crate 改动 | 无独立产物；每个子任务遵循正常 L1/L2/L3 规则 |
+| `dispatching-parallel-agents` | 并行 explore / research | 调研结论汇总到 `docs/internals/<topic>.md` 或对应 spec |
+| `requesting-code-review` | 主要 feature 完成 / merge 前 | review 结论落 PR 描述；不进文档 |
+| `receiving-code-review` | 收到 review feedback 时 | 与上同；如改架构 → 同步 L1 文档 |
+| `finishing-a-development-branch` | 实现完、所有测试通过、准备 merge/PR | 触发 §14.5 `docs-sync` CI；CHANGELOG 必更 |
+| `verification-before-completion` | 声称"完成 / 通过 / 修复"之前 | 跑本地 gate（见 [`.github/copilot-instructions.md`](../.github/copilot-instructions.md) §8）；输出证据写进 PR 描述 |
+| `using-git-worktrees` | feature 需隔离 / 多 Phase 并行 | 无文档产物；记得在 worktree 内同样满足 docs-sync |
+| `writing-skills` | 为本项目写自定义 skill 时 | 自定义 skill 放 `docs/superpowers/skills/<name>/SKILL.md`（如果将来需要） |
+
 ---
 
 ## 15. 工程化
