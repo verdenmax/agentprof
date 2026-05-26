@@ -6,7 +6,7 @@
 > **状态**：Planning — 项目骨架已完成（Commits `b47aeb5` workspace skeleton / `1a7a7f6` skills matrix / `dc838fc` 9-stage pipeline / `201ae46` skills relocate / `472ac31` pipeline cohesion），尚未开始业务实现
 >
 > **所属阶段**：MVP = `docs/plan.md` 的 Phase 0（验证可得性）+ Phase 1（CLI + TUI 火焰图 + ROI 表 + 跨 session 聚合）
-> **权威文档**：[`docs/architecture.md`](../docs/architecture.md) §3–§17（L1 架构定稿）/ [`docs/plan.md`](../docs/plan.md)（产品/路线图）/ [`.github/copilot-instructions.md`](../.github/copilot-instructions.md) §5 9 阶段 pipeline
+> **权威文档**：[`tasks/ROADMAP.md`](./ROADMAP.md)（项目总入口） / [`docs/architecture.md`](../docs/architecture.md) §3–§17（L1 架构定稿）/ [`docs/plan.md`](../docs/plan.md)（产品/路线图）/ [`.github/copilot-instructions.md`](../.github/copilot-instructions.md) §5 9 阶段 pipeline
 
 ---
 
