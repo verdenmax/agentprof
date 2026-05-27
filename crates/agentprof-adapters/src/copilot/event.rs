@@ -603,3 +603,151 @@ pub struct AbortData {
     /// Reason for the abort (e.g. `user_interrupt`).
     pub reason: String,
 }
+
+// -- inherent accessors + Event trait impl --
+
+impl CopilotEvent {
+    /// Returns the stable per-event identifier from the wire-format `id` field.
+    ///
+    /// For the [`CopilotEvent::Unknown`] forward-compat sentinel, returns `""`
+    /// (the envelope is not retained for unknown event types).
+    #[must_use]
+    #[allow(clippy::match_same_arms)] // tagged-union dispatch over heterogeneous WithEnvelope<T>
+    pub fn id(&self) -> &str {
+        match self {
+            Self::SessionStart(env) => &env.id,
+            Self::SessionInfo(env) => &env.id,
+            Self::ModeChanged(env) => &env.id,
+            Self::ModelChange(env) => &env.id,
+            Self::PlanChanged(env) => &env.id,
+            Self::Shutdown(env) => &env.id,
+            Self::UserMessage(env) => &env.id,
+            Self::TurnStart(env) => &env.id,
+            Self::AssistantMessage(env) => &env.id,
+            Self::TurnEnd(env) => &env.id,
+            Self::SystemMessage(env) => &env.id,
+            Self::ToolExecStart(env) => &env.id,
+            Self::ToolExecComplete(env) => &env.id,
+            Self::ToolUserRequested(env) => &env.id,
+            Self::HookStart(env) => &env.id,
+            Self::HookEnd(env) => &env.id,
+            Self::SkillInvoked(env) => &env.id,
+            Self::Abort(env) => &env.id,
+            Self::Unknown => "",
+        }
+    }
+
+    /// Returns the coarse [`agentprof_core::adapter::EventKind`] for this event,
+    /// suitable for cheap pattern matching in analyzers.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_adapters::copilot::CopilotEvent;
+    /// use agentprof_core::adapter::EventKind;
+    ///
+    /// let line = r#"{"type":"abort","data":{"reason":"user_interrupt"},"id":"e","timestamp":"2026-05-26T10:00:00Z","parentId":"p"}"#;
+    /// let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+    /// assert_eq!(evt.kind(), EventKind::Abort);
+    /// ```
+    #[must_use]
+    pub const fn kind(&self) -> agentprof_core::adapter::EventKind {
+        use agentprof_core::adapter::EventKind as K;
+        match self {
+            Self::SessionStart(_) => K::SessionStart,
+            Self::SessionInfo(_) => K::SessionInfo,
+            Self::ModeChanged(_) => K::ModeChanged,
+            Self::ModelChange(_) => K::ModelChange,
+            Self::PlanChanged(_) => K::PlanChanged,
+            Self::Shutdown(_) => K::Shutdown,
+            Self::UserMessage(_) => K::UserMessage,
+            Self::TurnStart(_) => K::TurnStart,
+            Self::AssistantMessage(_) => K::AssistantMessage,
+            Self::TurnEnd(_) => K::TurnEnd,
+            Self::SystemMessage(_) => K::SystemMessage,
+            Self::ToolExecStart(_) => K::ToolExecStart,
+            Self::ToolExecComplete(_) => K::ToolExecComplete,
+            Self::ToolUserRequested(_) => K::ToolUserRequested,
+            Self::HookStart(_) => K::HookStart,
+            Self::HookEnd(_) => K::HookEnd,
+            Self::SkillInvoked(_) => K::SkillInvoked,
+            Self::Abort(_) => K::Abort,
+            Self::Unknown => K::Unknown,
+        }
+    }
+
+    /// Returns the event timestamp normalized to UTC.
+    ///
+    /// For [`CopilotEvent::Unknown`], returns [`DateTime::<Utc>::UNIX_EPOCH`]
+    /// as a sentinel (the envelope is not retained).
+    #[must_use]
+    #[allow(clippy::match_same_arms)] // tagged-union dispatch over heterogeneous WithEnvelope<T>
+    pub const fn timestamp(&self) -> DateTime<Utc> {
+        match self {
+            Self::SessionStart(env) => env.timestamp,
+            Self::SessionInfo(env) => env.timestamp,
+            Self::ModeChanged(env) => env.timestamp,
+            Self::ModelChange(env) => env.timestamp,
+            Self::PlanChanged(env) => env.timestamp,
+            Self::Shutdown(env) => env.timestamp,
+            Self::UserMessage(env) => env.timestamp,
+            Self::TurnStart(env) => env.timestamp,
+            Self::AssistantMessage(env) => env.timestamp,
+            Self::TurnEnd(env) => env.timestamp,
+            Self::SystemMessage(env) => env.timestamp,
+            Self::ToolExecStart(env) => env.timestamp,
+            Self::ToolExecComplete(env) => env.timestamp,
+            Self::ToolUserRequested(env) => env.timestamp,
+            Self::HookStart(env) => env.timestamp,
+            Self::HookEnd(env) => env.timestamp,
+            Self::SkillInvoked(env) => env.timestamp,
+            Self::Abort(env) => env.timestamp,
+            Self::Unknown => DateTime::<Utc>::UNIX_EPOCH,
+        }
+    }
+
+    /// Returns the parent event ID, forming a DAG mirroring the trace tree.
+    ///
+    /// `None` at session start, for top-level events, or for the
+    /// [`CopilotEvent::Unknown`] sentinel.
+    #[must_use]
+    #[allow(clippy::match_same_arms)] // tagged-union dispatch over heterogeneous WithEnvelope<T>
+    pub fn parent_id(&self) -> Option<&str> {
+        match self {
+            Self::SessionStart(env) => env.parent_id.as_deref(),
+            Self::SessionInfo(env) => env.parent_id.as_deref(),
+            Self::ModeChanged(env) => env.parent_id.as_deref(),
+            Self::ModelChange(env) => env.parent_id.as_deref(),
+            Self::PlanChanged(env) => env.parent_id.as_deref(),
+            Self::Shutdown(env) => env.parent_id.as_deref(),
+            Self::UserMessage(env) => env.parent_id.as_deref(),
+            Self::TurnStart(env) => env.parent_id.as_deref(),
+            Self::AssistantMessage(env) => env.parent_id.as_deref(),
+            Self::TurnEnd(env) => env.parent_id.as_deref(),
+            Self::SystemMessage(env) => env.parent_id.as_deref(),
+            Self::ToolExecStart(env) => env.parent_id.as_deref(),
+            Self::ToolExecComplete(env) => env.parent_id.as_deref(),
+            Self::ToolUserRequested(env) => env.parent_id.as_deref(),
+            Self::HookStart(env) => env.parent_id.as_deref(),
+            Self::HookEnd(env) => env.parent_id.as_deref(),
+            Self::SkillInvoked(env) => env.parent_id.as_deref(),
+            Self::Abort(env) => env.parent_id.as_deref(),
+            Self::Unknown => None,
+        }
+    }
+}
+
+impl agentprof_core::adapter::Event for CopilotEvent {
+    fn id(&self) -> &str {
+        self.id()
+    }
+    fn kind(&self) -> agentprof_core::adapter::EventKind {
+        self.kind()
+    }
+    fn timestamp(&self) -> DateTime<Utc> {
+        self.timestamp()
+    }
+    fn parent_id(&self) -> Option<&str> {
+        self.parent_id()
+    }
+}

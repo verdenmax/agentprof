@@ -280,3 +280,69 @@ fn abort_parses() {
         _ => panic!("expected Abort"),
     }
 }
+
+use agentprof_core::adapter::{Event, EventKind};
+
+#[test]
+fn event_kind_for_each_variant() {
+    let cases: &[(&str, EventKind)] = &[
+        (
+            r#"{"type":"session.start","data":{"sessionId":"s","version":1,"producer":"p","copilotVersion":"1","startTime":"2026-05-26T10:00:00Z","context":{"cwd":"/x"},"alreadyInUse":false},"id":"e1","timestamp":"2026-05-26T10:00:00Z","parentId":null}"#,
+            EventKind::SessionStart,
+        ),
+        (
+            r#"{"type":"session.info","data":{"infoType":"folder_trust","message":"m"},"id":"e2","timestamp":"2026-05-26T10:00:00Z","parentId":"e1"}"#,
+            EventKind::SessionInfo,
+        ),
+        (
+            r#"{"type":"session.mode_changed","data":{"previousMode":"a","newMode":"b"},"id":"e3","timestamp":"2026-05-26T10:00:00Z","parentId":"e1"}"#,
+            EventKind::ModeChanged,
+        ),
+        (
+            r#"{"type":"abort","data":{"reason":"user_interrupt"},"id":"e4","timestamp":"2026-05-26T10:00:00Z","parentId":"e1"}"#,
+            EventKind::Abort,
+        ),
+        (
+            r#"{"type":"some.future.event","data":{},"id":"e5","timestamp":"2026-05-26T10:00:00Z","parentId":null}"#,
+            EventKind::Unknown,
+        ),
+    ];
+
+    for (line, expected_kind) in cases {
+        let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+        assert_eq!(evt.kind(), *expected_kind, "kind mismatch for: {line}");
+    }
+}
+
+#[test]
+fn event_timestamp_returned_correctly() {
+    fn via_trait<E: Event>(e: &E) -> (String, EventKind, String, Option<String>) {
+        (
+            e.id().to_string(),
+            e.kind(),
+            e.timestamp().to_rfc3339(),
+            e.parent_id().map(str::to_string),
+        )
+    }
+    let line = r#"{"type":"session.info","data":{"infoType":"folder_trust","message":"m"},"id":"e1","timestamp":"2026-05-26T12:34:56Z","parentId":"parent-id"}"#;
+    let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+    let (id, kind, ts, parent) = via_trait(&evt);
+    assert_eq!(id, "e1");
+    assert_eq!(kind, EventKind::SessionInfo);
+    assert_eq!(ts, "2026-05-26T12:34:56+00:00");
+    assert_eq!(parent.as_deref(), Some("parent-id"));
+}
+
+#[test]
+fn event_parent_id_none_when_null() {
+    let line = r#"{"type":"session.start","data":{"sessionId":"s","version":1,"producer":"p","copilotVersion":"1","startTime":"2026-05-26T10:00:00Z","context":{"cwd":"/x"},"alreadyInUse":false},"id":"e1","timestamp":"2026-05-26T10:00:00Z","parentId":null}"#;
+    let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+    assert_eq!(evt.parent_id(), None);
+
+    // Also: Unknown returns sentinel values.
+    let line2 = r#"{"type":"x.unknown","data":{},"id":"e","timestamp":"2026-05-26T10:00:00Z","parentId":null}"#;
+    let evt2: CopilotEvent = serde_json::from_str(line2).unwrap();
+    assert_eq!(evt2.id(), "");
+    assert_eq!(evt2.parent_id(), None);
+    assert_eq!(evt2.kind(), EventKind::Unknown);
+}
