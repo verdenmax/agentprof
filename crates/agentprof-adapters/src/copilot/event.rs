@@ -38,9 +38,11 @@ pub struct WithEnvelope<D> {
 
 /// One line from `events.jsonl`, discriminated by the wire-format `type` field.
 ///
-/// Carries session-lifecycle variants plus an [`CopilotEvent::Unknown`]
-/// forward-compatibility fallback. Subsequent tasks add user/assistant/tool
-/// variants.
+/// Carries 11 named variants — session lifecycle (`session.*`), user/assistant
+/// messaging (`user.message`, `assistant.message`, `assistant.turn_start`,
+/// `assistant.turn_end`), and system messages (`system.message`) — plus an
+/// [`CopilotEvent::Unknown`] forward-compatibility fallback. Subsequent tasks
+/// add `tool.*` variants.
 ///
 /// # Examples
 ///
@@ -73,6 +75,21 @@ pub enum CopilotEvent {
     /// Session terminated; carries shutdown summary.
     #[serde(rename = "session.shutdown")]
     Shutdown(WithEnvelope<ShutdownData>),
+    /// User-authored message.
+    #[serde(rename = "user.message")]
+    UserMessage(WithEnvelope<UserMessageData>),
+    /// Assistant turn opened.
+    #[serde(rename = "assistant.turn_start")]
+    TurnStart(WithEnvelope<TurnRefData>),
+    /// Assistant-authored message.
+    #[serde(rename = "assistant.message")]
+    AssistantMessage(WithEnvelope<AssistantMessageData>),
+    /// Assistant turn closed.
+    #[serde(rename = "assistant.turn_end")]
+    TurnEnd(WithEnvelope<TurnRefData>),
+    /// System-emitted message.
+    #[serde(rename = "system.message")]
+    SystemMessage(WithEnvelope<SystemMessageData>),
     /// Forward-compat fallback for unrecognized event types.
     #[serde(other)]
     Unknown,
@@ -214,4 +231,134 @@ pub struct CodeChanges {
     /// Paths of files touched.
     #[serde(rename = "filesModified", default)]
     pub files_modified: Vec<String>,
+}
+
+// -- user / assistant / turn / system payloads --
+
+/// Payload for `user.message`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct UserMessageData {
+    /// Raw user content as typed.
+    pub content: String,
+    /// Content after Copilot CLI applies system-prompt-style transformations.
+    #[serde(
+        rename = "transformedContent",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub transformed_content: Option<String>,
+    /// Where the message came from (e.g. `"cli"`, `"sdk"`).
+    pub source: String,
+    /// File attachments accompanying the message.
+    #[serde(default)]
+    pub attachments: Vec<serde_json::Value>,
+    /// Interaction ID linking this prompt to the subsequent assistant turn.
+    #[serde(rename = "interactionId")]
+    pub interaction_id: String,
+}
+
+/// Payload for `assistant.turn_start` and `assistant.turn_end`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct TurnRefData {
+    /// Turn identifier (typically a small integer encoded as string).
+    #[serde(rename = "turnId")]
+    pub turn_id: String,
+    /// Interaction ID; absent on `turn_end`.
+    #[serde(
+        rename = "interactionId",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub interaction_id: Option<String>,
+}
+
+/// One requested tool invocation embedded in an assistant message.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct ToolRequest {
+    /// Stable ID for this tool call.
+    #[serde(rename = "toolCallId")]
+    pub tool_call_id: String,
+    /// Tool name (`mcp__` / `skill__` / builtin).
+    pub name: String,
+    /// Tool-specific argument object.
+    pub arguments: serde_json::Value,
+    /// Tool-call type (typically `"function"`).
+    #[serde(rename = "type")]
+    pub call_type: String,
+    /// Optional short summary of intent.
+    #[serde(
+        rename = "intentionSummary",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub intention_summary: Option<String>,
+}
+
+/// Payload for `assistant.message`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct AssistantMessageData {
+    /// Stable message ID.
+    #[serde(rename = "messageId")]
+    pub message_id: String,
+    /// Model that produced this message.
+    pub model: String,
+    /// Assistant text content.
+    pub content: String,
+    /// Tool calls requested by this message.
+    #[serde(rename = "toolRequests", default)]
+    pub tool_requests: Vec<ToolRequest>,
+    /// Interaction ID grouping prompt → response.
+    #[serde(rename = "interactionId")]
+    pub interaction_id: String,
+    /// Turn ID this message belongs to.
+    #[serde(rename = "turnId")]
+    pub turn_id: String,
+    /// GitHub-encrypted internal reasoning state (opaque blob).
+    #[serde(
+        rename = "reasoningOpaque",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub reasoning_opaque: Option<String>,
+    /// Plaintext reasoning trace (when emitted by the model).
+    #[serde(
+        rename = "reasoningText",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub reasoning_text: Option<String>,
+    /// GitHub-encrypted full content (opaque blob).
+    #[serde(
+        rename = "encryptedContent",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub encrypted_content: Option<String>,
+    /// Output token count reported by the model.
+    #[serde(rename = "outputTokens")]
+    pub output_tokens: u32,
+    /// Optional upstream request ID.
+    #[serde(rename = "requestId", default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    /// Optional service-side request ID.
+    #[serde(
+        rename = "serviceRequestId",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub service_request_id: Option<String>,
+}
+
+/// Payload for `system.message`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct SystemMessageData {
+    /// Role (typically `"system"`).
+    pub role: String,
+    /// System message content (e.g. system prompt injection).
+    pub content: String,
 }
