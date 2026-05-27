@@ -11,6 +11,18 @@ use crate::copilot::CopilotAdapter;
 /// Return the adapter implementation for `kind`, or [`None`] if no adapter
 /// has been wired up yet for that agent.
 ///
+/// # Stability
+///
+/// The return type is intentionally `Option<CopilotAdapter>` for M1.2 while
+/// Copilot is the only wired-up agent. Once a second adapter ships (Phase 2:
+/// Claude), this signature **must** change — `CopilotAdapter` cannot
+/// represent another adapter. The likely shape is either
+/// `Option<AnyAdapter>` with `enum AnyAdapter { Copilot(_), Claude(_), … }`,
+/// or trait-object erasure once the `Event` associated type is stabilized
+/// behind a runtime-friendly facade. Track this decision in the next
+/// adapter-layer ADR (planned for M1.3+); for now callers should expect to
+/// adapt at that point.
+///
 /// # Examples
 ///
 /// ```
@@ -26,6 +38,8 @@ pub const fn adapter_for(kind: AgentKind) -> Option<CopilotAdapter> {
         AgentKind::Copilot => Some(CopilotAdapter),
         // `AgentKind` is `#[non_exhaustive]`; Claude / Codex / future variants
         // all fall through to `None` until their adapters are wired up.
+        // TODO(phase-2): once a second adapter ships, replace this signature
+        // — see `# Stability` above.
         _ => None,
     }
 }
