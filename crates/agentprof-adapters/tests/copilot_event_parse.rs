@@ -205,3 +205,78 @@ fn tool_user_requested_parses() {
         _ => panic!("expected ToolUserRequested"),
     }
 }
+
+#[test]
+fn hook_start_parses() {
+    let line = r#"{"type":"hook.start","data":{"hookInvocationId":"hi1","hookType":"SessionStart","input":{"sessionId":"abc-123","timestamp":1716718800000,"cwd":"/tmp/proj","source":"startup","initialPrompt":"fix the bug"}},"id":"e15","timestamp":"2026-05-26T10:03:00Z","parentId":"e1"}"#;
+    let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+    match evt {
+        CopilotEvent::HookStart(env) => {
+            assert_eq!(env.data.hook_invocation_id, "hi1");
+            assert_eq!(env.data.hook_type, "SessionStart");
+            assert_eq!(env.data.input.session_id, "abc-123");
+            assert_eq!(env.data.input.timestamp, 1_716_718_800_000_u64);
+            assert_eq!(env.data.input.cwd, "/tmp/proj");
+            assert_eq!(
+                env.data.input.initial_prompt.as_deref(),
+                Some("fix the bug")
+            );
+        }
+        _ => panic!("expected HookStart"),
+    }
+}
+
+#[test]
+fn hook_end_parses() {
+    let line = r#"{"type":"hook.end","data":{"hookInvocationId":"hi1","hookType":"SessionStart","output":{"additionalContext":"loaded skills"},"success":true},"id":"e16","timestamp":"2026-05-26T10:03:01Z","parentId":"e15"}"#;
+    let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+    match evt {
+        CopilotEvent::HookEnd(env) => {
+            assert_eq!(env.data.hook_invocation_id, "hi1");
+            assert!(env.data.success);
+            let output = env.data.output.as_ref().expect("output present");
+            assert_eq!(output.additional_context.as_deref(), Some("loaded skills"));
+        }
+        _ => panic!("expected HookEnd"),
+    }
+}
+
+#[test]
+fn hook_end_with_no_output_parses() {
+    let line = r#"{"type":"hook.end","data":{"hookInvocationId":"hi2","hookType":"PreToolUse","success":false},"id":"e17","timestamp":"2026-05-26T10:03:02Z","parentId":"e15"}"#;
+    let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+    match evt {
+        CopilotEvent::HookEnd(env) => {
+            assert!(!env.data.success);
+            assert!(env.data.output.is_none());
+        }
+        _ => panic!("expected HookEnd"),
+    }
+}
+
+#[test]
+fn skill_invoked_parses() {
+    let line = r#"{"type":"skill.invoked","data":{"name":"using-superpowers","path":"/skills/using-superpowers","content":"...","source":"plugin","pluginName":"superpowers","pluginVersion":"0.3.0","description":"meta skill","trigger":"session.start"},"id":"e18","timestamp":"2026-05-26T10:03:03Z","parentId":"e1"}"#;
+    let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+    match evt {
+        CopilotEvent::SkillInvoked(env) => {
+            assert_eq!(env.data.name, "using-superpowers");
+            assert_eq!(env.data.source, "plugin");
+            assert_eq!(env.data.plugin_name.as_deref(), Some("superpowers"));
+            assert_eq!(env.data.trigger, "session.start");
+        }
+        _ => panic!("expected SkillInvoked"),
+    }
+}
+
+#[test]
+fn abort_parses() {
+    let line = r#"{"type":"abort","data":{"reason":"user_interrupt"},"id":"e19","timestamp":"2026-05-26T10:03:04Z","parentId":"e1"}"#;
+    let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+    match evt {
+        CopilotEvent::Abort(env) => {
+            assert_eq!(env.data.reason, "user_interrupt");
+        }
+        _ => panic!("expected Abort"),
+    }
+}

@@ -38,13 +38,13 @@ pub struct WithEnvelope<D> {
 
 /// One line from `events.jsonl`, discriminated by the wire-format `type` field.
 ///
-/// Carries 14 named variants — session lifecycle (`session.*`), user/assistant
+/// Carries 18 named variants — session lifecycle (`session.*`), user/assistant
 /// messaging (`user.message`, `assistant.message`, `assistant.turn_start`,
-/// `assistant.turn_end`), system messages (`system.message`), and tool
+/// `assistant.turn_end`), system messages (`system.message`), tool
 /// execution (`tool.execution_start`, `tool.execution_complete`,
-/// `tool.user_requested`) — plus an [`CopilotEvent::Unknown`]
-/// forward-compatibility fallback. Subsequent tasks add hook/skill/abort
-/// variants.
+/// `tool.user_requested`), hook lifecycle (`hook.start`, `hook.end`), skill
+/// activation (`skill.invoked`), and user-initiated cancellation (`abort`) —
+/// plus an [`CopilotEvent::Unknown`] forward-compatibility fallback.
 ///
 /// # Examples
 ///
@@ -101,6 +101,18 @@ pub enum CopilotEvent {
     /// User-requested tool execution.
     #[serde(rename = "tool.user_requested")]
     ToolUserRequested(WithEnvelope<ToolUserRequestedData>),
+    /// Hook invocation started.
+    #[serde(rename = "hook.start")]
+    HookStart(WithEnvelope<HookStartData>),
+    /// Hook invocation ended (success or failure).
+    #[serde(rename = "hook.end")]
+    HookEnd(WithEnvelope<HookEndData>),
+    /// Skill activated for this session.
+    #[serde(rename = "skill.invoked")]
+    SkillInvoked(WithEnvelope<SkillData>),
+    /// User-initiated session abort.
+    #[serde(rename = "abort")]
+    Abort(WithEnvelope<AbortData>),
     /// Forward-compat fallback for unrecognized event types.
     #[serde(other)]
     Unknown,
@@ -473,4 +485,121 @@ pub struct ToolUserRequestedData {
     pub tool_name: String,
     /// User-supplied arguments.
     pub arguments: ToolUserArgs,
+}
+
+// -- hook.* payloads --
+
+/// Hook input snapshot recorded when a hook is invoked.
+///
+/// Note: `timestamp` here is a Unix epoch millisecond count (integer), distinct
+/// from the ISO-8601 [`WithEnvelope::timestamp`] on the enclosing envelope.
+/// This matches Copilot CLI's wire format, where hook inputs carry their own
+/// numeric timestamp for downstream tool consumption (see ADR-0002).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct HookInput {
+    /// Session UUID at the time the hook fired.
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
+    /// Unix epoch milliseconds when the hook input was captured.
+    pub timestamp: u64,
+    /// Working directory at hook time.
+    pub cwd: String,
+    /// Origin label (e.g. `startup`, `tool_use`).
+    pub source: String,
+    /// The initial user prompt for the session, when present.
+    #[serde(
+        rename = "initialPrompt",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub initial_prompt: Option<String>,
+}
+
+/// Payload for `hook.start`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct HookStartData {
+    /// Unique invocation ID for matching against the paired `hook.end`.
+    #[serde(rename = "hookInvocationId")]
+    pub hook_invocation_id: String,
+    /// Hook kind (e.g. `SessionStart`, `PreToolUse`, `PostToolUse`).
+    #[serde(rename = "hookType")]
+    pub hook_type: String,
+    /// Snapshot of input fed to the hook.
+    pub input: HookInput,
+}
+
+/// Optional structured output emitted by a hook.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct HookOutput {
+    /// Additional context the hook injected back into the session.
+    #[serde(
+        rename = "additionalContext",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub additional_context: Option<String>,
+}
+
+/// Payload for `hook.end`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct HookEndData {
+    /// Invocation ID matching the prior `hook.start`.
+    #[serde(rename = "hookInvocationId")]
+    pub hook_invocation_id: String,
+    /// Hook kind (mirrors `HookStartData.hook_type`).
+    #[serde(rename = "hookType")]
+    pub hook_type: String,
+    /// Hook output, when the hook produced one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<HookOutput>,
+    /// Whether the hook completed successfully.
+    pub success: bool,
+}
+
+// -- skill.* payloads --
+
+/// Payload for `skill.invoked`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct SkillData {
+    /// Skill name (e.g. `using-superpowers`).
+    pub name: String,
+    /// Filesystem path to the skill definition.
+    pub path: String,
+    /// Skill body content loaded into context.
+    pub content: String,
+    /// Where the skill came from (e.g. `plugin`, `project`, `user`).
+    pub source: String,
+    /// Plugin name when the skill is plugin-sourced.
+    #[serde(
+        rename = "pluginName",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub plugin_name: Option<String>,
+    /// Plugin version when the skill is plugin-sourced.
+    #[serde(
+        rename = "pluginVersion",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub plugin_version: Option<String>,
+    /// One-line skill description (from frontmatter).
+    pub description: String,
+    /// Trigger that caused the skill to be invoked.
+    pub trigger: String,
+}
+
+// -- abort payload --
+
+/// Payload for `abort`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct AbortData {
+    /// Reason for the abort (e.g. `user_interrupt`).
+    pub reason: String,
 }
