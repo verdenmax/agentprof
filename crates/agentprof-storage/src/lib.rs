@@ -1,8 +1,8 @@
 //! # agentprof-storage
 //!
-//! SQLite persistence and (optional) OTLP telemetry receiver for **agentprof**.
+//! `SQLite` persistence and (optional) OTLP telemetry receiver for **agentprof**.
 //!
-//! Depends only on [`agentprof-core`](../agentprof_core/index.html). The SQLite
+//! Depends only on [`agentprof-core`](../agentprof_core/index.html). The `SQLite`
 //! schema is normative in [`docs/architecture.md`](https://github.com/agentprof/agentprof/blob/main/docs/architecture.md#9-sqlite-schema)
 //! (§9); migrations under `src/sqlite/migrations/` must keep that schema in sync.
 //!
