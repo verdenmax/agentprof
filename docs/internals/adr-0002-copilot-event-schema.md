@@ -1,5 +1,5 @@
 ---
-title: "ADR-0002: CopilotEvent enum — 17-variant clean-room schema from events.jsonl observation"
+title: "ADR-0002: CopilotEvent enum — 18-variant clean-room schema from events.jsonl observation"
 status: "Accepted"
 date: "2026-05-26"
 authors: "@verdenmax (project owner), AI assistant (Copilot CLI session 252068e5)"
@@ -8,7 +8,7 @@ supersedes: ""
 superseded_by: ""
 ---
 
-# ADR-0002: CopilotEvent enum — 17-variant clean-room schema from events.jsonl observation
+# ADR-0002: CopilotEvent enum — 18-variant clean-room schema from events.jsonl observation
 
 ## Status
 
@@ -39,7 +39,7 @@ The decision is: **what shape should the Copilot event data model take, in `agen
 
 ## Decision
 
-**Define a 17-variant `CopilotEvent` enum in `agentprof-adapters/src/copilot/event.rs`, derived from clean-room observation of the user's own session data. Make it the associated `Event` type of `CopilotAdapter`; per-agent adapters keep their own native event enums; shared analysis happens at the `Episode` layer (see `agentprof-core::episode`).**
+**Define an 18-variant `CopilotEvent` enum (plus `Unknown` fallthrough) in `agentprof-adapters/src/copilot/event.rs`, derived from clean-room observation of the user's own session data. Make it the associated `Event` type of `CopilotAdapter`; per-agent adapters keep their own native event enums; shared analysis happens at the `Episode` layer (see `agentprof-core::episode`).**
 
 ### Concrete decisions
 
