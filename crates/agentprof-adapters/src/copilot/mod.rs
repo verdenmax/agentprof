@@ -6,10 +6,12 @@
 //! See `docs/internals/adr-0002-copilot-event-schema.md` for the wire format
 //! reference.
 
+pub mod adapter;
 mod event;
 pub mod parser;
-// `paths`, `adapter` added in later tasks.
+pub mod paths;
 
+pub use adapter::CopilotAdapter;
 pub use event::{
     AbortData, AssistantMessageData, CodeChanges, CopilotEvent, HookEndData, HookInput, HookOutput,
     HookStartData, ModeChangeData, ModelChangeData, PlanChangeData, SessionContext,

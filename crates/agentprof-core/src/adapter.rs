@@ -182,6 +182,50 @@ pub struct SessionRef {
     pub is_live: bool,
 }
 
+impl SessionRef {
+    /// Construct a [`SessionRef`] from its raw components.
+    ///
+    /// Adapter implementations use this rather than struct-literal syntax
+    /// because [`SessionRef`] is `#[non_exhaustive]` and therefore cannot
+    /// be built from outside `agentprof-core`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::path::PathBuf;
+    /// use std::time::SystemTime;
+    /// use agentprof_core::adapter::{AgentKind, SessionRef};
+    ///
+    /// let sref = SessionRef::new(
+    ///     "abc".to_owned(),
+    ///     AgentKind::Copilot,
+    ///     PathBuf::from("/tmp/events.jsonl"),
+    ///     SystemTime::UNIX_EPOCH,
+    ///     0,
+    ///     false,
+    /// );
+    /// assert_eq!(sref.id, "abc");
+    /// ```
+    #[must_use]
+    pub const fn new(
+        id: String,
+        agent: AgentKind,
+        path: PathBuf,
+        modified_at: SystemTime,
+        size_bytes: u64,
+        is_live: bool,
+    ) -> Self {
+        Self {
+            id,
+            agent,
+            path,
+            modified_at,
+            size_bytes,
+            is_live,
+        }
+    }
+}
+
 /// Errors returned by [`Adapter`] implementations.
 ///
 /// Single-line parse failures (e.g. one bad JSONL line) accumulate as

@@ -13,3 +13,4 @@
 //! See `docs/adapters.md` for the contribution guide.
 
 pub mod copilot;
+pub mod registry;
