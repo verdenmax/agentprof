@@ -38,11 +38,13 @@ pub struct WithEnvelope<D> {
 
 /// One line from `events.jsonl`, discriminated by the wire-format `type` field.
 ///
-/// Carries 11 named variants — session lifecycle (`session.*`), user/assistant
+/// Carries 14 named variants — session lifecycle (`session.*`), user/assistant
 /// messaging (`user.message`, `assistant.message`, `assistant.turn_start`,
-/// `assistant.turn_end`), and system messages (`system.message`) — plus an
-/// [`CopilotEvent::Unknown`] forward-compatibility fallback. Subsequent tasks
-/// add `tool.*` variants.
+/// `assistant.turn_end`), system messages (`system.message`), and tool
+/// execution (`tool.execution_start`, `tool.execution_complete`,
+/// `tool.user_requested`) — plus an [`CopilotEvent::Unknown`]
+/// forward-compatibility fallback. Subsequent tasks add hook/skill/abort
+/// variants.
 ///
 /// # Examples
 ///
@@ -90,6 +92,15 @@ pub enum CopilotEvent {
     /// System-emitted message.
     #[serde(rename = "system.message")]
     SystemMessage(WithEnvelope<SystemMessageData>),
+    /// Tool execution begin.
+    #[serde(rename = "tool.execution_start")]
+    ToolExecStart(WithEnvelope<ToolExecData>),
+    /// Tool execution completion (success or error).
+    #[serde(rename = "tool.execution_complete")]
+    ToolExecComplete(WithEnvelope<ToolResultData>),
+    /// User-requested tool execution.
+    #[serde(rename = "tool.user_requested")]
+    ToolUserRequested(WithEnvelope<ToolUserRequestedData>),
     /// Forward-compat fallback for unrecognized event types.
     #[serde(other)]
     Unknown,
@@ -361,4 +372,105 @@ pub struct SystemMessageData {
     pub role: String,
     /// System message content (e.g. system prompt injection).
     pub content: String,
+}
+
+// -- tool.* payloads --
+
+/// Payload for `tool.execution_start`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct ToolExecData {
+    /// Tool call ID to match against `tool.execution_complete`.
+    #[serde(rename = "toolCallId")]
+    pub tool_call_id: String,
+    /// Tool name (used by [`agentprof_core::model::ToolSource::infer`]).
+    #[serde(rename = "toolName")]
+    pub tool_name: String,
+    /// Tool-specific argument object (shape varies; kept as Value).
+    pub arguments: serde_json::Value,
+}
+
+/// Tool result returned alongside `tool.execution_complete`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct ToolResult {
+    /// Short / summarized result content shown to the user.
+    pub content: String,
+    /// Verbose result content the model sees.
+    #[serde(rename = "detailedContent")]
+    pub detailed_content: String,
+}
+
+/// Telemetry record attached to a tool result.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct ToolTelemetry {
+    /// Tool-author-defined string properties.
+    #[serde(default)]
+    pub properties: std::collections::BTreeMap<String, serde_json::Value>,
+    /// Tool-author-defined numeric metrics (e.g. `resultLength`, `responseTokenLimit`).
+    #[serde(default)]
+    pub metrics: std::collections::BTreeMap<String, u64>,
+    /// Sensitive properties scrubbed from analytics streams.
+    #[serde(rename = "restrictedProperties", default)]
+    pub restricted_properties: serde_json::Value,
+}
+
+/// Error sub-payload when a tool execution fails.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct ToolError {
+    /// Human-readable error message.
+    pub message: String,
+}
+
+/// Payload for `tool.execution_complete`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct ToolResultData {
+    /// Tool call ID matching the `tool.execution_start`.
+    #[serde(rename = "toolCallId")]
+    pub tool_call_id: String,
+    /// Model that requested this tool call.
+    pub model: String,
+    /// Interaction grouping (matches `AssistantMessage` / `ToolExecStart`).
+    #[serde(rename = "interactionId")]
+    pub interaction_id: String,
+    /// Turn ID (absent on some user-requested calls).
+    #[serde(rename = "turnId", default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    /// Whether the tool succeeded.
+    pub success: bool,
+    /// Result payload.
+    pub result: ToolResult,
+    /// Telemetry counters/properties.
+    #[serde(rename = "toolTelemetry")]
+    pub tool_telemetry: ToolTelemetry,
+    /// Error details when `success == false`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<ToolError>,
+}
+
+/// Arguments specific to user-requested tool invocations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct ToolUserArgs {
+    /// Shell-like command string the user authorized.
+    pub command: String,
+    /// User-supplied description.
+    pub description: String,
+}
+
+/// Payload for `tool.user_requested`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct ToolUserRequestedData {
+    /// Tool call ID.
+    #[serde(rename = "toolCallId")]
+    pub tool_call_id: String,
+    /// Tool name.
+    #[serde(rename = "toolName")]
+    pub tool_name: String,
+    /// User-supplied arguments.
+    pub arguments: ToolUserArgs,
 }

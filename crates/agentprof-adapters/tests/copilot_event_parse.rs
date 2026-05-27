@@ -149,3 +149,59 @@ fn system_message_parses() {
         _ => panic!("expected SystemMessage"),
     }
 }
+
+#[test]
+fn tool_exec_start_parses() {
+    let line = r#"{"type":"tool.execution_start","data":{"toolCallId":"tc1","toolName":"bash","arguments":{"command":"ls -la"}},"id":"e11","timestamp":"2026-05-26T10:01:06Z","parentId":"e8"}"#;
+    let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+    match evt {
+        CopilotEvent::ToolExecStart(env) => {
+            assert_eq!(env.data.tool_call_id, "tc1");
+            assert_eq!(env.data.tool_name, "bash");
+            assert_eq!(env.data.arguments["command"], "ls -la");
+        }
+        other => panic!("expected ToolExecStart, got {other:?}"),
+    }
+}
+
+#[test]
+fn tool_exec_complete_parses() {
+    let line = r#"{"type":"tool.execution_complete","data":{"toolCallId":"tc1","model":"gpt-5-mini","interactionId":"int-1","turnId":"0","success":true,"result":{"content":"file1\nfile2","detailedContent":"file1\nfile2"},"toolTelemetry":{"properties":{"command":"ls"},"metrics":{"resultLength":11},"restrictedProperties":{}}},"id":"e12","timestamp":"2026-05-26T10:01:07Z","parentId":"e11"}"#;
+    let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+    match evt {
+        CopilotEvent::ToolExecComplete(env) => {
+            assert_eq!(env.data.tool_call_id, "tc1");
+            assert!(env.data.success);
+            assert!(env.data.result.content.contains("file1"));
+            assert_eq!(env.data.tool_telemetry.metrics["resultLength"], 11);
+        }
+        other => panic!("expected ToolExecComplete, got {other:?}"),
+    }
+}
+
+#[test]
+fn tool_exec_complete_with_error_parses() {
+    let line = r#"{"type":"tool.execution_complete","data":{"toolCallId":"tc2","model":"gpt-5-mini","interactionId":"int-1","success":false,"result":{"content":"command failed","detailedContent":"command failed: exit 1"},"toolTelemetry":{"properties":{},"metrics":{},"restrictedProperties":{}},"error":{"message":"non-zero exit"}},"id":"e13","timestamp":"2026-05-26T10:01:08Z","parentId":"e11"}"#;
+    let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+    match evt {
+        CopilotEvent::ToolExecComplete(env) => {
+            assert!(!env.data.success);
+            assert_eq!(env.data.error.as_ref().unwrap().message, "non-zero exit");
+        }
+        _ => panic!("expected ToolExecComplete"),
+    }
+}
+
+#[test]
+fn tool_user_requested_parses() {
+    let line = r#"{"type":"tool.user_requested","data":{"toolCallId":"tc3","toolName":"bash","arguments":{"command":"git status","description":"check git state"}},"id":"e14","timestamp":"2026-05-26T10:02:00Z","parentId":"e1"}"#;
+    let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+    match evt {
+        CopilotEvent::ToolUserRequested(env) => {
+            assert_eq!(env.data.tool_name, "bash");
+            assert_eq!(env.data.arguments.command, "git status");
+            assert_eq!(env.data.arguments.description, "check git state");
+        }
+        _ => panic!("expected ToolUserRequested"),
+    }
+}
