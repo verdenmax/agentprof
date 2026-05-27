@@ -1,61 +1,78 @@
-# docs/adapters — adding a new agent
+# Adapter Contribution Guide
 
-> L2 contributor guide for implementing a new adapter under `crates/agentprof-adapters`.
+> L2 documentation. Authoritative architecture: `docs/architecture.md`.
+> Wire-format references for each agent: `docs/internals/adr-NNNN-<agent>-event-schema.md`.
 
-Status: **placeholder** — full content lands together with the first real
-adapter implementation. The checklist below is normative even today.
+## Why adapters
 
-## Checklist for a new adapter
+Each AI agent stores its session telemetry in its own format. Adapters
+translate those formats into the unified `RawSession<E>` shape so
+`agentprof-core::episode` (M1.3+) can analyze them agent-agnostically.
 
-Every new adapter (`gemini`, `qwen`, future Copilot variants, …) must deliver
-all of the following **in a single PR**:
+## Adapter contract
 
-1. **Source**: `crates/agentprof-adapters/src/<name>.rs`
-   - File-level `//!` rustdoc covering: data source path, wire-format notes,
-     known quirks, and a link to this guide
-   - `impl Adapter for <Name>Adapter`
-2. **Registry**: register the new adapter in
-   `crates/agentprof-adapters/src/registry.rs`
-3. **Fixtures**: at least one anonymized session under
-   `crates/agentprof-adapters/tests/fixtures/<name>/`
-   - Use `cargo run -p xtask -- anonymize <real-log>` to scrub paths /
-     emails / tokens before committing
-   - Fixture must contain ≥1 unused tool, ≥1 frequently-called tool, ≥1
-     failing tool result (covers the three ROI buckets)
-4. **Unit tests**: `crates/agentprof-adapters/tests/<name>.rs` — assert
-   correct parsing of the fixtures above
-5. **Integration test**: at least one `assert_cmd` test in
-   `crates/agentprof-cli/tests/cli.rs` running
-   `analyze --agent <name> --path <fixture>`
-6. **Documentation**:
-   - Update L1 `docs/architecture.md` §6 (default path table) and §17
-     (roadmap, if applicable)
-   - Expand this file (`docs/adapters.md`) with the adapter's wire-format
-     notes
-   - Update L2 `crates/agentprof-adapters/README.md` "supported agents"
-     section
-   - rustdoc on the public adapter struct + every public method
-7. **Changelog**: add a `feat: add <name> adapter` entry to `CHANGELOG.md`
-8. **Conventional Commit** message: `feat(adapters): add <name> adapter`
+Implement `agentprof_core::adapter::Adapter` (see its rustdoc for full
+documentation):
 
-## Wire-format notes (to be filled in)
+```rust
+pub trait Adapter: Send + Sync {
+    type Event: Event + DeserializeOwned + Serialize + Debug;
+    fn agent_kind(&self) -> AgentKind;
+    fn default_session_root(&self) -> Option<PathBuf>;
+    fn discover_sessions(&self, root: &Path) -> Result<Vec<SessionRef>, AdapterError>;
+    fn load_session(&self, sref: &SessionRef) -> Result<RawSession<Self::Event>, AdapterError>;
+}
+```
 
-Each adapter implementation should append a subsection here describing:
+`Self::Event` must implement `agentprof_core::adapter::Event` (`id()` /
+`kind()` / `timestamp()` / `parent_id()`).
 
-- File system layout
-- JSON / JSONL schema highlights
-- How tools are serialized into the prompt (this directly affects
-  `schema_tokens` accuracy)
-- Anything the implementor wishes the next person knew
+## Adding a new adapter (e.g. for Claude)
 
-### claude (Claude Code)
+1. **Clean-room observation only.** Read your own local sessions to learn the
+   wire format. Never translate vendor SDK type definitions (see
+   `adr-0003-synthetic-fixture-strategy.md` for the legal rationale).
+2. Create `crates/agentprof-adapters/src/<agent>/` with `mod.rs`, `event.rs`
+   (Event enum + payloads + `impl Event`), `parser.rs`, `paths.rs`,
+   `adapter.rs` (`impl Adapter for <Agent>Adapter`).
+3. Add a new ADR `docs/internals/adr-NNNN-<agent>-event-schema.md` with the
+   variant table.
+4. Author 5-9 synthetic fixtures under
+   `crates/agentprof-adapters/tests/fixtures/<agent>/` (see
+   `adr-0003-synthetic-fixture-strategy.md` for rules: 100% synthetic, no
+   anonymizer, well-documented per-fixture READMEs).
+5. Add per-variant round-trip tests + per-fixture snapshot tests.
+6. Add an entry in `registry::adapter_for` and `registry::supported_agents`.
+7. Update this file's "Supported agents" matrix.
+8. Update `crates/agentprof-adapters/README.md`'s matrix.
+9. CHANGELOG entry: `feat(adapters): add <agent> adapter`.
 
-*To be filled in alongside the Phase 0 prototype.*
+## Supported agents (matrix duplicate; canonical in README.md)
 
-### codex (OpenAI Codex CLI)
+| Agent | Module | Status |
+|---|---|---|
+| GitHub Copilot CLI | `copilot` | ✅ MVP (M1.2) |
+| Anthropic Claude Code | (planned) | ⏳ Phase 2 |
+| OpenAI Codex CLI | (planned) | ⏳ Phase 3 |
 
-*To be filled in during Phase 3.*
+## Fixture rules
 
-### copilot (GitHub Copilot CLI)
+See `crates/agentprof-adapters/tests/fixtures/<agent>/README.md` for the
+authoring catalog. Universal rules:
 
-*To be filled in during Phase 3, after a real session log is captured.*
+- 100% synthetic content (no real-data anonymization)
+- Stable UUIDs `00000000-0000-0000-0000-NNNNNNNNNNNN`
+- Placeholder paths: `/tmp/agentprof-fixture/<scenario>`
+- Round-trip test required (`serde_json::from_str::<<Agent>Event>` must
+  succeed on every committed line except in intentionally-corrupt fixtures)
+- `expected.json` generated via `cargo insta accept` after the parser stabilizes
+
+## Local smoke tests
+
+For developers wanting to check against their own real sessions without
+committing data:
+
+```bash
+export AGENTPROF_LOCAL_FIXTURES_DIR=~/.<agent>/<path>
+cargo test -p agentprof-adapters --test <agent>_smoke -- --include-ignored
+```

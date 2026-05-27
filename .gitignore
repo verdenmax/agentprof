@@ -36,3 +36,7 @@ Thumbs.db
 # Coverage
 coverage/
 *.profraw
+
+# Local smoke-test target directories (developer-specific; NEVER commit)
+/local-fixtures/
+/smoke-data/

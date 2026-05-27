@@ -1,57 +1,80 @@
 # agentprof-adapters
 
-> Per-agent log adapters. Each agent (Claude Code, Codex CLI, Copilot CLI) gets a module that implements the `Adapter` trait defined in [`agentprof-core`](../agentprof-core).
+> Per-agent session log adapters for `agentprof`.
 
-## Position in the agentprof architecture
+## In agentprof's architecture
 
-Depends only on `agentprof-core`. Adapters produce `RawSession` values that the rest of the pipeline consumes. See [`docs/architecture.md`](../../docs/architecture.md) §6 (Adapter trait) and [`docs/adapters.md`](../../docs/adapters.md) (how to add a new agent).
+This crate sits between `agentprof-cli` and `agentprof-core`. Each agent
+has its own module here (`copilot`, future `claude`, future `codex`) that
+parses agent-specific session logs into the unified
+`agentprof_core::model::RawSession<E>` shape, where `E` is the adapter's
+native event enum.
+
+See `docs/architecture.md` §3 for the full system diagram and
+`docs/superpowers/specs/2026-05-26-copilot-adapter-event-first-design.md`
+for the M1.2 design.
 
 ## Public interface
 
-- `claude::ClaudeAdapter`
-- `codex::CodexAdapter`
-- `copilot::CopilotAdapter`
-- `registry::register_default_adapters()`
+- [`copilot::CopilotAdapter`] — GitHub Copilot CLI adapter
+- [`copilot::CopilotEvent`] — 18-variant event enum (+ `Unknown` fallthrough)
+- [`copilot::parser::parse_events_jsonl`] — JSONL → `RawSession<CopilotEvent>`
+- [`copilot::paths::discover_sessions`] — walk session-state directory
+- [`registry::adapter_for`] — `AgentKind → Option<Adapter>` resolver
+- [`registry::supported_agents`] — static list of supported agents
 
-```rust
-// (will become a doctest once the first adapter ships)
-// let adapter = agentprof_adapters::claude::ClaudeAdapter::default();
-// let sessions = adapter.discover_sessions(&adapter.default_session_root())?;
-```
+## Modules
 
-## Modules (planned)
-
-| Module | Purpose |
+| Module | Responsibility |
 |---|---|
-| `claude` | Parses `~/.claude/projects/**/*.jsonl` |
-| `codex` | Parses `~/.codex/sessions/...` |
-| `copilot` | Parses `~/.copilot/session-state/` |
-| `registry` | Maps `AgentKind` → boxed `Adapter`; supports `--agent auto` |
-| `discovery` | Shared helpers (XDG path resolution, glob walking) |
+| `copilot::event` | `CopilotEvent` enum + all payload structs + `impl Event` |
+| `copilot::parser` | line-by-line JSONL parser + `MetaBuilder` |
+| `copilot::paths` | filesystem discovery + `inuse.<pid>.lock` detection |
+| `copilot::adapter` | `impl Adapter for CopilotAdapter` |
+| `registry` | `AgentKind` → adapter resolver |
 
-## Adding a new adapter
+## Supported agents
 
-See [`docs/adapters.md`](../../docs/adapters.md). Required checklist:
-
-1. New module `src/<name>.rs` with `//!` doc and an `impl Adapter`
-2. Register in `src/registry.rs`
-3. At least one anonymized fixture under `tests/fixtures/<name>/`
-4. At least one `assert_cmd` integration test in `agentprof-cli/tests/cli.rs`
-5. Documentation: update L1 `docs/architecture.md` §6 (default path) and L2 `docs/adapters.md` (detailed guide)
-6. CHANGELOG entry
-
-## Dependencies
-
-- Workspace internal: `agentprof-core`
-- External: `serde`, `serde_json`, `thiserror`, `chrono`, `tracing`, `walkdir`, `globset`
+| Agent | Module | Data source | Status |
+|---|---|---|---|
+| GitHub Copilot CLI | `copilot` | `~/.copilot/session-state/<uuid>/events.jsonl` | ✅ MVP |
+| Anthropic Claude Code | (planned) | `~/.claude/projects/**/*.jsonl` | ⏳ Phase 2 |
+| OpenAI Codex CLI | (planned) | (decided at Phase 3) | ⏳ Phase 3 |
 
 ## Local commands
 
-```sh
+```bash
+# Unit + integration tests
 cargo test -p agentprof-adapters
-cargo doc  -p agentprof-adapters --no-deps --open
+
+# Lint
+cargo clippy -p agentprof-adapters --all-targets --all-features -- -D warnings
+
+# Docs
+RUSTDOCFLAGS="-Dwarnings" cargo doc -p agentprof-adapters --no-deps
 ```
 
-## Change history
+## Local smoke tests
 
-See [`CHANGELOG.md`](../../CHANGELOG.md) — entries for this crate are prefixed `adapters:`.
+To check the parser against your real local Copilot data without committing
+anything (catches schema drift between Copilot CLI versions):
+
+```bash
+export AGENTPROF_LOCAL_FIXTURES_DIR=~/.copilot/session-state
+cargo test -p agentprof-adapters --test copilot_smoke -- --include-ignored
+```
+
+These tests are `#[ignore]` by default; the line above opts in. Output is
+informational and never committed.
+
+## Adding a new adapter
+
+See `docs/adapters.md` for the contribution guide.
+
+## Variant table for `CopilotEvent`
+
+Authoritative reference: `docs/internals/adr-0002-copilot-event-schema.md`.
+
+## Changelog
+
+See repo-root `CHANGELOG.md`.
