@@ -1,19 +1,25 @@
 //! # agentprof-core
 //!
-//! Core domain model and analysis for **agentprof**. Defines the `Adapter`
-//! trait that adapters implement, the token bucket / ROI / analysis report
-//! data model, and the tokenizer / analyzer / exporter modules.
+//! Core domain model and analysis types for **agentprof**.
 //!
-//! This crate is the **leaf** of the dependency graph: it does **not**
-//! depend on any other workspace crate.
+//! This crate is the **leaf** of the workspace dependency graph; it does
+//! **not** depend on any other workspace crate.
 //!
-//! See [`docs/architecture.md`](https://github.com/agentprof/agentprof/blob/main/docs/architecture.md)
-//! for the full system design (L1 documentation).
+//! ## Public modules
 //!
-//! ## Modules (planned, populated as features land)
+//! - [`adapter`] — the [`adapter::Adapter`] trait, [`adapter::Event`] trait,
+//!   and supporting types.
+//! - [`model`] — domain types ([`model::session::RawSession`],
+//!   [`model::meta::SessionMeta`], [`model::tool_source::ToolSource`]).
+//! - [`error`] — workspace-level errors ([`error::CoreError`],
+//!   [`error::ParseWarning`]).
 //!
-//! - `model`     — domain types (`RawSession`, `ToolDef`, `TokenBucket`, `RoiRow`, ...)
-//! - `tokenizer` — local tokenization + optional Anthropic `count_tokens` API
-//! - `analyzer`  — ROI scoring, schema utilization, waste estimation
-//! - `export`    — speedscope JSON / Markdown / CSV / HTML serializers
-//! - `error`     — `CoreError` enum
+//! See `docs/architecture.md` for the L1 architecture documentation and
+//! `docs/superpowers/specs/2026-05-26-copilot-adapter-event-first-design.md`
+//! for the M1.2 specification.
+
+#![cfg_attr(test, allow(clippy::unwrap_used))]
+
+pub mod adapter;
+pub mod error;
+pub mod model;
