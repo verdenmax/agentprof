@@ -1,6 +1,6 @@
 ---
 title: "ADR-0004: Episode derivation — lenient single-pass algorithm with orphan synthesis and DeriveWarning model"
-status: "Proposed"
+status: "Accepted"
 date: "2026-05-27"
 authors: "@verdenmax (project owner), AI assistant (Copilot CLI session 252068e5)"
 tags: ["architecture", "decision", "data-model", "episode", "derive_episodes", "agentprof-core", "milestone-M1.3"]
@@ -12,7 +12,7 @@ superseded_by: ""
 
 ## Status
 
-**Proposed**
+**Accepted**
 
 ## Context
 
