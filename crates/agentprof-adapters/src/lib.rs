@@ -1,20 +1,15 @@
 //! # agentprof-adapters
 //!
-//! Per-agent session log adapters. Each supported agent has its own module
-//! that implements the `Adapter` trait defined in
-//! [`agentprof-core`](../agentprof_core/index.html).
+//! Per-agent session log adapters.
 //!
-//! Adapters convert agent-specific log formats (e.g. Claude's JSONL files,
-//! Codex CLI sessions, Copilot CLI state) into the unified `RawSession`
-//! representation.
+//! ## Supported agents
 //!
-//! See [`docs/adapters.md`](https://github.com/agentprof/agentprof/blob/main/docs/adapters.md)
-//! for the contribution guide on adding a new adapter.
+//! - [`copilot`] — GitHub Copilot CLI (`~/.copilot/session-state/<uuid>/events.jsonl`)
 //!
-//! ## Modules (planned)
+//! Future:
+//! - `claude` — Anthropic Claude Code (Phase 2)
+//! - `codex`  — `OpenAI` Codex CLI (Phase 3)
 //!
-//! - `claude`   — Anthropic Claude Code JSONL parser
-//! - `codex`    — OpenAI Codex CLI session parser
-//! - `copilot`  — GitHub Copilot CLI session parser
-//! - `registry` — `AgentKind` → boxed `Adapter` mapping (`--agent auto` support)
-//! - `discovery` — shared filesystem helpers
+//! See `docs/adapters.md` for the contribution guide.
+
+pub mod copilot;
