@@ -1,0 +1,107 @@
+---
+source: crates/agentprof-adapters/tests/copilot_fixture_load.rs
+expression: raw
+---
+{
+  "meta": {
+    "id": "00000000-0000-0000-0000-000000000001",
+    "agent": "copilot",
+    "producer": "copilot-agent",
+    "agent_version": "1.0.54",
+    "started_at": "2026-05-26T10:00:00Z",
+    "cwd": "/tmp/agentprof-fixture/minimal",
+    "repository": "fixture/minimal",
+    "branch": "main",
+    "is_live": false
+  },
+  "events": [
+    {
+      "type": "session.start",
+      "id": "00000000-0000-0000-0000-000000000010",
+      "timestamp": "2026-05-26T10:00:00.100Z",
+      "data": {
+        "sessionId": "00000000-0000-0000-0000-000000000001",
+        "version": 1,
+        "producer": "copilot-agent",
+        "copilotVersion": "1.0.54",
+        "startTime": "2026-05-26T10:00:00Z",
+        "context": {
+          "cwd": "/tmp/agentprof-fixture/minimal",
+          "gitRoot": "/tmp/agentprof-fixture/minimal",
+          "branch": "main",
+          "headCommit": "0000000000000000000000000000000000000001",
+          "repository": "fixture/minimal",
+          "hostType": "github"
+        },
+        "alreadyInUse": false
+      }
+    },
+    {
+      "type": "user.message",
+      "id": "00000000-0000-0000-0000-000000000011",
+      "timestamp": "2026-05-26T10:00:01Z",
+      "parentId": "00000000-0000-0000-0000-000000000010",
+      "data": {
+        "content": "[fixture-prompt-1]",
+        "transformedContent": "[fixture-prompt-1]",
+        "source": "cli",
+        "attachments": [],
+        "interactionId": "00000000-0000-0000-0000-000000000100"
+      }
+    },
+    {
+      "type": "assistant.turn_start",
+      "id": "00000000-0000-0000-0000-000000000012",
+      "timestamp": "2026-05-26T10:00:02Z",
+      "parentId": "00000000-0000-0000-0000-000000000011",
+      "data": {
+        "turnId": "0",
+        "interactionId": "00000000-0000-0000-0000-000000000100"
+      }
+    },
+    {
+      "type": "assistant.message",
+      "id": "00000000-0000-0000-0000-000000000013",
+      "timestamp": "2026-05-26T10:00:03Z",
+      "parentId": "00000000-0000-0000-0000-000000000012",
+      "data": {
+        "messageId": "00000000-0000-0000-0000-000000000200",
+        "model": "gpt-5-mini",
+        "content": "[fixture-response-1]",
+        "toolRequests": [],
+        "interactionId": "00000000-0000-0000-0000-000000000100",
+        "turnId": "0",
+        "outputTokens": 10
+      }
+    },
+    {
+      "type": "assistant.turn_end",
+      "id": "00000000-0000-0000-0000-000000000014",
+      "timestamp": "2026-05-26T10:00:04Z",
+      "parentId": "00000000-0000-0000-0000-000000000013",
+      "data": {
+        "turnId": "0"
+      }
+    },
+    {
+      "type": "session.shutdown",
+      "id": "00000000-0000-0000-0000-000000000015",
+      "timestamp": "2026-05-26T10:00:05Z",
+      "parentId": "00000000-0000-0000-0000-000000000014",
+      "data": {
+        "shutdownType": "normal",
+        "totalPremiumRequests": 0,
+        "totalApiDurationMs": 3000,
+        "sessionStartTime": 1779719200000,
+        "codeChanges": {
+          "linesAdded": 0,
+          "linesRemoved": 0,
+          "filesModified": []
+        },
+        "modelMetrics": {},
+        "currentModel": "gpt-5-mini"
+      }
+    }
+  ],
+  "parse_warnings": []
+}

@@ -14,6 +14,11 @@ prefix used in commit messages).
 ## [Unreleased]
 
 ### Added
+- **adapters:** `copilot::parser::parse_events_jsonl(path, is_live)` — line-by-line streaming parser that produces `RawSession<CopilotEvent>`. Per-line JSON failures accumulate as `ParseWarning::Json`; non-monotonic timestamps emit `ParseWarning::OutOfOrder`; the trailing line of a live session (`is_live=true`) is silently skipped when `looks_like_incomplete_json` detects a partial write. Missing `session.start` returns `AdapterError::MissingSessionStart`.
+- **adapters:** `copilot::parser::looks_like_incomplete_json` — public brace-depth heuristic respecting string literals and escapes, used for live-session tail tolerance.
+- **adapters:** Synthetic test fixtures at `tests/fixtures/copilot/` (`README.md` + `minimal/` + `corrupt/`) per ADR-0003, plus `copilot_fixture_load` integration tests (count + warning + `insta` snapshot of the `minimal` `RawSession`).
+- **core:** `SessionMeta::new` and `RawSession::new` constructors (both `const fn` where applicable) so adapter crates can build these `#[non_exhaustive]` types without struct-literal syntax.
+
 - **Project roadmap entry-point** — `tasks/ROADMAP.md` (378 lines): the master document new contributors and AI agents should read first. Sections cover (1) document map across L1/L2/L3 + AI guides, (2) project phases timeline with current commit position, (3) task file index with status/release mapping, (4) milestone dependency graph (within MVP and across phases), (5) release cadence and SemVer rules, (6) how-to-use guide for 6 personas (newcomer / developer / feature author / releaser / reviewer / maintainer), (7) long-term vision and explicit "won't do" boundaries, plus self-update discipline at the bottom.
 - 001 task file now back-links to `tasks/ROADMAP.md` in its authoritative-documents preamble.
 - **MVP task file** — `tasks/001-mvp-agent-token-profiler.md` (1009 lines): full PRD + implementation plan covering Phase 0 + Phase 1. Format mirrors the reference `proteinCopilot/tasks/001-mvp-proteomics-search-platform.md`:

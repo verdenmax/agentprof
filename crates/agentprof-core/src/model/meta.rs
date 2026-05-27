@@ -53,6 +53,52 @@ pub struct SessionMeta {
     pub is_live: bool,
 }
 
+impl SessionMeta {
+    /// Construct a minimal `SessionMeta` with only the required fields set.
+    ///
+    /// All `Option<_>` fields (`producer`, `agent_version`, `cwd`,
+    /// `repository`, `branch`) default to `None`; set them via the public
+    /// fields after construction if known. Provided because `SessionMeta`
+    /// is `#[non_exhaustive]` and therefore cannot be built with a struct
+    /// literal from another crate.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::adapter::AgentKind;
+    /// use agentprof_core::model::SessionMeta;
+    /// use chrono::{TimeZone, Utc};
+    ///
+    /// let meta = SessionMeta::new(
+    ///     "abc-123".into(),
+    ///     AgentKind::Copilot,
+    ///     Utc.with_ymd_and_hms(2026, 5, 26, 10, 0, 0).unwrap(),
+    ///     false,
+    /// );
+    /// assert_eq!(meta.id, "abc-123");
+    /// assert!(meta.producer.is_none());
+    /// ```
+    #[must_use]
+    pub const fn new(
+        id: String,
+        agent: AgentKind,
+        started_at: DateTime<Utc>,
+        is_live: bool,
+    ) -> Self {
+        Self {
+            id,
+            agent,
+            producer: None,
+            agent_version: None,
+            started_at,
+            cwd: None,
+            repository: None,
+            branch: None,
+            is_live,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

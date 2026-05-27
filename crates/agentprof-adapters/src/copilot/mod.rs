@@ -7,6 +7,13 @@
 //! reference.
 
 mod event;
-// `parser`, `paths`, `adapter` added in later tasks.
+pub mod parser;
+// `paths`, `adapter` added in later tasks.
 
-pub use event::{CopilotEvent, WithEnvelope};
+pub use event::{
+    AbortData, AssistantMessageData, CodeChanges, CopilotEvent, HookEndData, HookInput, HookOutput,
+    HookStartData, ModeChangeData, ModelChangeData, PlanChangeData, SessionContext,
+    SessionInfoData, SessionStartData, ShutdownData, SkillData, SystemMessageData, ToolError,
+    ToolExecData, ToolRequest, ToolResult, ToolResultData, ToolTelemetry, ToolUserArgs,
+    ToolUserRequestedData, TurnRefData, UserMessageData, WithEnvelope,
+};

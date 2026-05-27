@@ -65,6 +65,51 @@ pub struct RawSession<E> {
     pub parse_warnings: Vec<ParseWarning>,
 }
 
+impl<E> RawSession<E> {
+    /// Construct a `RawSession` directly from parts.
+    ///
+    /// Provided so adapter crates (which cannot use a struct literal due to
+    /// `#[non_exhaustive]`) can assemble parsed output. Adapters are
+    /// expected to populate `parse_warnings` for any single-line failures
+    /// rather than returning an `Err`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::adapter::{AgentKind, Event, EventKind};
+    /// use agentprof_core::model::{RawSession, SessionMeta};
+    /// use chrono::{DateTime, TimeZone, Utc};
+    ///
+    /// #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    /// struct E;
+    /// impl Event for E {
+    ///     fn id(&self) -> &str { "x" }
+    ///     fn kind(&self) -> EventKind { EventKind::Unknown }
+    ///     fn timestamp(&self) -> DateTime<Utc> {
+    ///         Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap()
+    ///     }
+    ///     fn parent_id(&self) -> Option<&str> { None }
+    /// }
+    ///
+    /// let meta = SessionMeta::new(
+    ///     "id".into(),
+    ///     AgentKind::Copilot,
+    ///     Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap(),
+    ///     false,
+    /// );
+    /// let s: RawSession<E> = RawSession::new(meta, vec![], vec![]);
+    /// assert_eq!(s.events.len(), 0);
+    /// ```
+    #[must_use]
+    pub const fn new(meta: SessionMeta, events: Vec<E>, parse_warnings: Vec<ParseWarning>) -> Self {
+        Self {
+            meta,
+            events,
+            parse_warnings,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
