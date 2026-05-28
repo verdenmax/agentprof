@@ -13,5 +13,13 @@ version.workspace      = true
 workspace = true
 
 [dependencies]
-anyhow = { workspace = true }
-clap   = { workspace = true }
+anyhow     = { workspace = true }
+clap       = { workspace = true }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+chrono     = { workspace = true }
+agentprof-core     = { path = "../crates/agentprof-core" }
+agentprof-adapters = { path = "../crates/agentprof-adapters" }
+
+[dev-dependencies]
+tempfile = { workspace = true }
