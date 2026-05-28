@@ -7,6 +7,12 @@ use serde::{Deserialize, Serialize};
 
 /// Common per-event envelope fields wrapped around every payload variant.
 ///
+/// The optional top-level `agent_id` is populated for events emitted by an
+/// active subagent or tool call (notably `subagent.started`,
+/// `subagent.completed`, and some `assistant.message` / `skill.invoked`
+/// records). It is `None` for envelope-only events that omit the field on the
+/// wire.
+///
 /// # Examples
 ///
 /// ```
@@ -32,19 +38,26 @@ pub struct WithEnvelope<D> {
     /// `true` for transient events.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ephemeral: Option<bool>,
+    /// Top-level subagent / tool-call identifier, when emitted by an active
+    /// subagent. `None` for non-subagent events.
+    #[serde(rename = "agentId", default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
     /// Variant-specific payload.
     pub data: D,
 }
 
 /// One line from `events.jsonl`, discriminated by the wire-format `type` field.
 ///
-/// Carries 18 named variants — session lifecycle (`session.*`), user/assistant
+/// Carries 28 named variants — session lifecycle (`session.*`), user/assistant
 /// messaging (`user.message`, `assistant.message`, `assistant.turn_start`,
-/// `assistant.turn_end`), system messages (`system.message`), tool
-/// execution (`tool.execution_start`, `tool.execution_complete`,
-/// `tool.user_requested`), hook lifecycle (`hook.start`, `hook.end`), skill
-/// activation (`skill.invoked`), and user-initiated cancellation (`abort`) —
-/// plus an [`CopilotEvent::Unknown`] forward-compatibility fallback.
+/// `assistant.turn_end`), system messages (`system.message`,
+/// `system.notification`), tool execution (`tool.execution_start`,
+/// `tool.execution_complete`, `tool.user_requested`), permission flow
+/// (`permission.requested`, `permission.completed`), subagent lifecycle
+/// (`subagent.started`, `subagent.completed`, `subagent.failed`), hook
+/// lifecycle (`hook.start`, `hook.end`), skill activation (`skill.invoked`),
+/// and user-initiated cancellation (`abort`) — plus an
+/// [`CopilotEvent::Unknown`] forward-compatibility fallback.
 ///
 /// # Examples
 ///
@@ -110,6 +123,36 @@ pub enum CopilotEvent {
     /// Skill activated for this session.
     #[serde(rename = "skill.invoked")]
     SkillInvoked(WithEnvelope<SkillData>),
+    /// Session received a warning (e.g. MCP server unresponsive).
+    #[serde(rename = "session.warning")]
+    SessionWarning(WithEnvelope<SessionWarningData>),
+    /// Existing session resumed from on-disk state.
+    #[serde(rename = "session.resume")]
+    SessionResume(WithEnvelope<SessionResumeData>),
+    /// Conversation context compaction begun.
+    #[serde(rename = "session.compaction_start")]
+    SessionCompactionStart(WithEnvelope<SessionCompactionStartData>),
+    /// Conversation context compaction finished.
+    #[serde(rename = "session.compaction_complete")]
+    SessionCompactionComplete(WithEnvelope<SessionCompactionCompleteData>),
+    /// System-emitted notification with structured `kind` payload.
+    #[serde(rename = "system.notification")]
+    SystemNotification(WithEnvelope<SystemNotificationData>),
+    /// Permission request awaiting user / policy decision.
+    #[serde(rename = "permission.requested")]
+    PermissionRequested(WithEnvelope<PermissionRequestedData>),
+    /// Permission request resolved (approved / denied / cancelled).
+    #[serde(rename = "permission.completed")]
+    PermissionCompleted(WithEnvelope<PermissionCompletedData>),
+    /// Subagent (task delegated to a sub-LLM) invocation started.
+    #[serde(rename = "subagent.started")]
+    SubagentStarted(WithEnvelope<SubagentStartedData>),
+    /// Subagent finished successfully.
+    #[serde(rename = "subagent.completed")]
+    SubagentCompleted(WithEnvelope<SubagentCompletedData>),
+    /// Subagent failed (error returned before completion).
+    #[serde(rename = "subagent.failed")]
+    SubagentFailed(WithEnvelope<SubagentFailedData>),
     /// User-initiated session abort.
     #[serde(rename = "abort")]
     Abort(WithEnvelope<AbortData>),
@@ -400,6 +443,22 @@ pub struct ToolExecData {
     pub tool_name: String,
     /// Tool-specific argument object (shape varies; kept as Value).
     pub arguments: serde_json::Value,
+    /// Turn ID, when emitted by an in-turn tool call.
+    ///
+    /// Absent on subagent-initiated and user-requested tool calls observed
+    /// in real Copilot CLI 1.0.x data.
+    #[serde(rename = "turnId", default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    /// Parent tool call ID for nested / subagent-spawned tool invocations.
+    ///
+    /// `None` for top-level tool calls. Present on subagent-emitted tool
+    /// events alongside the envelope-level `agentId` field.
+    #[serde(
+        rename = "parentToolCallId",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub parent_tool_call_id: Option<String>,
 }
 
 /// Tool result returned alongside `tool.execution_complete`.
@@ -407,10 +466,18 @@ pub struct ToolExecData {
 #[non_exhaustive]
 pub struct ToolResult {
     /// Short / summarized result content shown to the user.
-    pub content: String,
+    ///
+    /// Optional because some tool result payloads observed in real Copilot
+    /// CLI 1.0.x data omit `content` entirely (e.g. binary-result tools).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
     /// Verbose result content the model sees.
-    #[serde(rename = "detailedContent")]
-    pub detailed_content: String,
+    #[serde(
+        rename = "detailedContent",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub detailed_content: Option<String>,
 }
 
 /// Telemetry record attached to a tool result.
@@ -434,6 +501,11 @@ pub struct ToolTelemetry {
 pub struct ToolError {
     /// Human-readable error message.
     pub message: String,
+    /// Machine-readable error code (e.g. `"failure"`, `"timeout"`).
+    ///
+    /// Optional because older Copilot CLI 1.0.x events omit the field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
 }
 
 /// Payload for `tool.execution_complete`.
@@ -444,20 +516,42 @@ pub struct ToolResultData {
     #[serde(rename = "toolCallId")]
     pub tool_call_id: String,
     /// Model that requested this tool call.
-    pub model: String,
+    ///
+    /// Optional for forward-compat with older Copilot CLI 1.0.x payloads
+    /// that omit the field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
     /// Interaction grouping (matches `AssistantMessage` / `ToolExecStart`).
-    #[serde(rename = "interactionId")]
-    pub interaction_id: String,
+    ///
+    /// Optional for forward-compat with older Copilot CLI 1.0.x payloads.
+    #[serde(
+        rename = "interactionId",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub interaction_id: Option<String>,
     /// Turn ID (absent on some user-requested calls).
     #[serde(rename = "turnId", default, skip_serializing_if = "Option::is_none")]
     pub turn_id: Option<String>,
     /// Whether the tool succeeded.
     pub success: bool,
     /// Result payload.
-    pub result: ToolResult,
+    ///
+    /// Absent when `success == false`: real Copilot CLI 1.0.x failure events
+    /// omit the entire `result` object and surface the error via
+    /// [`ToolResultData::error`] instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<ToolResult>,
     /// Telemetry counters/properties.
-    #[serde(rename = "toolTelemetry")]
-    pub tool_telemetry: ToolTelemetry,
+    ///
+    /// Optional for forward-compat with older Copilot CLI 1.0.x payloads
+    /// that omit telemetry entirely.
+    #[serde(
+        rename = "toolTelemetry",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub tool_telemetry: Option<ToolTelemetry>,
     /// Error details when `success == false`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<ToolError>,
@@ -604,6 +698,300 @@ pub struct AbortData {
     pub reason: String,
 }
 
+// -- session.warning / session.resume / session.compaction_* payloads --
+
+/// Payload for `session.warning`.
+///
+/// Observed warning types include `mcp` (MCP server unresponsive). Fields are
+/// optional because the wire schema is still loose and future Copilot CLI
+/// versions may omit either.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+#[serde(rename_all = "camelCase")]
+pub struct SessionWarningData {
+    /// Human-readable warning text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    /// Warning category (e.g. `mcp`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warning_type: Option<String>,
+}
+
+/// Payload for `session.resume`.
+///
+/// Emitted when an existing session is reopened (`copilot resume <id>`).
+/// All non-trivial fields are optional since the producer evolves between
+/// CLI versions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+#[serde(rename_all = "camelCase")]
+pub struct SessionResumeData {
+    /// Whether another live process was holding the session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub already_in_use: Option<bool>,
+    /// Workspace context captured at resume time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<SessionContext>,
+    /// Number of events already on disk for this session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_count: Option<u64>,
+    /// Reasoning effort knob in effect (e.g. `high`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
+    /// ISO-8601 timestamp of the resume itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_time: Option<DateTime<Utc>>,
+    /// Model selected for the resumed session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_model: Option<String>,
+}
+
+/// Payload for `session.compaction_start`.
+///
+/// Captures the pre-compaction token breakdown at the moment the agent
+/// decided to compact the conversation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+#[serde(rename_all = "camelCase")]
+pub struct SessionCompactionStartData {
+    /// Tokens occupied by the conversation transcript.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation_tokens: Option<u64>,
+    /// Tokens occupied by the system prompt(s).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_tokens: Option<u64>,
+    /// Tokens occupied by tool definitions in context.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_definitions_tokens: Option<u64>,
+}
+
+/// Token breakdown for a single compaction request.
+///
+/// Two flavors of shape have been observed: a richer one with cache token
+/// detail + Copilot usage rollup, and a simpler `cachedInput`/`input`/`output`
+/// triple. All fields are optional and forward-compatible.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+#[serde(rename_all = "camelCase")]
+pub struct CompactionTokensUsed {
+    /// Cache-read tokens (newer shape).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_read_tokens: Option<u64>,
+    /// Cache-write tokens (newer shape).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_write_tokens: Option<u64>,
+    /// Cached-input tokens (older shape).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cached_input: Option<u64>,
+    /// Free-form Copilot usage rollup (preserved verbatim).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub copilot_usage: Option<serde_json::Value>,
+    /// Duration of the compaction request in milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration: Option<u64>,
+    /// Input tokens (either shape).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<u64>,
+    /// Input tokens (newer-shape alias).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_tokens: Option<u64>,
+    /// Model that performed the compaction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Output tokens (either shape).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<u64>,
+    /// Output tokens (newer-shape alias).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_tokens: Option<u64>,
+}
+
+/// Payload for `session.compaction_complete`.
+///
+/// Records the compaction outcome — including the summary content that
+/// replaced the compacted history and the location of the resulting
+/// checkpoint on disk.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+#[serde(rename_all = "camelCase")]
+pub struct SessionCompactionCompleteData {
+    /// Sequence number of the resulting checkpoint within this session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint_number: Option<u64>,
+    /// Filesystem path of the on-disk checkpoint produced by compaction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint_path: Option<String>,
+    /// Token cost of the compaction request itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compaction_tokens_used: Option<CompactionTokensUsed>,
+    /// Number of messages in the conversation before compaction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pre_compaction_messages_length: Option<u64>,
+    /// Token count of the conversation before compaction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pre_compaction_tokens: Option<u64>,
+    /// Upstream API request id for the compaction call.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    /// Whether the compaction completed successfully.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub success: Option<bool>,
+    /// Summarized content that replaced the compacted history.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary_content: Option<String>,
+}
+
+// -- system.notification payload --
+
+/// Payload for `system.notification`.
+///
+/// The `kind` field is a discriminated union keyed by `kind.type`
+/// (e.g. `agent_completed`); it is kept as raw [`serde_json::Value`] for
+/// now — future work may introduce typed variants once enough subtypes are
+/// observed in real data.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+#[serde(rename_all = "camelCase")]
+pub struct SystemNotificationData {
+    /// Rendered notification body shown to the user.
+    pub content: String,
+    /// Structured kind descriptor; discriminated by its inner `type` field.
+    pub kind: serde_json::Value,
+}
+
+// -- permission.* payloads --
+
+/// Payload for `permission.requested`.
+///
+/// All structured detail (`permissionRequest`, `promptRequest`) is preserved
+/// as raw JSON for now; the wire shape varies widely across tool kinds and
+/// classifying it into typed variants is deferred to a later milestone.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionRequestedData {
+    /// Unique id for this permission interaction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    /// Detailed permission request payload (kind-specific).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission_request: Option<serde_json::Value>,
+    /// Prompt-side request payload shown to the user.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_request: Option<serde_json::Value>,
+    /// Tool call id this permission gates, if directly associated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+}
+
+/// Result of a `permission.completed` decision.
+///
+/// `kind` carries the verdict (`approved`, `denied`, ...). Future work may
+/// turn this into a typed enum.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionResult {
+    /// Verdict (e.g. `approved`, `denied`).
+    pub kind: String,
+}
+
+/// Payload for `permission.completed`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionCompletedData {
+    /// Matching id from the originating `permission.requested` event.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    /// Decision outcome.
+    pub result: PermissionResult,
+    /// Tool call id this permission gated, if directly associated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+}
+
+// -- subagent.* payloads --
+//
+// Note: `subagent.started` and `subagent.completed` carry `agentId` at the
+// envelope level, not inside `data`. That is handled uniformly by
+// [`WithEnvelope::agent_id`] (above) — these payload structs only model the
+// fields that actually live inside `data`.
+
+/// Payload for `subagent.started`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+#[serde(rename_all = "camelCase")]
+pub struct SubagentStartedData {
+    /// Long-form description of the subagent's capabilities.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_description: Option<String>,
+    /// User-facing display name (e.g. `General Purpose Agent`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_display_name: Option<String>,
+    /// Stable agent identifier (e.g. `general-purpose`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_name: Option<String>,
+    /// Tool call id that triggered the subagent invocation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+}
+
+/// Payload for `subagent.completed`.
+///
+/// Metrics fields are emitted by newer CLI versions only and may be absent
+/// in earlier samples.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+#[serde(rename_all = "camelCase")]
+pub struct SubagentCompletedData {
+    /// User-facing display name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_display_name: Option<String>,
+    /// Stable agent identifier.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_name: Option<String>,
+    /// Wall-clock duration of the subagent run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+    /// Model executed inside the subagent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Originating tool call id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+    /// Total tokens consumed across the subagent run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_tokens: Option<u64>,
+    /// Total tool calls issued by the subagent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_tool_calls: Option<u64>,
+}
+
+/// Payload for `subagent.failed`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+#[serde(rename_all = "camelCase")]
+pub struct SubagentFailedData {
+    /// User-facing display name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_display_name: Option<String>,
+    /// Stable agent identifier.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_name: Option<String>,
+    /// Wall-clock duration up to the failure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+    /// Failure message (raw upstream error text).
+    pub error: String,
+    /// Originating tool call id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+    /// Tool calls issued before the failure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_tool_calls: Option<u64>,
+}
+
 // -- inherent accessors + Event trait impl --
 
 impl CopilotEvent {
@@ -632,6 +1020,16 @@ impl CopilotEvent {
             Self::HookStart(env) => &env.id,
             Self::HookEnd(env) => &env.id,
             Self::SkillInvoked(env) => &env.id,
+            Self::SessionWarning(env) => &env.id,
+            Self::SessionResume(env) => &env.id,
+            Self::SessionCompactionStart(env) => &env.id,
+            Self::SessionCompactionComplete(env) => &env.id,
+            Self::SystemNotification(env) => &env.id,
+            Self::PermissionRequested(env) => &env.id,
+            Self::PermissionCompleted(env) => &env.id,
+            Self::SubagentStarted(env) => &env.id,
+            Self::SubagentCompleted(env) => &env.id,
+            Self::SubagentFailed(env) => &env.id,
             Self::Abort(env) => &env.id,
             Self::Unknown => "",
         }
@@ -671,6 +1069,16 @@ impl CopilotEvent {
             Self::HookStart(_) => K::HookStart,
             Self::HookEnd(_) => K::HookEnd,
             Self::SkillInvoked(_) => K::SkillInvoked,
+            Self::SessionWarning(_) => K::SessionWarning,
+            Self::SessionResume(_) => K::SessionResume,
+            Self::SessionCompactionStart(_) => K::SessionCompactionStart,
+            Self::SessionCompactionComplete(_) => K::SessionCompactionComplete,
+            Self::SystemNotification(_) => K::SystemNotification,
+            Self::PermissionRequested(_) => K::PermissionRequested,
+            Self::PermissionCompleted(_) => K::PermissionCompleted,
+            Self::SubagentStarted(_) => K::SubagentStarted,
+            Self::SubagentCompleted(_) => K::SubagentCompleted,
+            Self::SubagentFailed(_) => K::SubagentFailed,
             Self::Abort(_) => K::Abort,
             Self::Unknown => K::Unknown,
         }
@@ -701,6 +1109,16 @@ impl CopilotEvent {
             Self::HookStart(env) => env.timestamp,
             Self::HookEnd(env) => env.timestamp,
             Self::SkillInvoked(env) => env.timestamp,
+            Self::SessionWarning(env) => env.timestamp,
+            Self::SessionResume(env) => env.timestamp,
+            Self::SessionCompactionStart(env) => env.timestamp,
+            Self::SessionCompactionComplete(env) => env.timestamp,
+            Self::SystemNotification(env) => env.timestamp,
+            Self::PermissionRequested(env) => env.timestamp,
+            Self::PermissionCompleted(env) => env.timestamp,
+            Self::SubagentStarted(env) => env.timestamp,
+            Self::SubagentCompleted(env) => env.timestamp,
+            Self::SubagentFailed(env) => env.timestamp,
             Self::Abort(env) => env.timestamp,
             Self::Unknown => DateTime::<Utc>::UNIX_EPOCH,
         }
@@ -731,6 +1149,16 @@ impl CopilotEvent {
             Self::HookStart(env) => env.parent_id.as_deref(),
             Self::HookEnd(env) => env.parent_id.as_deref(),
             Self::SkillInvoked(env) => env.parent_id.as_deref(),
+            Self::SessionWarning(env) => env.parent_id.as_deref(),
+            Self::SessionResume(env) => env.parent_id.as_deref(),
+            Self::SessionCompactionStart(env) => env.parent_id.as_deref(),
+            Self::SessionCompactionComplete(env) => env.parent_id.as_deref(),
+            Self::SystemNotification(env) => env.parent_id.as_deref(),
+            Self::PermissionRequested(env) => env.parent_id.as_deref(),
+            Self::PermissionCompleted(env) => env.parent_id.as_deref(),
+            Self::SubagentStarted(env) => env.parent_id.as_deref(),
+            Self::SubagentCompleted(env) => env.parent_id.as_deref(),
+            Self::SubagentFailed(env) => env.parent_id.as_deref(),
             Self::Abort(env) => env.parent_id.as_deref(),
             Self::Unknown => None,
         }

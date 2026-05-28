@@ -86,9 +86,10 @@ pub struct ParseAgentKindError(String);
 /// Coarse classification of an event for cheap pattern matching by analyzers
 /// that don't care about per-payload details.
 ///
-/// Variants mirror the 18 canonical event categories observed in the
-/// `events.jsonl` wire format (per `docs/internals/adr-0002-copilot-event-schema.md`)
-/// plus an [`EventKind::Unknown`] forward-compat sentinel — 19 total.
+/// Variants mirror the 28 canonical event categories observed in the
+/// `events.jsonl` wire format (per `docs/internals/adr-0002-copilot-event-schema.md`
+/// plus the M1.3 schema-audit expansion) plus an [`EventKind::Unknown`]
+/// forward-compat sentinel — 29 total.
 /// Adapters that don't emit a given event type simply never produce that variant.
 ///
 /// # Examples
@@ -101,7 +102,7 @@ pub struct ParseAgentKindError(String);
 /// }
 /// assert!(is_tool(k));
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum EventKind {
     /// Session lifecycle (start of recording).
@@ -138,6 +139,26 @@ pub enum EventKind {
     SkillInvoked,
     /// System-emitted message (e.g. system prompt injection).
     SystemMessage,
+    /// System-emitted structured notification (e.g. agent completion banner).
+    SystemNotification,
+    /// Session received a non-fatal warning (e.g. MCP server unresponsive).
+    SessionWarning,
+    /// Existing session resumed from on-disk state.
+    SessionResume,
+    /// Conversation context compaction begun.
+    SessionCompactionStart,
+    /// Conversation context compaction finished.
+    SessionCompactionComplete,
+    /// Permission request awaiting user / policy decision.
+    PermissionRequested,
+    /// Permission request resolved (approved / denied / cancelled).
+    PermissionCompleted,
+    /// Subagent invocation started.
+    SubagentStarted,
+    /// Subagent finished successfully.
+    SubagentCompleted,
+    /// Subagent failed before completion.
+    SubagentFailed,
     /// Turn aborted (user cancel or internal failure).
     Abort,
     /// Forward-compat: event type the parser didn't recognize.

@@ -1,0 +1,79 @@
+---
+source: crates/agentprof-adapters/tests/episode_derive.rs
+expression: episodes
+---
+{
+  "turns": [
+    {
+      "id": "00000000-0000-0000-0000-000000000053",
+      "started_at": "2026-05-26T13:00:03Z",
+      "ended_at": "2026-05-26T13:00:07Z",
+      "model": null,
+      "mode": null,
+      "output_tokens": null,
+      "status": "Completed",
+      "tool_calls": [
+        {
+          "name": "00000000-0000-0000-0000-000000000055",
+          "index": 0
+        }
+      ],
+      "hook_calls": [],
+      "skill_calls": []
+    }
+  ],
+  "tools": {
+    "00000000-0000-0000-0000-000000000055": {
+      "name": "00000000-0000-0000-0000-000000000055",
+      "source": {
+        "kind": "builtin"
+      },
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T13:00:05Z",
+            "ended_at": "2026-05-26T13:00:06Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000053",
+          "status": "Success",
+          "user_requested": false
+        }
+      ],
+      "total_duration": [
+        1,
+        0
+      ],
+      "fail_count": 0
+    }
+  },
+  "hooks": {},
+  "skills": {
+    "00000000-0000-0000-0000-000000000052": {
+      "name": "00000000-0000-0000-0000-000000000052",
+      "invocations": [
+        {
+          "at": "2026-05-26T13:00:02Z",
+          "turn_id": null,
+          "triggered_tools": [
+            {
+              "name": "00000000-0000-0000-0000-000000000055",
+              "index": 0
+            }
+          ]
+        }
+      ],
+      "subsequent_tool_calls": 1
+    }
+  },
+  "mode_segments": [
+    {
+      "mode": {
+        "Unknown": "default"
+      },
+      "started_at": "2026-05-26T13:00:00Z",
+      "ended_at": "2026-05-26T13:00:08Z"
+    }
+  ],
+  "aborts": [],
+  "warnings": []
+}

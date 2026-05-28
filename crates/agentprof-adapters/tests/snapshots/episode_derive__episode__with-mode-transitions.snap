@@ -1,0 +1,67 @@
+---
+source: crates/agentprof-adapters/tests/episode_derive.rs
+expression: episodes
+---
+{
+  "turns": [
+    {
+      "id": "00000000-0000-0000-0000-000000000223",
+      "started_at": "2026-05-26T17:00:03Z",
+      "ended_at": "2026-05-26T17:00:05Z",
+      "model": null,
+      "mode": null,
+      "output_tokens": null,
+      "status": "Completed",
+      "tool_calls": [],
+      "hook_calls": [],
+      "skill_calls": []
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000227",
+      "started_at": "2026-05-26T17:00:07Z",
+      "ended_at": "2026-05-26T17:00:09Z",
+      "model": null,
+      "mode": null,
+      "output_tokens": null,
+      "status": "Completed",
+      "tool_calls": [],
+      "hook_calls": [],
+      "skill_calls": []
+    }
+  ],
+  "tools": {},
+  "hooks": {},
+  "skills": {},
+  "mode_segments": [
+    {
+      "mode": {
+        "Unknown": "default"
+      },
+      "started_at": "2026-05-26T17:00:00Z",
+      "ended_at": "2026-05-26T17:00:02Z"
+    },
+    {
+      "mode": {
+        "Unknown": "changed"
+      },
+      "started_at": "2026-05-26T17:00:02Z",
+      "ended_at": "2026-05-26T17:00:06Z"
+    },
+    {
+      "mode": {
+        "Unknown": "changed"
+      },
+      "started_at": "2026-05-26T17:00:06Z",
+      "ended_at": "2026-05-26T17:00:10Z"
+    },
+    {
+      "mode": {
+        "Unknown": "changed"
+      },
+      "started_at": "2026-05-26T17:00:10Z",
+      "ended_at": "2026-05-26T17:00:11Z"
+    }
+  ],
+  "aborts": [],
+  "warnings": []
+}

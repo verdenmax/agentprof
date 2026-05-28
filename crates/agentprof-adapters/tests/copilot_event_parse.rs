@@ -172,8 +172,10 @@ fn tool_exec_complete_parses() {
         CopilotEvent::ToolExecComplete(env) => {
             assert_eq!(env.data.tool_call_id, "tc1");
             assert!(env.data.success);
-            assert!(env.data.result.content.contains("file1"));
-            assert_eq!(env.data.tool_telemetry.metrics["resultLength"], 11);
+            let result = env.data.result.as_ref().expect("result present on success");
+            assert!(result.content.as_deref().unwrap_or("").contains("file1"));
+            let telemetry = env.data.tool_telemetry.as_ref().expect("telemetry present");
+            assert_eq!(telemetry.metrics["resultLength"], 11);
         }
         other => panic!("expected ToolExecComplete, got {other:?}"),
     }
@@ -190,6 +192,116 @@ fn tool_exec_complete_with_error_parses() {
         }
         _ => panic!("expected ToolExecComplete"),
     }
+}
+
+#[test]
+fn tool_execution_start_with_object_arguments_round_trips() {
+    // Real Copilot CLI 1.0.x wire shape: arbitrary JSON object in `arguments`,
+    // plus a `turnId` sibling not present in the M1.2 clean-room schema.
+    let raw = r#"{
+        "type": "tool.execution_start",
+        "id": "evt-tes-1",
+        "timestamp": "2026-05-26T12:30:30.001Z",
+        "parentId": "p-1",
+        "data": {
+            "arguments": { "path": "/tmp/x.rs", "view_range": [100, 165] },
+            "toolCallId": "toolu_abc",
+            "toolName": "view",
+            "turnId": "78"
+        }
+    }"#;
+    let ev: CopilotEvent = serde_json::from_str(raw).expect("parse");
+    let env = match &ev {
+        CopilotEvent::ToolExecStart(e) => e,
+        other => panic!("expected ToolExecStart, got {other:?}"),
+    };
+    assert_eq!(env.data.tool_call_id, "toolu_abc");
+    assert_eq!(env.data.tool_name, "view");
+    assert_eq!(env.data.turn_id.as_deref(), Some("78"));
+    assert_eq!(env.data.arguments["path"], "/tmp/x.rs");
+
+    let back = serde_json::to_string(&ev).expect("serialize");
+    let again: CopilotEvent = serde_json::from_str(&back).expect("re-parse");
+    assert!(matches!(again, CopilotEvent::ToolExecStart(_)));
+}
+
+#[test]
+fn tool_execution_complete_with_telemetry_round_trips() {
+    // Real Copilot CLI 1.0.x success payload: `result.{content,detailedContent}`,
+    // plus `toolTelemetry.{metrics,properties}` and `model` / `interactionId`.
+    let raw = r#"{
+        "type": "tool.execution_complete",
+        "id": "evt-tec-1",
+        "timestamp": "2026-05-26T12:30:33.098Z",
+        "parentId": "p-1",
+        "data": {
+            "interactionId": "i-1",
+            "model": "claude-opus-4.7-1m-internal",
+            "result": { "content": "ok", "detailedContent": "ok details" },
+            "success": true,
+            "toolCallId": "tc-1",
+            "toolTelemetry": {
+                "metrics": { "commandTimeout": 30000 },
+                "properties": { "executionMode": "sync" }
+            },
+            "turnId": "87"
+        }
+    }"#;
+    let ev: CopilotEvent = serde_json::from_str(raw).expect("parse");
+    let env = match &ev {
+        CopilotEvent::ToolExecComplete(e) => e,
+        other => panic!("expected ToolExecComplete, got {other:?}"),
+    };
+    assert_eq!(env.data.tool_call_id, "tc-1");
+    assert_eq!(
+        env.data.model.as_deref(),
+        Some("claude-opus-4.7-1m-internal")
+    );
+    assert!(env.data.success);
+    let result = env.data.result.as_ref().expect("result present");
+    assert_eq!(result.content.as_deref(), Some("ok"));
+    assert_eq!(result.detailed_content.as_deref(), Some("ok details"));
+    let telemetry = env.data.tool_telemetry.as_ref().expect("telemetry");
+    assert_eq!(telemetry.metrics["commandTimeout"], 30000);
+
+    let back = serde_json::to_string(&ev).expect("serialize");
+    let again: CopilotEvent = serde_json::from_str(&back).expect("re-parse");
+    assert!(matches!(again, CopilotEvent::ToolExecComplete(_)));
+}
+
+#[test]
+fn tool_execution_complete_with_error_round_trips() {
+    // Real Copilot CLI 1.0.x failure payload: `result` is OMITTED, telemetry
+    // is `{}`, and `error.{code,message}` carries the failure reason.
+    let raw = r#"{
+        "type": "tool.execution_complete",
+        "id": "evt-tec-fail-1",
+        "timestamp": "2026-05-26T12:31:00.000Z",
+        "parentId": "p-1",
+        "data": {
+            "error": { "code": "failure", "message": "\"command\": Required" },
+            "interactionId": "i-2",
+            "model": "claude-opus-4.7-1m-internal",
+            "success": false,
+            "toolCallId": "tc-2",
+            "toolTelemetry": {},
+            "turnId": "95"
+        }
+    }"#;
+    let ev: CopilotEvent = serde_json::from_str(raw).expect("parse");
+    let env = match &ev {
+        CopilotEvent::ToolExecComplete(e) => e,
+        other => panic!("expected ToolExecComplete, got {other:?}"),
+    };
+    assert!(!env.data.success);
+    assert!(env.data.result.is_none(), "failure case has no result");
+    let err = env.data.error.as_ref().expect("error present");
+    assert_eq!(err.code.as_deref(), Some("failure"));
+    assert!(err.message.contains("Required"));
+
+    let back = serde_json::to_string(&ev).expect("serialize");
+    let again: CopilotEvent = serde_json::from_str(&back).expect("re-parse");
+    assert!(matches!(again, CopilotEvent::ToolExecComplete(_)));
 }
 
 #[test]
@@ -278,6 +390,191 @@ fn abort_parses() {
             assert_eq!(env.data.reason, "user_interrupt");
         }
         _ => panic!("expected Abort"),
+    }
+}
+
+// -- M1.3 Task 4: round-trip tests for the 10 newly added variants. --
+
+fn assert_round_trips(line: &str, expect: impl Fn(&CopilotEvent) -> bool) {
+    let evt: CopilotEvent = serde_json::from_str(line).expect("initial parse");
+    assert!(expect(&evt), "wrong variant: {evt:?}");
+    let back = serde_json::to_string(&evt).expect("serialize");
+    let again: CopilotEvent = serde_json::from_str(&back).expect("re-parse");
+    assert!(expect(&again), "re-parsed wrong variant: {again:?}");
+}
+
+#[test]
+fn subagent_started_round_trips() {
+    let line = r#"{"type":"subagent.started","agentId":"toolu_xyz","data":{"agentDescription":"Full-capability agent.","agentDisplayName":"General Purpose Agent","agentName":"general-purpose","toolCallId":"toolu_xyz"},"id":"e-sub-1","timestamp":"2026-05-26T13:06:40.114Z","parentId":"p1"}"#;
+    assert_round_trips(line, |e| matches!(e, CopilotEvent::SubagentStarted(_)));
+    let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+    match evt {
+        CopilotEvent::SubagentStarted(env) => {
+            assert_eq!(env.agent_id.as_deref(), Some("toolu_xyz"));
+            assert_eq!(env.data.agent_name.as_deref(), Some("general-purpose"));
+            assert_eq!(env.data.tool_call_id.as_deref(), Some("toolu_xyz"));
+        }
+        _ => panic!("expected SubagentStarted"),
+    }
+}
+
+#[test]
+fn subagent_completed_round_trips_with_metrics() {
+    let line = r#"{"type":"subagent.completed","agentId":"toolu_xyz","data":{"agentDisplayName":"General Purpose Agent","agentName":"general-purpose","durationMs":80539,"model":"claude-opus-4.7-1m-internal","toolCallId":"toolu_xyz","totalTokens":197023,"totalToolCalls":4},"id":"e-sub-2","timestamp":"2026-05-26T13:14:30.424Z","parentId":"p1"}"#;
+    assert_round_trips(line, |e| matches!(e, CopilotEvent::SubagentCompleted(_)));
+    let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+    match evt {
+        CopilotEvent::SubagentCompleted(env) => {
+            assert_eq!(env.data.duration_ms, Some(80_539));
+            assert_eq!(env.data.total_tokens, Some(197_023));
+            assert_eq!(env.data.total_tool_calls, Some(4));
+        }
+        _ => panic!("expected SubagentCompleted"),
+    }
+}
+
+#[test]
+fn subagent_completed_round_trips_without_metrics() {
+    let line = r#"{"type":"subagent.completed","agentId":"toolu_zzz","data":{"agentDisplayName":"Code Review Agent","agentName":"code-review","toolCallId":"toolu_zzz"},"id":"e-sub-3","timestamp":"2026-05-27T02:12:23.331Z","parentId":"p2"}"#;
+    assert_round_trips(line, |e| matches!(e, CopilotEvent::SubagentCompleted(_)));
+}
+
+#[test]
+fn subagent_failed_round_trips() {
+    let line = r#"{"type":"subagent.failed","data":{"agentDisplayName":"Rubber Duck Agent","agentName":"rubber-duck","durationMs":7036,"error":"CAPIError: 400 Invalid schema","toolCallId":"tooluse_x","totalToolCalls":0},"id":"e-sub-4","timestamp":"2026-04-15T13:56:49.046Z","parentId":"p3"}"#;
+    assert_round_trips(line, |e| matches!(e, CopilotEvent::SubagentFailed(_)));
+    let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+    if let CopilotEvent::SubagentFailed(env) = evt {
+        assert!(env.data.error.starts_with("CAPIError"));
+        assert_eq!(env.data.total_tool_calls, Some(0));
+    } else {
+        panic!("expected SubagentFailed");
+    }
+}
+
+#[test]
+fn session_warning_round_trips() {
+    let line = r#"{"type":"session.warning","data":{"message":"MCP server 'protein-copilot' is slow","warningType":"mcp"},"id":"e-sw-1","timestamp":"2026-04-28T12:50:51.432Z","parentId":"p1"}"#;
+    assert_round_trips(line, |e| matches!(e, CopilotEvent::SessionWarning(_)));
+    let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+    if let CopilotEvent::SessionWarning(env) = evt {
+        assert_eq!(env.data.warning_type.as_deref(), Some("mcp"));
+    } else {
+        panic!("expected SessionWarning");
+    }
+}
+
+#[test]
+fn session_resume_round_trips() {
+    let line = r#"{"type":"session.resume","data":{"alreadyInUse":false,"context":{"cwd":"/home/me/proj"},"eventCount":281,"reasoningEffort":"high","resumeTime":"2026-05-04T06:55:09.418Z","selectedModel":"claude-opus-4.6"},"id":"e-sr-1","timestamp":"2026-05-04T06:55:09.418Z","parentId":"p1"}"#;
+    assert_round_trips(line, |e| matches!(e, CopilotEvent::SessionResume(_)));
+    let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+    if let CopilotEvent::SessionResume(env) = evt {
+        assert_eq!(env.data.event_count, Some(281));
+        assert_eq!(env.data.selected_model.as_deref(), Some("claude-opus-4.6"));
+        assert_eq!(
+            env.data.context.as_ref().map(|c| c.cwd.as_str()),
+            Some("/home/me/proj"),
+        );
+    } else {
+        panic!("expected SessionResume");
+    }
+}
+
+#[test]
+fn session_compaction_start_round_trips() {
+    let line = r#"{"type":"session.compaction_start","data":{"conversationTokens":944498,"systemTokens":8279,"toolDefinitionsTokens":7836},"id":"e-cs-1","timestamp":"2026-05-14T12:41:30.551Z","parentId":"p1"}"#;
+    assert_round_trips(line, |e| {
+        matches!(e, CopilotEvent::SessionCompactionStart(_))
+    });
+    let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+    if let CopilotEvent::SessionCompactionStart(env) = evt {
+        assert_eq!(env.data.conversation_tokens, Some(944_498));
+        assert_eq!(env.data.system_tokens, Some(8_279));
+        assert_eq!(env.data.tool_definitions_tokens, Some(7_836));
+    } else {
+        panic!("expected SessionCompactionStart");
+    }
+}
+
+#[test]
+fn session_compaction_complete_round_trips_newer_shape() {
+    let line = r#"{"type":"session.compaction_complete","data":{"checkpointNumber":3,"checkpointPath":"/tmp/x","compactionTokensUsed":{"cacheReadTokens":36226,"cacheWriteTokens":0,"duration":28204,"inputTokens":36232,"model":"claude-opus-4.7-xhigh","outputTokens":2463},"preCompactionMessagesLength":5,"preCompactionTokens":713261,"success":true,"summaryContent":"<overview>..."},"id":"e-cc-1","timestamp":"2026-05-13T02:25:35.332Z","parentId":"p1"}"#;
+    assert_round_trips(line, |e| {
+        matches!(e, CopilotEvent::SessionCompactionComplete(_))
+    });
+    let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+    if let CopilotEvent::SessionCompactionComplete(env) = evt {
+        assert_eq!(env.data.checkpoint_number, Some(3));
+        assert_eq!(env.data.success, Some(true));
+        let tokens = env.data.compaction_tokens_used.as_ref().unwrap();
+        assert_eq!(tokens.cache_read_tokens, Some(36_226));
+        assert_eq!(tokens.input_tokens, Some(36_232));
+    } else {
+        panic!("expected SessionCompactionComplete");
+    }
+}
+
+#[test]
+fn session_compaction_complete_round_trips_older_shape() {
+    let line = r#"{"type":"session.compaction_complete","data":{"checkpointNumber":4,"checkpointPath":"/tmp/y","compactionTokensUsed":{"cachedInput":0,"input":109298,"output":3742},"preCompactionMessagesLength":253,"preCompactionTokens":135484,"requestId":"00000-x","success":true,"summaryContent":"<overview>"},"id":"e-cc-2","timestamp":"2026-04-08T12:56:24.469Z","parentId":"p2"}"#;
+    assert_round_trips(line, |e| {
+        matches!(e, CopilotEvent::SessionCompactionComplete(_))
+    });
+    let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+    if let CopilotEvent::SessionCompactionComplete(env) = evt {
+        let tokens = env.data.compaction_tokens_used.as_ref().unwrap();
+        assert_eq!(tokens.cached_input, Some(0));
+        assert_eq!(tokens.input, Some(109_298));
+        assert_eq!(tokens.output, Some(3_742));
+    } else {
+        panic!("expected SessionCompactionComplete");
+    }
+}
+
+#[test]
+fn system_notification_round_trips() {
+    let line = r#"{"type":"system.notification","data":{"content":"<system_notification>...</system_notification>","kind":{"agentId":"spec-review-task-02","agentType":"general-purpose","description":"Spec review Task 2","prompt":"You are reviewing ...","status":"completed","type":"agent_completed"}},"id":"e-sn-1","timestamp":"2026-05-18T03:22:20.667Z","parentId":"p1"}"#;
+    assert_round_trips(line, |e| matches!(e, CopilotEvent::SystemNotification(_)));
+    let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+    if let CopilotEvent::SystemNotification(env) = evt {
+        assert_eq!(env.data.kind["type"], "agent_completed");
+        assert_eq!(env.data.kind["status"], "completed");
+    } else {
+        panic!("expected SystemNotification");
+    }
+}
+
+#[test]
+fn permission_requested_round_trips() {
+    let line = r#"{"type":"permission.requested","data":{"permissionRequest":{"canOfferSessionApproval":true,"fileName":"/tmp/a.tex","kind":"write","toolCallId":"toolu_vrtx_x"},"promptRequest":{"canOfferSessionApproval":true,"kind":"write","toolCallId":"toolu_vrtx_x"},"requestId":"150ee914-bab6-40ea-8418-c08acea6438b"},"id":"e-pr-1","timestamp":"2026-05-04T06:14:56.428Z","parentId":"p1"}"#;
+    assert_round_trips(line, |e| matches!(e, CopilotEvent::PermissionRequested(_)));
+    let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+    if let CopilotEvent::PermissionRequested(env) = evt {
+        assert_eq!(
+            env.data.request_id.as_deref(),
+            Some("150ee914-bab6-40ea-8418-c08acea6438b"),
+        );
+        assert!(env.data.permission_request.is_some());
+        assert!(env.data.prompt_request.is_some());
+    } else {
+        panic!("expected PermissionRequested");
+    }
+}
+
+#[test]
+fn permission_completed_round_trips() {
+    let line = r#"{"type":"permission.completed","data":{"requestId":"84544f98-7e67-4033-9832-066a997648a7","result":{"kind":"approved"},"toolCallId":"toolu_vrtx_016MLeADTkFmg9QFBk76Pekc"},"id":"e-pc-1","timestamp":"2026-05-04T06:03:59.182Z","parentId":"p1"}"#;
+    assert_round_trips(line, |e| matches!(e, CopilotEvent::PermissionCompleted(_)));
+    let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+    if let CopilotEvent::PermissionCompleted(env) = evt {
+        assert_eq!(env.data.result.kind, "approved");
+        assert_eq!(
+            env.data.tool_call_id.as_deref(),
+            Some("toolu_vrtx_016MLeADTkFmg9QFBk76Pekc"),
+        );
+    } else {
+        panic!("expected PermissionCompleted");
     }
 }
 

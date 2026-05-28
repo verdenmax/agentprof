@@ -25,6 +25,7 @@ sessions. Per `docs/internals/adr-0003-synthetic-fixture-strategy.md`.
 | `with-aborts/` | abort during tool, hook, between turns | FR-2.8 |
 | `with-mode-transitions/` | interactive → plan → autopilot | FR-2.7 |
 | `live-truncated/` | No shutdown, inuse.lock, last line partial | FR-1.4, FR-1.9 |
+| `orphan-events/` | Test `derive_episodes` orphan synthesis + abort-without-open paths (M1.3 Phase C) | FR-2.5, FR-2.8 |
 
 ## Local smoke tests (developers only)
 

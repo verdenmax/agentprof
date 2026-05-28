@@ -57,6 +57,7 @@ fn every_fixture_line_parses_as_copilot_event() {
         "with-hooks-heavy",
         "with-aborts",
         "with-mode-transitions",
+        "orphan-events",
         // NOTE: "corrupt" intentionally contains an unparseable line.
         // NOTE: "live-truncated" intentionally has a truncated tail.
     ];

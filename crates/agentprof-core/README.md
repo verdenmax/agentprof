@@ -1,58 +1,69 @@
 # agentprof-core
 
-> Core domain model, tokenizer, analyzer, and exporters. The **leaf** of the workspace dependency graph — no workspace crate is allowed to be a dependency.
+> Foundation library for agentprof. Defines the cross-agent abstractions
+> (`Adapter`, `Event`, `EventKind`, `AgentKind`), the unified data model
+> (`RawSession`, `SessionMeta`, `ToolSource`), the error taxonomy
+> (`CoreError`, `AdapterError`, `ParseWarning`), and the episode aggregation
+> layer (`derive_episodes` + `Episodes`).
 
-## Position in the agentprof architecture
+## In agentprof's architecture
 
-Sits at the bottom of the dependency graph. See [`docs/architecture.md`](../../docs/architecture.md) §3 (system layering) and §4 (crate inventory). All other workspace crates depend on `agentprof-core`; this crate must not depend back.
+This is the **dependency-graph leaf**: no `agentprof_*` crate is in its
+dependency tree. Adapter crates implement the `Adapter` trait defined here.
+The CLI, TUI, and storage crates consume `RawSession` + `Episodes`.
+
+See [`docs/architecture.md`](../../docs/architecture.md) §3 for the system
+diagram and §5 / §5.1 / §6 for the data model and adapter contract.
 
 ## Public interface
 
-The crate exposes (planned — see source rustdoc as work lands):
+| Module | Highlights |
+|---|---|
+| `adapter` | `Adapter` trait, `Event` trait (4 methods), `EventKind` (29 variants), `AgentKind`, `SessionRef`, `AdapterError` |
+| `model` | `RawSession<E>`, `SessionMeta`, `ToolSource` + `ToolSource::infer` |
+| `error` | `CoreError`, `ParseWarning` (7 variants: `Json`, `Io`, `OutOfOrder`, `UnclosedTurn`, `UnclosedToolCall`, `UnclosedHook`, `UnknownToolSourcePrefix`) |
+| `episode` | `derive_episodes<E>`, `Episodes`, `Turn`, `ToolEpisode`, `HookEpisode`, `SkillEpisode`, `ModeSegment`, `CallRef`, `DeriveWarning` |
 
-- `model::*` — domain types: `RawSession`, `Turn`, `ToolDef`, `ToolCall`, `TokenBucket`, `RoiRow`, `AnalysisReport`, `Adapter` trait
-- `tokenizer::*` — `count_tokens(model, text)` + Anthropic API (feature-gated)
-- `analyzer::*` — `compute_roi`, `schema_utilization`, `waste_estimate`
-- `export::*` — Speedscope JSON, Markdown, CSV serializers
-- `error::CoreError` — strongly typed errors (`thiserror`)
+## Quick start
 
-Typical usage:
+```rust,ignore
+use agentprof_core::adapter::Adapter;
+use agentprof_core::episode::derive_episodes;
 
-```rust
-// (will become a doctest once analyzer ships)
-// let session = adapter.load_session(&session_ref)?;
-// let report  = agentprof_core::analyzer::compute_roi(&session)?;
+// Given an adapter implementation:
+//   let adapter = SomeAdapter;
+//   let session = adapter.load_session(&sref)?;
+//   let episodes = derive_episodes(&session.events, &session.meta);
+//   for warning in &episodes.warnings { /* surface */ }
 ```
 
-## Modules (planned)
+## Stability promises
 
-| Module | Purpose |
-|---|---|
-| `model` | Domain types and `Adapter` trait |
-| `tokenizer` | Local (`tiktoken-rs`) + optional Anthropic API tokenization |
-| `analyzer` | ROI scoring, schema utilization, waste estimation |
-| `export` | Speedscope / Markdown / CSV / shared HTML helpers |
-| `error` | `CoreError` enum |
+All public extensibility points are `#[non_exhaustive]`:
+`AgentKind`, `EventKind`, `AdapterError`, `SessionRef`, `SessionMeta`,
+`RawSession`, every `Episode*` type, `Mode`, `TurnStatus`, `ToolCallStatus`,
+`DeriveWarning`.
 
-## Features
+Construct cross-crate via `pub const fn new(...)` constructors. See each
+type's rustdoc for the required-fields signature.
 
-| Feature | Default | Effect |
-|---|---|---|
-| `anthropic-api` | off | Enables HTTP-based Anthropic `count_tokens` API for precise Anthropic tokenization. Pulls in `reqwest` + `tokio`. |
-
-## Dependencies
-
-- Workspace: `serde`, `serde_json`, `thiserror`, `chrono`, `tracing`, `tiktoken-rs`
-- Optional (feature `anthropic-api`): `reqwest`, `tokio`
-
-## Local commands
+## Tests
 
 ```sh
 cargo test  -p agentprof-core --all-features
-cargo doc   -p agentprof-core --no-deps --open
+cargo doc   -p agentprof-core --no-deps
 cargo clippy -p agentprof-core --all-features -- -D warnings
 ```
 
-## Change history
+## Reference ADRs
 
-See the root [`CHANGELOG.md`](../../CHANGELOG.md) — entries for this crate are prefixed `core:`.
+| ADR | Topic |
+|---|---|
+| 0001 | Events-first product pivot |
+| 0002 | Copilot event schema (Updated 2026-05-27 for M1.3 Phase B) |
+| 0004 | Episode derivation algorithm |
+
+## Changelog
+
+See the repo-root [`CHANGELOG.md`](../../CHANGELOG.md) — entries for this
+crate are prefixed `core:`.

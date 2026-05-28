@@ -1,6 +1,6 @@
 ---
 title: "ADR-0002: CopilotEvent enum — 18-variant clean-room schema from events.jsonl observation"
-status: "Accepted"
+status: "Updated 2026-05-27"
 date: "2026-05-26"
 authors: "@verdenmax (project owner), AI assistant (Copilot CLI session 252068e5)"
 tags: ["architecture", "decision", "data-model", "copilot-adapter", "wire-format", "serde", "clean-room"]
@@ -261,3 +261,76 @@ pub enum CopilotEvent {
 - **REF-009**: `~/.copilot/session-state/252068e5-ca16-4186-a181-719462643d83/events.jsonl` — current-session observation (all 17 variants present including `hook.*` / `skill.invoked` / `session.model_change` / `system.message`)
 - **REF-010**: `.github/instructions/rust.instructions.md` — strong-typing preferences enforced by Stage 0 always-on rules
 - **REF-011**: `.github/copilot-instructions.md` §10 rule 5 — "不要在 L1 文档里写函数级细节——那是 rustdoc 的事；不要在 rustdoc 里写跨 crate 决策——那是 L1/internals 的事" (this ADR sits in L3 internals; wire-format details are correct here, not in L1 architecture.md)
+
+## Schema Updates (2026-05-27, M1.3 Phase B)
+
+Audit `cargo xtask schema-audit` against developer's real
+`~/.copilot/session-state/` (187 sessions, 117K+ events across
+Copilot CLI versions 1.0.4 – 1.0.54) revealed the following gaps in
+the original 18-variant schema. M1.3 Phase B closed the highest-impact
+subset (10 new variants + tool payload expansion).
+
+### Added variants (10)
+
+| Wire `type` | Rust variant | Payload struct |
+|---|---|---|
+| `subagent.started` | `SubagentStarted` | `SubagentStartedData` |
+| `subagent.completed` | `SubagentCompleted` | `SubagentCompletedData` |
+| `subagent.failed` | `SubagentFailed` | `SubagentFailedData` |
+| `system.notification` | `SystemNotification` | `SystemNotificationData` |
+| `session.warning` | `SessionWarning` | `SessionWarningData` |
+| `session.resume` | `SessionResume` | `SessionResumeData` |
+| `session.compaction_start` | `SessionCompactionStart` | `SessionCompactionStartData` |
+| `session.compaction_complete` | `SessionCompactionComplete` | `SessionCompactionCompleteData` |
+| `permission.requested` | `PermissionRequested` | `PermissionRequestedData` |
+| `permission.completed` | `PermissionCompleted` | `PermissionCompletedData` |
+
+Total: **18 → 28 named variants**.
+
+### Envelope addition
+
+`WithEnvelope` gained `agent_id: Option<String>` (camelCase wire: `agentId`).
+Many existing events emit `agentId` at envelope level; this addition restored
+correct parsing for thousands of previously-failing events without requiring
+per-variant changes.
+
+### Payload-shape expansion
+
+| Payload struct | Added fields | Source |
+|---|---|---|
+| `ToolResultData` | `interaction_id` Optional, `model` Optional, `result: Option<ToolResult>`, `tool_telemetry: Option<ToolTelemetry>` | tool.execution_complete wire format expanded in 1.0.x |
+| New: `ToolResult` | `content`, `detailed_content` | Nested under `data.result` in newer versions |
+| New: `ToolTelemetry` | `metrics`, `properties`, `restricted_properties` | Nested under `data.toolTelemetry` |
+
+### Validation
+
+After Phase B, audit (`cargo xtask schema-audit`) on developer's data shows:
+
+- `CopilotEvent::Unknown` event count: **3411 → 278** (−92%; remainder is largely classifier-zip artifact, not real gaps)
+- `ParseWarning::Json` count: **58339 → 38176** (−35%; remaining tracked as deferred work)
+- Net new variants: 10
+- Round-trip test count: 23 → 38
+
+### Deferred (long-tail payload drift)
+
+The remaining ~38k `ParseWarning::Json` events trace to payload-shape
+drift in already-typed variants (`assistant.message`, `hook.start`,
+`hook.end`, `assistant.turn_*`, `tool.execution_*` long tail) across
+older Copilot CLI versions. Per the user's scope decision at M1.3,
+these are deferred to a future milestone (potentially M1.6 or M2.x);
+M1.3 Phase C (Episode derivation) operates on the events that DO parse
+and treats `Unknown` events as a no-op per ADR-0004.
+
+### Known issue (audit tooling)
+
+`xtask/src/schema_audit/classifier.rs:98` zips `raw_lines.iter()` with
+`typed.events.iter()` positionally, causing the per-type Unknown counts
+to mis-attribute when intervening `ParseWarning::Json` failures de-align
+the two vectors. Filed as **follow-up M1.X**; the `合计 Unknown` total
+and per-variant counts remain trustworthy in aggregate but individual
+"this type still has N Unknown" should be cross-checked against actual
+samples. The `ParseWarning::Json` count is unaffected.
+
+### Next calibration
+
+Re-run `cargo xtask schema-audit` after the next Copilot CLI major upgrade.

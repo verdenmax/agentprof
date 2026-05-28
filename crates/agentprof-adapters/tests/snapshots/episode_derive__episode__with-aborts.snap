@@ -1,0 +1,144 @@
+---
+source: crates/agentprof-adapters/tests/episode_derive.rs
+expression: episodes
+---
+{
+  "turns": [
+    {
+      "id": "00000000-0000-0000-0000-000000000202",
+      "started_at": "2026-05-26T16:00:02Z",
+      "ended_at": "2026-05-26T16:00:06Z",
+      "model": null,
+      "mode": null,
+      "output_tokens": null,
+      "status": "Completed",
+      "tool_calls": [
+        {
+          "name": "00000000-0000-0000-0000-000000000204",
+          "index": 0
+        }
+      ],
+      "hook_calls": [],
+      "skill_calls": []
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000207",
+      "started_at": "2026-05-26T16:00:07Z",
+      "ended_at": "2026-05-26T16:00:12Z",
+      "model": null,
+      "mode": null,
+      "output_tokens": null,
+      "status": "Completed",
+      "tool_calls": [],
+      "hook_calls": [
+        {
+          "name": "00000000-0000-0000-0000-000000000209",
+          "index": 0
+        },
+        {
+          "name": "00000000-0000-0000-0000-000000000211",
+          "index": 0
+        }
+      ],
+      "skill_calls": []
+    }
+  ],
+  "tools": {
+    "00000000-0000-0000-0000-000000000204": {
+      "name": "00000000-0000-0000-0000-000000000204",
+      "source": {
+        "kind": "builtin"
+      },
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T16:00:04Z",
+            "ended_at": "2026-05-26T16:00:05Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000202",
+          "status": {
+            "Failure": {
+              "message": "aborted"
+            }
+          },
+          "user_requested": false
+        }
+      ],
+      "total_duration": [
+        1,
+        0
+      ],
+      "fail_count": 1
+    }
+  },
+  "hooks": {
+    "00000000-0000-0000-0000-000000000209": {
+      "name": "00000000-0000-0000-0000-000000000209",
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T16:00:09Z",
+            "ended_at": "2026-05-26T16:00:10Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000207",
+          "success": false,
+          "synthesized_start": false
+        }
+      ],
+      "total_duration": [
+        1,
+        0
+      ],
+      "failure_count": 1
+    },
+    "00000000-0000-0000-0000-000000000211": {
+      "name": "00000000-0000-0000-0000-000000000211",
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T16:00:11Z",
+            "ended_at": "2026-05-26T16:00:11Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000207",
+          "success": true,
+          "synthesized_start": true
+        }
+      ],
+      "total_duration": [
+        0,
+        0
+      ],
+      "failure_count": 0
+    }
+  },
+  "skills": {},
+  "mode_segments": [
+    {
+      "mode": {
+        "Unknown": "default"
+      },
+      "started_at": "2026-05-26T16:00:00Z",
+      "ended_at": "2026-05-26T16:00:14Z"
+    }
+  ],
+  "aborts": [
+    {
+      "reason": "abort",
+      "at": "2026-05-26T16:00:13Z"
+    }
+  ],
+  "warnings": [
+    {
+      "SynthesizedStart": {
+        "kind": "HookStart",
+        "end_event_id": "00000000-0000-0000-0000-000000000211"
+      }
+    },
+    {
+      "AbortWithoutOpenElement": {
+        "reason": "abort",
+        "at": "2026-05-26T16:00:13Z"
+      }
+    }
+  ]
+}

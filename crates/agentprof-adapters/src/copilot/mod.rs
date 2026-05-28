@@ -13,9 +13,12 @@ pub mod paths;
 
 pub use adapter::CopilotAdapter;
 pub use event::{
-    AbortData, AssistantMessageData, CodeChanges, CopilotEvent, HookEndData, HookInput, HookOutput,
-    HookStartData, ModeChangeData, ModelChangeData, PlanChangeData, SessionContext,
-    SessionInfoData, SessionStartData, ShutdownData, SkillData, SystemMessageData, ToolError,
+    AbortData, AssistantMessageData, CodeChanges, CompactionTokensUsed, CopilotEvent, HookEndData,
+    HookInput, HookOutput, HookStartData, ModeChangeData, ModelChangeData, PermissionCompletedData,
+    PermissionRequestedData, PermissionResult, PlanChangeData, SessionCompactionCompleteData,
+    SessionCompactionStartData, SessionContext, SessionInfoData, SessionResumeData,
+    SessionStartData, SessionWarningData, ShutdownData, SkillData, SubagentCompletedData,
+    SubagentFailedData, SubagentStartedData, SystemMessageData, SystemNotificationData, ToolError,
     ToolExecData, ToolRequest, ToolResult, ToolResultData, ToolTelemetry, ToolUserArgs,
     ToolUserRequestedData, TurnRefData, UserMessageData, WithEnvelope,
 };
