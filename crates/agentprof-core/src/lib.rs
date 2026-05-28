@@ -21,5 +21,6 @@
 #![cfg_attr(test, allow(clippy::unwrap_used))]
 
 pub mod adapter;
+pub mod episode;
 pub mod error;
 pub mod model;

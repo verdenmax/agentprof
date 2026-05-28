@@ -102,7 +102,7 @@ pub struct ParseAgentKindError(String);
 /// }
 /// assert!(is_tool(k));
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum EventKind {
     /// Session lifecycle (start of recording).
