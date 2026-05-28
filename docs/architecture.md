@@ -189,6 +189,32 @@ pub struct AnalysisReport {
 }
 ```
 
+### 5.1 Episode aggregation (`agentprof-core::episode`)
+
+Shared derived types built on top of `RawSession<E>` for any adapter. These are
+**not produced by the adapter**; they are computed by a pure, total, single-pass
+aggregator (`derive_episodes`) that consumes a stream of `impl Event`.
+
+| Type | Module | Purpose |
+|---|---|---|
+| `Turn` + `TurnStatus` + `Span` + `AbortInfo` | `episode::turn` | Per-assistant-turn aggregation with status (`Open` / `Completed` / `Aborted(AbortInfo)`) |
+| `ToolEpisode` + `ToolCall` + `ToolCallStatus` | `episode::tool` | Tool-name-keyed call history with 4-status enum (`Success` / `Failure { message }` / `OrphanSynthesizedStart` / `OpenAtEndOfSession`) |
+| `HookEpisode` + `HookCall` | `episode::hook` | Hook-name-keyed call history with `synthesized_start` flag |
+| `SkillEpisode` + `SkillInvocation` | `episode::skill` | Skill invocations with a 50-event `triggered_tools` window |
+| `ModeSegment` + `Mode` | `episode::mode_segment` | Time-ranged `Ask` / `Auto` / `Expert` / `Unknown(String)` segments |
+| `Episodes` | `episode::episodes` | Top-level container (7 fields); deterministic `BTreeMap` ordering for snapshot stability |
+| `DeriveWarning` | `episode::warning` | 4-variant data-quality enum (`SynthesizedStart`, `OpenAtEndOfSession`, `AbortWithoutOpenElement`, `NonMonotonicTimestamp`) |
+
+```rust
+pub fn derive_episodes<E: Event>(
+    events: &[E],
+    meta: &SessionMeta,
+) -> Episodes;
+```
+
+Pure, total, single-pass aggregation. Algorithm in
+[`docs/internals/adr-0004-episode-derivation.md`](internals/adr-0004-episode-derivation.md).
+
 ---
 
 ## 6. Adapter trait（多 agent 适配的核心抽象）
@@ -580,6 +606,15 @@ pub fn compute_roi(/* ... */) -> Result<Vec<RoiRow>, CoreError> {
 ## Consequences
 （带来的好处、付出的代价、留下的尾巴）
 ```
+
+#### 现有 ADR 一览
+
+| ADR | 主题 | 状态 | 日期 |
+|---|---|---|---|
+| 0001 | Events-first product pivot | Accepted | 2026-05-26 |
+| 0002 | Copilot event schema | Accepted（Updated 2026-05-27 for M1.3 Phase B） | 2026-05-26 |
+| 0003 | Synthetic-only fixture strategy | Accepted | 2026-05-26 |
+| 0004 | Episode derivation — lenient single-pass algorithm | Accepted | 2026-05-27 |
 
 ### 14.5 文档同步的 CI 强制
 
