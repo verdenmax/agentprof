@@ -281,6 +281,65 @@ fn abort_parses() {
     }
 }
 
+// -- M1.3 Task 4 (commit 4a): Subagent variant round-trip tests. --
+
+fn assert_round_trips(line: &str, expect: impl Fn(&CopilotEvent) -> bool) {
+    let evt: CopilotEvent = serde_json::from_str(line).expect("initial parse");
+    assert!(expect(&evt), "wrong variant: {evt:?}");
+    let back = serde_json::to_string(&evt).expect("serialize");
+    let again: CopilotEvent = serde_json::from_str(&back).expect("re-parse");
+    assert!(expect(&again), "re-parsed wrong variant: {again:?}");
+}
+
+#[test]
+fn subagent_started_round_trips() {
+    let line = r#"{"type":"subagent.started","agentId":"toolu_xyz","data":{"agentDescription":"Full-capability agent.","agentDisplayName":"General Purpose Agent","agentName":"general-purpose","toolCallId":"toolu_xyz"},"id":"e-sub-1","timestamp":"2026-05-26T13:06:40.114Z","parentId":"p1"}"#;
+    assert_round_trips(line, |e| matches!(e, CopilotEvent::SubagentStarted(_)));
+    let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+    match evt {
+        CopilotEvent::SubagentStarted(env) => {
+            assert_eq!(env.agent_id.as_deref(), Some("toolu_xyz"));
+            assert_eq!(env.data.agent_name.as_deref(), Some("general-purpose"));
+            assert_eq!(env.data.tool_call_id.as_deref(), Some("toolu_xyz"));
+        }
+        _ => panic!("expected SubagentStarted"),
+    }
+}
+
+#[test]
+fn subagent_completed_round_trips_with_metrics() {
+    let line = r#"{"type":"subagent.completed","agentId":"toolu_xyz","data":{"agentDisplayName":"General Purpose Agent","agentName":"general-purpose","durationMs":80539,"model":"claude-opus-4.7-1m-internal","toolCallId":"toolu_xyz","totalTokens":197023,"totalToolCalls":4},"id":"e-sub-2","timestamp":"2026-05-26T13:14:30.424Z","parentId":"p1"}"#;
+    assert_round_trips(line, |e| matches!(e, CopilotEvent::SubagentCompleted(_)));
+    let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+    match evt {
+        CopilotEvent::SubagentCompleted(env) => {
+            assert_eq!(env.data.duration_ms, Some(80_539));
+            assert_eq!(env.data.total_tokens, Some(197_023));
+            assert_eq!(env.data.total_tool_calls, Some(4));
+        }
+        _ => panic!("expected SubagentCompleted"),
+    }
+}
+
+#[test]
+fn subagent_completed_round_trips_without_metrics() {
+    let line = r#"{"type":"subagent.completed","agentId":"toolu_zzz","data":{"agentDisplayName":"Code Review Agent","agentName":"code-review","toolCallId":"toolu_zzz"},"id":"e-sub-3","timestamp":"2026-05-27T02:12:23.331Z","parentId":"p2"}"#;
+    assert_round_trips(line, |e| matches!(e, CopilotEvent::SubagentCompleted(_)));
+}
+
+#[test]
+fn subagent_failed_round_trips() {
+    let line = r#"{"type":"subagent.failed","data":{"agentDisplayName":"Rubber Duck Agent","agentName":"rubber-duck","durationMs":7036,"error":"CAPIError: 400 Invalid schema","toolCallId":"tooluse_x","totalToolCalls":0},"id":"e-sub-4","timestamp":"2026-04-15T13:56:49.046Z","parentId":"p3"}"#;
+    assert_round_trips(line, |e| matches!(e, CopilotEvent::SubagentFailed(_)));
+    let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+    if let CopilotEvent::SubagentFailed(env) = evt {
+        assert!(env.data.error.starts_with("CAPIError"));
+        assert_eq!(env.data.total_tool_calls, Some(0));
+    } else {
+        panic!("expected SubagentFailed");
+    }
+}
+
 use agentprof_core::adapter::{Event, EventKind};
 
 #[test]

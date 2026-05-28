@@ -7,6 +7,12 @@ use serde::{Deserialize, Serialize};
 
 /// Common per-event envelope fields wrapped around every payload variant.
 ///
+/// The optional top-level `agent_id` is populated for events emitted by an
+/// active subagent or tool call (notably `subagent.started`,
+/// `subagent.completed`, and some `assistant.message` / `skill.invoked`
+/// records). It is `None` for envelope-only events that omit the field on the
+/// wire.
+///
 /// # Examples
 ///
 /// ```
@@ -32,19 +38,25 @@ pub struct WithEnvelope<D> {
     /// `true` for transient events.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ephemeral: Option<bool>,
+    /// Top-level subagent / tool-call identifier, when emitted by an active
+    /// subagent. `None` for non-subagent events.
+    #[serde(rename = "agentId", default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
     /// Variant-specific payload.
     pub data: D,
 }
 
 /// One line from `events.jsonl`, discriminated by the wire-format `type` field.
 ///
-/// Carries 18 named variants — session lifecycle (`session.*`), user/assistant
+/// Carries 21 named variants — session lifecycle (`session.*`), user/assistant
 /// messaging (`user.message`, `assistant.message`, `assistant.turn_start`,
 /// `assistant.turn_end`), system messages (`system.message`), tool
 /// execution (`tool.execution_start`, `tool.execution_complete`,
-/// `tool.user_requested`), hook lifecycle (`hook.start`, `hook.end`), skill
-/// activation (`skill.invoked`), and user-initiated cancellation (`abort`) —
-/// plus an [`CopilotEvent::Unknown`] forward-compatibility fallback.
+/// `tool.user_requested`), subagent lifecycle (`subagent.started`,
+/// `subagent.completed`, `subagent.failed`), hook lifecycle (`hook.start`,
+/// `hook.end`), skill activation (`skill.invoked`), and user-initiated
+/// cancellation (`abort`) — plus an [`CopilotEvent::Unknown`]
+/// forward-compatibility fallback.
 ///
 /// # Examples
 ///
@@ -110,6 +122,15 @@ pub enum CopilotEvent {
     /// Skill activated for this session.
     #[serde(rename = "skill.invoked")]
     SkillInvoked(WithEnvelope<SkillData>),
+    /// Subagent (task delegated to a sub-LLM) invocation started.
+    #[serde(rename = "subagent.started")]
+    SubagentStarted(WithEnvelope<SubagentStartedData>),
+    /// Subagent finished successfully.
+    #[serde(rename = "subagent.completed")]
+    SubagentCompleted(WithEnvelope<SubagentCompletedData>),
+    /// Subagent failed (error returned before completion).
+    #[serde(rename = "subagent.failed")]
+    SubagentFailed(WithEnvelope<SubagentFailedData>),
     /// User-initiated session abort.
     #[serde(rename = "abort")]
     Abort(WithEnvelope<AbortData>),
@@ -604,6 +625,87 @@ pub struct AbortData {
     pub reason: String,
 }
 
+// -- subagent.* payloads --
+//
+// Note: `subagent.started` and `subagent.completed` carry `agentId` at the
+// envelope level, not inside `data`. That is handled uniformly by
+// [`WithEnvelope::agent_id`] (above) — these payload structs only model the
+// fields that actually live inside `data`.
+
+/// Payload for `subagent.started`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+#[serde(rename_all = "camelCase")]
+pub struct SubagentStartedData {
+    /// Long-form description of the subagent's capabilities.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_description: Option<String>,
+    /// User-facing display name (e.g. `General Purpose Agent`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_display_name: Option<String>,
+    /// Stable agent identifier (e.g. `general-purpose`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_name: Option<String>,
+    /// Tool call id that triggered the subagent invocation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+}
+
+/// Payload for `subagent.completed`.
+///
+/// Metrics fields are emitted by newer CLI versions only and may be absent
+/// in earlier samples.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+#[serde(rename_all = "camelCase")]
+pub struct SubagentCompletedData {
+    /// User-facing display name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_display_name: Option<String>,
+    /// Stable agent identifier.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_name: Option<String>,
+    /// Wall-clock duration of the subagent run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+    /// Model executed inside the subagent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Originating tool call id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+    /// Total tokens consumed across the subagent run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_tokens: Option<u64>,
+    /// Total tool calls issued by the subagent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_tool_calls: Option<u64>,
+}
+
+/// Payload for `subagent.failed`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+#[serde(rename_all = "camelCase")]
+pub struct SubagentFailedData {
+    /// User-facing display name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_display_name: Option<String>,
+    /// Stable agent identifier.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_name: Option<String>,
+    /// Wall-clock duration up to the failure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+    /// Failure message (raw upstream error text).
+    pub error: String,
+    /// Originating tool call id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+    /// Tool calls issued before the failure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_tool_calls: Option<u64>,
+}
+
 // -- inherent accessors + Event trait impl --
 
 impl CopilotEvent {
@@ -632,6 +734,9 @@ impl CopilotEvent {
             Self::HookStart(env) => &env.id,
             Self::HookEnd(env) => &env.id,
             Self::SkillInvoked(env) => &env.id,
+            Self::SubagentStarted(env) => &env.id,
+            Self::SubagentCompleted(env) => &env.id,
+            Self::SubagentFailed(env) => &env.id,
             Self::Abort(env) => &env.id,
             Self::Unknown => "",
         }
@@ -671,6 +776,9 @@ impl CopilotEvent {
             Self::HookStart(_) => K::HookStart,
             Self::HookEnd(_) => K::HookEnd,
             Self::SkillInvoked(_) => K::SkillInvoked,
+            Self::SubagentStarted(_) => K::SubagentStarted,
+            Self::SubagentCompleted(_) => K::SubagentCompleted,
+            Self::SubagentFailed(_) => K::SubagentFailed,
             Self::Abort(_) => K::Abort,
             Self::Unknown => K::Unknown,
         }
@@ -701,6 +809,9 @@ impl CopilotEvent {
             Self::HookStart(env) => env.timestamp,
             Self::HookEnd(env) => env.timestamp,
             Self::SkillInvoked(env) => env.timestamp,
+            Self::SubagentStarted(env) => env.timestamp,
+            Self::SubagentCompleted(env) => env.timestamp,
+            Self::SubagentFailed(env) => env.timestamp,
             Self::Abort(env) => env.timestamp,
             Self::Unknown => DateTime::<Utc>::UNIX_EPOCH,
         }
@@ -731,6 +842,9 @@ impl CopilotEvent {
             Self::HookStart(env) => env.parent_id.as_deref(),
             Self::HookEnd(env) => env.parent_id.as_deref(),
             Self::SkillInvoked(env) => env.parent_id.as_deref(),
+            Self::SubagentStarted(env) => env.parent_id.as_deref(),
+            Self::SubagentCompleted(env) => env.parent_id.as_deref(),
+            Self::SubagentFailed(env) => env.parent_id.as_deref(),
             Self::Abort(env) => env.parent_id.as_deref(),
             Self::Unknown => None,
         }

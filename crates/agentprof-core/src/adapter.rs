@@ -86,9 +86,10 @@ pub struct ParseAgentKindError(String);
 /// Coarse classification of an event for cheap pattern matching by analyzers
 /// that don't care about per-payload details.
 ///
-/// Variants mirror the 18 canonical event categories observed in the
-/// `events.jsonl` wire format (per `docs/internals/adr-0002-copilot-event-schema.md`)
-/// plus an [`EventKind::Unknown`] forward-compat sentinel — 19 total.
+/// Variants mirror the 21 canonical event categories observed in the
+/// `events.jsonl` wire format (per `docs/internals/adr-0002-copilot-event-schema.md`
+/// plus the M1.3 schema-audit expansion) plus an [`EventKind::Unknown`]
+/// forward-compat sentinel — 22 total.
 /// Adapters that don't emit a given event type simply never produce that variant.
 ///
 /// # Examples
@@ -138,6 +139,12 @@ pub enum EventKind {
     SkillInvoked,
     /// System-emitted message (e.g. system prompt injection).
     SystemMessage,
+    /// Subagent invocation started.
+    SubagentStarted,
+    /// Subagent finished successfully.
+    SubagentCompleted,
+    /// Subagent failed before completion.
+    SubagentFailed,
     /// Turn aborted (user cancel or internal failure).
     Abort,
     /// Forward-compat: event type the parser didn't recognize.

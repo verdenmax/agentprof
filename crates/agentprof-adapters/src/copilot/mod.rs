@@ -15,7 +15,8 @@ pub use adapter::CopilotAdapter;
 pub use event::{
     AbortData, AssistantMessageData, CodeChanges, CopilotEvent, HookEndData, HookInput, HookOutput,
     HookStartData, ModeChangeData, ModelChangeData, PlanChangeData, SessionContext,
-    SessionInfoData, SessionStartData, ShutdownData, SkillData, SystemMessageData, ToolError,
-    ToolExecData, ToolRequest, ToolResult, ToolResultData, ToolTelemetry, ToolUserArgs,
-    ToolUserRequestedData, TurnRefData, UserMessageData, WithEnvelope,
+    SessionInfoData, SessionStartData, ShutdownData, SkillData, SubagentCompletedData,
+    SubagentFailedData, SubagentStartedData, SystemMessageData, ToolError, ToolExecData,
+    ToolRequest, ToolResult, ToolResultData, ToolTelemetry, ToolUserArgs, ToolUserRequestedData,
+    TurnRefData, UserMessageData, WithEnvelope,
 };
