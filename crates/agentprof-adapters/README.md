@@ -17,7 +17,7 @@ for the M1.2 design.
 ## Public interface
 
 - [`copilot::CopilotAdapter`] — GitHub Copilot CLI adapter
-- [`copilot::CopilotEvent`] — 25-variant event enum (+ `Unknown` fallthrough)
+- [`copilot::CopilotEvent`] — 28-variant event enum (+ `Unknown` fallthrough)
 - [`copilot::parser::parse_events_jsonl`] — JSONL → `RawSession<CopilotEvent>`
 - [`copilot::paths::discover_sessions`] — walk session-state directory
 - [`registry::adapter_for`] — `AgentKind → Option<Adapter>` resolver

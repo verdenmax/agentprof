@@ -281,7 +281,7 @@ fn abort_parses() {
     }
 }
 
-// -- M1.3 Task 4 (commit 4a): Subagent variant round-trip tests. --
+// -- M1.3 Task 4: round-trip tests for the 10 newly added variants. --
 
 fn assert_round_trips(line: &str, expect: impl Fn(&CopilotEvent) -> bool) {
     let evt: CopilotEvent = serde_json::from_str(line).expect("initial parse");
@@ -339,8 +339,6 @@ fn subagent_failed_round_trips() {
         panic!("expected SubagentFailed");
     }
 }
-
-// -- M1.3 Task 4 (commit 4b): Session{Warning,Resume,Compaction*} tests. --
 
 #[test]
 fn session_warning_round_trips() {
@@ -419,6 +417,52 @@ fn session_compaction_complete_round_trips_older_shape() {
         assert_eq!(tokens.output, Some(3_742));
     } else {
         panic!("expected SessionCompactionComplete");
+    }
+}
+
+#[test]
+fn system_notification_round_trips() {
+    let line = r#"{"type":"system.notification","data":{"content":"<system_notification>...</system_notification>","kind":{"agentId":"spec-review-task-02","agentType":"general-purpose","description":"Spec review Task 2","prompt":"You are reviewing ...","status":"completed","type":"agent_completed"}},"id":"e-sn-1","timestamp":"2026-05-18T03:22:20.667Z","parentId":"p1"}"#;
+    assert_round_trips(line, |e| matches!(e, CopilotEvent::SystemNotification(_)));
+    let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+    if let CopilotEvent::SystemNotification(env) = evt {
+        assert_eq!(env.data.kind["type"], "agent_completed");
+        assert_eq!(env.data.kind["status"], "completed");
+    } else {
+        panic!("expected SystemNotification");
+    }
+}
+
+#[test]
+fn permission_requested_round_trips() {
+    let line = r#"{"type":"permission.requested","data":{"permissionRequest":{"canOfferSessionApproval":true,"fileName":"/tmp/a.tex","kind":"write","toolCallId":"toolu_vrtx_x"},"promptRequest":{"canOfferSessionApproval":true,"kind":"write","toolCallId":"toolu_vrtx_x"},"requestId":"150ee914-bab6-40ea-8418-c08acea6438b"},"id":"e-pr-1","timestamp":"2026-05-04T06:14:56.428Z","parentId":"p1"}"#;
+    assert_round_trips(line, |e| matches!(e, CopilotEvent::PermissionRequested(_)));
+    let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+    if let CopilotEvent::PermissionRequested(env) = evt {
+        assert_eq!(
+            env.data.request_id.as_deref(),
+            Some("150ee914-bab6-40ea-8418-c08acea6438b"),
+        );
+        assert!(env.data.permission_request.is_some());
+        assert!(env.data.prompt_request.is_some());
+    } else {
+        panic!("expected PermissionRequested");
+    }
+}
+
+#[test]
+fn permission_completed_round_trips() {
+    let line = r#"{"type":"permission.completed","data":{"requestId":"84544f98-7e67-4033-9832-066a997648a7","result":{"kind":"approved"},"toolCallId":"toolu_vrtx_016MLeADTkFmg9QFBk76Pekc"},"id":"e-pc-1","timestamp":"2026-05-04T06:03:59.182Z","parentId":"p1"}"#;
+    assert_round_trips(line, |e| matches!(e, CopilotEvent::PermissionCompleted(_)));
+    let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+    if let CopilotEvent::PermissionCompleted(env) = evt {
+        assert_eq!(env.data.result.kind, "approved");
+        assert_eq!(
+            env.data.tool_call_id.as_deref(),
+            Some("toolu_vrtx_016MLeADTkFmg9QFBk76Pekc"),
+        );
+    } else {
+        panic!("expected PermissionCompleted");
     }
 }
 

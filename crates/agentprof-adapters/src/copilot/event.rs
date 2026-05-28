@@ -48,15 +48,16 @@ pub struct WithEnvelope<D> {
 
 /// One line from `events.jsonl`, discriminated by the wire-format `type` field.
 ///
-/// Carries 25 named variants — session lifecycle (`session.*`), user/assistant
+/// Carries 28 named variants — session lifecycle (`session.*`), user/assistant
 /// messaging (`user.message`, `assistant.message`, `assistant.turn_start`,
-/// `assistant.turn_end`), system messages (`system.message`), tool
-/// execution (`tool.execution_start`, `tool.execution_complete`,
-/// `tool.user_requested`), subagent lifecycle (`subagent.started`,
-/// `subagent.completed`, `subagent.failed`), hook lifecycle (`hook.start`,
-/// `hook.end`), skill activation (`skill.invoked`), and user-initiated
-/// cancellation (`abort`) — plus an [`CopilotEvent::Unknown`]
-/// forward-compatibility fallback.
+/// `assistant.turn_end`), system messages (`system.message`,
+/// `system.notification`), tool execution (`tool.execution_start`,
+/// `tool.execution_complete`, `tool.user_requested`), permission flow
+/// (`permission.requested`, `permission.completed`), subagent lifecycle
+/// (`subagent.started`, `subagent.completed`, `subagent.failed`), hook
+/// lifecycle (`hook.start`, `hook.end`), skill activation (`skill.invoked`),
+/// and user-initiated cancellation (`abort`) — plus an
+/// [`CopilotEvent::Unknown`] forward-compatibility fallback.
 ///
 /// # Examples
 ///
@@ -134,6 +135,15 @@ pub enum CopilotEvent {
     /// Conversation context compaction finished.
     #[serde(rename = "session.compaction_complete")]
     SessionCompactionComplete(WithEnvelope<SessionCompactionCompleteData>),
+    /// System-emitted notification with structured `kind` payload.
+    #[serde(rename = "system.notification")]
+    SystemNotification(WithEnvelope<SystemNotificationData>),
+    /// Permission request awaiting user / policy decision.
+    #[serde(rename = "permission.requested")]
+    PermissionRequested(WithEnvelope<PermissionRequestedData>),
+    /// Permission request resolved (approved / denied / cancelled).
+    #[serde(rename = "permission.completed")]
+    PermissionCompleted(WithEnvelope<PermissionCompletedData>),
     /// Subagent (task delegated to a sub-LLM) invocation started.
     #[serde(rename = "subagent.started")]
     SubagentStarted(WithEnvelope<SubagentStartedData>),
@@ -780,6 +790,76 @@ pub struct SessionCompactionCompleteData {
     pub summary_content: Option<String>,
 }
 
+// -- system.notification payload --
+
+/// Payload for `system.notification`.
+///
+/// The `kind` field is a discriminated union keyed by `kind.type`
+/// (e.g. `agent_completed`); it is kept as raw [`serde_json::Value`] for
+/// now — future work may introduce typed variants once enough subtypes are
+/// observed in real data.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+#[serde(rename_all = "camelCase")]
+pub struct SystemNotificationData {
+    /// Rendered notification body shown to the user.
+    pub content: String,
+    /// Structured kind descriptor; discriminated by its inner `type` field.
+    pub kind: serde_json::Value,
+}
+
+// -- permission.* payloads --
+
+/// Payload for `permission.requested`.
+///
+/// All structured detail (`permissionRequest`, `promptRequest`) is preserved
+/// as raw JSON for now; the wire shape varies widely across tool kinds and
+/// classifying it into typed variants is deferred to a later milestone.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionRequestedData {
+    /// Unique id for this permission interaction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    /// Detailed permission request payload (kind-specific).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission_request: Option<serde_json::Value>,
+    /// Prompt-side request payload shown to the user.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_request: Option<serde_json::Value>,
+    /// Tool call id this permission gates, if directly associated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+}
+
+/// Result of a `permission.completed` decision.
+///
+/// `kind` carries the verdict (`approved`, `denied`, ...). Future work may
+/// turn this into a typed enum.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionResult {
+    /// Verdict (e.g. `approved`, `denied`).
+    pub kind: String,
+}
+
+/// Payload for `permission.completed`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionCompletedData {
+    /// Matching id from the originating `permission.requested` event.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    /// Decision outcome.
+    pub result: PermissionResult,
+    /// Tool call id this permission gated, if directly associated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+}
+
 // -- subagent.* payloads --
 //
 // Note: `subagent.started` and `subagent.completed` carry `agentId` at the
@@ -893,6 +973,9 @@ impl CopilotEvent {
             Self::SessionResume(env) => &env.id,
             Self::SessionCompactionStart(env) => &env.id,
             Self::SessionCompactionComplete(env) => &env.id,
+            Self::SystemNotification(env) => &env.id,
+            Self::PermissionRequested(env) => &env.id,
+            Self::PermissionCompleted(env) => &env.id,
             Self::SubagentStarted(env) => &env.id,
             Self::SubagentCompleted(env) => &env.id,
             Self::SubagentFailed(env) => &env.id,
@@ -939,6 +1022,9 @@ impl CopilotEvent {
             Self::SessionResume(_) => K::SessionResume,
             Self::SessionCompactionStart(_) => K::SessionCompactionStart,
             Self::SessionCompactionComplete(_) => K::SessionCompactionComplete,
+            Self::SystemNotification(_) => K::SystemNotification,
+            Self::PermissionRequested(_) => K::PermissionRequested,
+            Self::PermissionCompleted(_) => K::PermissionCompleted,
             Self::SubagentStarted(_) => K::SubagentStarted,
             Self::SubagentCompleted(_) => K::SubagentCompleted,
             Self::SubagentFailed(_) => K::SubagentFailed,
@@ -976,6 +1062,9 @@ impl CopilotEvent {
             Self::SessionResume(env) => env.timestamp,
             Self::SessionCompactionStart(env) => env.timestamp,
             Self::SessionCompactionComplete(env) => env.timestamp,
+            Self::SystemNotification(env) => env.timestamp,
+            Self::PermissionRequested(env) => env.timestamp,
+            Self::PermissionCompleted(env) => env.timestamp,
             Self::SubagentStarted(env) => env.timestamp,
             Self::SubagentCompleted(env) => env.timestamp,
             Self::SubagentFailed(env) => env.timestamp,
@@ -1013,6 +1102,9 @@ impl CopilotEvent {
             Self::SessionResume(env) => env.parent_id.as_deref(),
             Self::SessionCompactionStart(env) => env.parent_id.as_deref(),
             Self::SessionCompactionComplete(env) => env.parent_id.as_deref(),
+            Self::SystemNotification(env) => env.parent_id.as_deref(),
+            Self::PermissionRequested(env) => env.parent_id.as_deref(),
+            Self::PermissionCompleted(env) => env.parent_id.as_deref(),
             Self::SubagentStarted(env) => env.parent_id.as_deref(),
             Self::SubagentCompleted(env) => env.parent_id.as_deref(),
             Self::SubagentFailed(env) => env.parent_id.as_deref(),
