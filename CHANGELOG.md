@@ -62,6 +62,46 @@ Reference: `docs/superpowers/specs/2026-05-26-copilot-adapter-event-first-design
 **chore:**
 - `.gitignore` — `/local-fixtures/` and `/smoke-data/` excluded to prevent accidental commit of developer-local session data.
 
+#### M1.3 Phase A+B — Copilot schema calibration (`feat/m1.3-episode-and-schema-fix`)
+
+Driven by a forward-looking audit tool plus real-data analysis.
+
+**xtask — `cargo xtask schema-audit`** (Phase A):
+- New developer tool that scans `~/.copilot/session-state/` (or
+  `--root`), classifies `CopilotEvent::Unknown` by wire `type` (with
+  candidate Rust variant names), summarizes `ParseWarning` distribution,
+  and reports `start`/`end` pair balance with severity thresholds.
+- Submodules: `scanner.rs` (dual-load raw + typed), `classifier.rs`
+  (group + redact + balance compute), `report.rs` (markdown).
+- CLI: `--root`, `--sample-limit`, `--output`, `--sessions`.
+- Documented in `xtask/README.md` with 5 invocation patterns.
+- Integration test ensures all 4 report sections emit on fixture root.
+- Re-runnable after every Copilot CLI upgrade.
+
+**adapters — 10 new `CopilotEvent` variants** (Phase B, audit-driven):
+- `Subagent{Started,Completed,Failed}`, `SystemNotification`,
+  `Session{Warning,Resume,CompactionStart,CompactionComplete}`,
+  `Permission{Requested,Completed}`.
+- `WithEnvelope` gained `agent_id: Option<String>` (camelCase: `agentId`).
+
+**adapters — `tool.execution_*` payload-shape expansion** (Phase B):
+- `ToolResultData` extended with `interaction_id`, `model`,
+  `result: Option<ToolResult>`, `tool_telemetry: Option<ToolTelemetry>`,
+  all Optional for cross-version compatibility.
+- New helper structs: `ToolResult { content, detailed_content }`,
+  `ToolTelemetry { metrics, properties, restricted_properties }`.
+
+**adapters — testing:**
+- 15 new round-trip tests in `copilot_event_parse.rs` (23 → 38).
+
+**docs:**
+- ADR-0002 marked `Updated 2026-05-27`, with detailed Schema Updates section.
+- 18 → 28 named variants documented.
+
+**Audit impact** (on developer's 187-session / 117K-event data):
+- `CopilotEvent::Unknown`: 3411 → 278 (−92%)
+- `ParseWarning::Json`: 58339 → 38176 (−35%)
+
 #### M1.1 — pre-existing entries
 
 - **Project roadmap entry-point** — `tasks/ROADMAP.md` (378 lines): the master document new contributors and AI agents should read first. Sections cover (1) document map across L1/L2/L3 + AI guides, (2) project phases timeline with current commit position, (3) task file index with status/release mapping, (4) milestone dependency graph (within MVP and across phases), (5) release cadence and SemVer rules, (6) how-to-use guide for 6 personas (newcomer / developer / feature author / releaser / reviewer / maintainer), (7) long-term vision and explicit "won't do" boundaries, plus self-update discipline at the bottom.
