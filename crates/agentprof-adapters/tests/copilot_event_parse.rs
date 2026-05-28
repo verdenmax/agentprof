@@ -172,8 +172,10 @@ fn tool_exec_complete_parses() {
         CopilotEvent::ToolExecComplete(env) => {
             assert_eq!(env.data.tool_call_id, "tc1");
             assert!(env.data.success);
-            assert!(env.data.result.content.contains("file1"));
-            assert_eq!(env.data.tool_telemetry.metrics["resultLength"], 11);
+            let result = env.data.result.as_ref().expect("result present on success");
+            assert!(result.content.as_deref().unwrap_or("").contains("file1"));
+            let telemetry = env.data.tool_telemetry.as_ref().expect("telemetry present");
+            assert_eq!(telemetry.metrics["resultLength"], 11);
         }
         other => panic!("expected ToolExecComplete, got {other:?}"),
     }
@@ -190,6 +192,116 @@ fn tool_exec_complete_with_error_parses() {
         }
         _ => panic!("expected ToolExecComplete"),
     }
+}
+
+#[test]
+fn tool_execution_start_with_object_arguments_round_trips() {
+    // Real Copilot CLI 1.0.x wire shape: arbitrary JSON object in `arguments`,
+    // plus a `turnId` sibling not present in the M1.2 clean-room schema.
+    let raw = r#"{
+        "type": "tool.execution_start",
+        "id": "evt-tes-1",
+        "timestamp": "2026-05-26T12:30:30.001Z",
+        "parentId": "p-1",
+        "data": {
+            "arguments": { "path": "/tmp/x.rs", "view_range": [100, 165] },
+            "toolCallId": "toolu_abc",
+            "toolName": "view",
+            "turnId": "78"
+        }
+    }"#;
+    let ev: CopilotEvent = serde_json::from_str(raw).expect("parse");
+    let env = match &ev {
+        CopilotEvent::ToolExecStart(e) => e,
+        other => panic!("expected ToolExecStart, got {other:?}"),
+    };
+    assert_eq!(env.data.tool_call_id, "toolu_abc");
+    assert_eq!(env.data.tool_name, "view");
+    assert_eq!(env.data.turn_id.as_deref(), Some("78"));
+    assert_eq!(env.data.arguments["path"], "/tmp/x.rs");
+
+    let back = serde_json::to_string(&ev).expect("serialize");
+    let again: CopilotEvent = serde_json::from_str(&back).expect("re-parse");
+    assert!(matches!(again, CopilotEvent::ToolExecStart(_)));
+}
+
+#[test]
+fn tool_execution_complete_with_telemetry_round_trips() {
+    // Real Copilot CLI 1.0.x success payload: `result.{content,detailedContent}`,
+    // plus `toolTelemetry.{metrics,properties}` and `model` / `interactionId`.
+    let raw = r#"{
+        "type": "tool.execution_complete",
+        "id": "evt-tec-1",
+        "timestamp": "2026-05-26T12:30:33.098Z",
+        "parentId": "p-1",
+        "data": {
+            "interactionId": "i-1",
+            "model": "claude-opus-4.7-1m-internal",
+            "result": { "content": "ok", "detailedContent": "ok details" },
+            "success": true,
+            "toolCallId": "tc-1",
+            "toolTelemetry": {
+                "metrics": { "commandTimeout": 30000 },
+                "properties": { "executionMode": "sync" }
+            },
+            "turnId": "87"
+        }
+    }"#;
+    let ev: CopilotEvent = serde_json::from_str(raw).expect("parse");
+    let env = match &ev {
+        CopilotEvent::ToolExecComplete(e) => e,
+        other => panic!("expected ToolExecComplete, got {other:?}"),
+    };
+    assert_eq!(env.data.tool_call_id, "tc-1");
+    assert_eq!(
+        env.data.model.as_deref(),
+        Some("claude-opus-4.7-1m-internal")
+    );
+    assert!(env.data.success);
+    let result = env.data.result.as_ref().expect("result present");
+    assert_eq!(result.content.as_deref(), Some("ok"));
+    assert_eq!(result.detailed_content.as_deref(), Some("ok details"));
+    let telemetry = env.data.tool_telemetry.as_ref().expect("telemetry");
+    assert_eq!(telemetry.metrics["commandTimeout"], 30000);
+
+    let back = serde_json::to_string(&ev).expect("serialize");
+    let again: CopilotEvent = serde_json::from_str(&back).expect("re-parse");
+    assert!(matches!(again, CopilotEvent::ToolExecComplete(_)));
+}
+
+#[test]
+fn tool_execution_complete_with_error_round_trips() {
+    // Real Copilot CLI 1.0.x failure payload: `result` is OMITTED, telemetry
+    // is `{}`, and `error.{code,message}` carries the failure reason.
+    let raw = r#"{
+        "type": "tool.execution_complete",
+        "id": "evt-tec-fail-1",
+        "timestamp": "2026-05-26T12:31:00.000Z",
+        "parentId": "p-1",
+        "data": {
+            "error": { "code": "failure", "message": "\"command\": Required" },
+            "interactionId": "i-2",
+            "model": "claude-opus-4.7-1m-internal",
+            "success": false,
+            "toolCallId": "tc-2",
+            "toolTelemetry": {},
+            "turnId": "95"
+        }
+    }"#;
+    let ev: CopilotEvent = serde_json::from_str(raw).expect("parse");
+    let env = match &ev {
+        CopilotEvent::ToolExecComplete(e) => e,
+        other => panic!("expected ToolExecComplete, got {other:?}"),
+    };
+    assert!(!env.data.success);
+    assert!(env.data.result.is_none(), "failure case has no result");
+    let err = env.data.error.as_ref().expect("error present");
+    assert_eq!(err.code.as_deref(), Some("failure"));
+    assert!(err.message.contains("Required"));
+
+    let back = serde_json::to_string(&ev).expect("serialize");
+    let again: CopilotEvent = serde_json::from_str(&back).expect("re-parse");
+    assert!(matches!(again, CopilotEvent::ToolExecComplete(_)));
 }
 
 #[test]

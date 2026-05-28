@@ -443,6 +443,22 @@ pub struct ToolExecData {
     pub tool_name: String,
     /// Tool-specific argument object (shape varies; kept as Value).
     pub arguments: serde_json::Value,
+    /// Turn ID, when emitted by an in-turn tool call.
+    ///
+    /// Absent on subagent-initiated and user-requested tool calls observed
+    /// in real Copilot CLI 1.0.x data.
+    #[serde(rename = "turnId", default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    /// Parent tool call ID for nested / subagent-spawned tool invocations.
+    ///
+    /// `None` for top-level tool calls. Present on subagent-emitted tool
+    /// events alongside the envelope-level `agentId` field.
+    #[serde(
+        rename = "parentToolCallId",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub parent_tool_call_id: Option<String>,
 }
 
 /// Tool result returned alongside `tool.execution_complete`.
@@ -450,10 +466,18 @@ pub struct ToolExecData {
 #[non_exhaustive]
 pub struct ToolResult {
     /// Short / summarized result content shown to the user.
-    pub content: String,
+    ///
+    /// Optional because some tool result payloads observed in real Copilot
+    /// CLI 1.0.x data omit `content` entirely (e.g. binary-result tools).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
     /// Verbose result content the model sees.
-    #[serde(rename = "detailedContent")]
-    pub detailed_content: String,
+    #[serde(
+        rename = "detailedContent",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub detailed_content: Option<String>,
 }
 
 /// Telemetry record attached to a tool result.
@@ -477,6 +501,11 @@ pub struct ToolTelemetry {
 pub struct ToolError {
     /// Human-readable error message.
     pub message: String,
+    /// Machine-readable error code (e.g. `"failure"`, `"timeout"`).
+    ///
+    /// Optional because older Copilot CLI 1.0.x events omit the field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
 }
 
 /// Payload for `tool.execution_complete`.
@@ -487,20 +516,42 @@ pub struct ToolResultData {
     #[serde(rename = "toolCallId")]
     pub tool_call_id: String,
     /// Model that requested this tool call.
-    pub model: String,
+    ///
+    /// Optional for forward-compat with older Copilot CLI 1.0.x payloads
+    /// that omit the field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
     /// Interaction grouping (matches `AssistantMessage` / `ToolExecStart`).
-    #[serde(rename = "interactionId")]
-    pub interaction_id: String,
+    ///
+    /// Optional for forward-compat with older Copilot CLI 1.0.x payloads.
+    #[serde(
+        rename = "interactionId",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub interaction_id: Option<String>,
     /// Turn ID (absent on some user-requested calls).
     #[serde(rename = "turnId", default, skip_serializing_if = "Option::is_none")]
     pub turn_id: Option<String>,
     /// Whether the tool succeeded.
     pub success: bool,
     /// Result payload.
-    pub result: ToolResult,
+    ///
+    /// Absent when `success == false`: real Copilot CLI 1.0.x failure events
+    /// omit the entire `result` object and surface the error via
+    /// [`ToolResultData::error`] instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<ToolResult>,
     /// Telemetry counters/properties.
-    #[serde(rename = "toolTelemetry")]
-    pub tool_telemetry: ToolTelemetry,
+    ///
+    /// Optional for forward-compat with older Copilot CLI 1.0.x payloads
+    /// that omit telemetry entirely.
+    #[serde(
+        rename = "toolTelemetry",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub tool_telemetry: Option<ToolTelemetry>,
     /// Error details when `success == false`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<ToolError>,
