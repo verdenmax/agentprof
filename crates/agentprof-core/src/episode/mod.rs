@@ -8,6 +8,7 @@
 //!
 //! | Module | Type | Purpose |
 //! |---|---|---|
+//! | [`call_ref`] | [`CallRef`] | Name-qualified back-reference (`{name, index}`) used by `Turn` and `SkillInvocation` |
 //! | [`turn`] | [`Turn`], [`TurnStatus`], [`Span`], [`AbortInfo`] | Per-assistant-turn aggregation |
 //! | [`tool`] | [`ToolEpisode`], [`ToolCall`], [`ToolCallStatus`] | Tool-name-keyed call history |
 //! | [`hook`] | [`HookEpisode`], [`HookCall`] | Hook-name-keyed call history |
@@ -26,6 +27,7 @@
 //! See `docs/internals/adr-0004-episode-derivation.md` for the algorithm
 //! design rationale.
 
+pub mod call_ref;
 pub mod derive;
 pub mod episodes;
 pub mod hook;
@@ -35,6 +37,7 @@ pub mod tool;
 pub mod turn;
 pub mod warning;
 
+pub use call_ref::CallRef;
 pub use derive::derive_episodes;
 pub use episodes::Episodes;
 pub use hook::{HookCall, HookEpisode};

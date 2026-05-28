@@ -116,6 +116,15 @@ Driven by a forward-looking audit tool plus real-data analysis.
 - `DeriveWarning` 4-variant data-quality enum.
 - `derive_episodes<E: Event>(events, meta) -> Episodes`: pure, total,
   single-pass aggregation function. Algorithm in ADR-0004.
+- `CallRef { name: String, index: usize }` (added pre-merge): self-describing
+  replacement for bare `Vec<usize>` indices in `Turn.{tool,hook,skill}_calls`
+  and `SkillInvocation.triggered_tools`, so back-references can be
+  dereferenced as `episodes.tools[r.name].calls[r.index]` without external
+  context. Same commit also fixes the previous `triggered_tools`
+  miscalculation where `tool_idx` was the cumulative `calls.len()` sum
+  across all tool episodes; attribution now happens in `commit_tool_call`
+  where the tool's real name and per-name index are in scope. ADR-0004
+  updated with a CallRef section.
 
 **adapters — testing:**
 - New synthetic fixture `tests/fixtures/copilot/orphan-events/`

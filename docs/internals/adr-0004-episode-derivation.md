@@ -1,7 +1,7 @@
 ---
 title: "ADR-0004: Episode derivation — lenient single-pass algorithm with orphan synthesis and DeriveWarning model"
 status: "Accepted"
-date: "2026-05-27"
+date: "2026-05-28"
 authors: "@verdenmax (project owner), AI assistant (Copilot CLI session 252068e5)"
 tags: ["architecture", "decision", "data-model", "episode", "derive_episodes", "agentprof-core", "milestone-M1.3"]
 supersedes: ""
@@ -130,6 +130,38 @@ These four cover every "data quality" issue without conflating "expected but unf
 - **ALT-010**: **Rejection Reason**: NEG-004 mitigation is not worth K-event memory + complexity overhead. M1.2 real-data demo showed `NonMonotonicTimestamp` is rare for *paired* events (hook start/end usually arrive in order); reordering typically affects sibling events (two hook starts). Defer until profiling demands it.
 
 ## Implementation Notes
+
+### CallRef — self-describing back-references (added 2026-05-28 pre-merge)
+
+`Turn.{tool,hook,skill}_calls` and `SkillInvocation.triggered_tools` were
+originally typed as `Vec<usize>` — which required external context (the
+tool/hook/skill name) to dereference. The bug was masked while M1.3
+placeholders used `event.id()` (unique per call → vec length always 1,
+index always 0), but as soon as M1.4 introduces real payload-derived
+names with repeats the encoding becomes lossy.
+
+These fields are now `Vec<CallRef>` where:
+
+```rust,ignore
+pub struct CallRef { pub name: String, pub index: usize }
+```
+
+Dereferencing is now self-describing:
+
+```rust,ignore
+let target = episodes.tools.get(&call_ref.name)
+    .and_then(|ep| ep.calls.get(call_ref.index));
+```
+
+A related fix landed in the same commit: `triggered_tools` attribution
+moved from `bump_skill_windows` into `commit_tool_call`. The previous
+encoding pushed `self.tools.values().map(|t| t.calls.len()).sum()` —
+the cumulative sum across **all** tool episodes — which was meaningless
+as an index into any single `ToolEpisode.calls` vector. With `CallRef`
+the attribution happens where the tool's name and per-name index are
+both in scope. The algorithm semantics ("a committed tool call is
+attributed to every currently-open skill window") are unchanged; only
+the index encoding is fixed.
 
 - **IMP-001**: The `DeriveState` struct is **private to `agentprof-core::episode::derive`**. Only the free function `derive_episodes` is `pub`. State machine internals can change without breaking semver.
 - **IMP-002**: All `Episodes.*` fields use `BTreeMap` (not `HashMap`) where order matters for snapshot tests. `BTreeMap<String, ToolEpisode>` ensures alphabetical tool ordering across runs.

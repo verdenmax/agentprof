@@ -3,6 +3,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::episode::call_ref::CallRef;
 use crate::episode::mode_segment::Mode;
 
 /// One assistant turn — the user-input → assistant-response cycle.
@@ -40,12 +41,12 @@ pub struct Turn {
     pub output_tokens: Option<u32>,
     /// Terminal status of this turn (open / completed / aborted).
     pub status: TurnStatus,
-    /// Indices into `Episodes.tools[name].calls` for tool calls in this turn.
-    pub tool_calls: Vec<usize>,
-    /// Indices into `Episodes.hooks[name].calls` for hook calls in this turn.
-    pub hook_calls: Vec<usize>,
-    /// Indices into `Episodes.skills[name].invocations` for skills in this turn.
-    pub skill_calls: Vec<usize>,
+    /// Name-qualified back-references into `Episodes.tools[name].calls` for tool calls in this turn.
+    pub tool_calls: Vec<CallRef>,
+    /// Name-qualified back-references into `Episodes.hooks[name].calls` for hook calls in this turn.
+    pub hook_calls: Vec<CallRef>,
+    /// Name-qualified back-references into `Episodes.skills[name].invocations` for skills in this turn.
+    pub skill_calls: Vec<CallRef>,
 }
 
 impl Turn {

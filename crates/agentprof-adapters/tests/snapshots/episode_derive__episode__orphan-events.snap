@@ -13,10 +13,16 @@ expression: episodes
       "output_tokens": null,
       "status": "Completed",
       "tool_calls": [
-        0
+        {
+          "name": "00000000-0000-0000-0000-000000000903",
+          "index": 0
+        }
       ],
       "hook_calls": [
-        0
+        {
+          "name": "00000000-0000-0000-0000-000000000902",
+          "index": 0
+        }
       ],
       "skill_calls": []
     }

@@ -3,6 +3,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::episode::call_ref::CallRef;
+
 /// Per-skill-name aggregation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -36,9 +38,10 @@ pub struct SkillInvocation {
     pub at: DateTime<Utc>,
     /// Owning turn id, when attributable to an open turn.
     pub turn_id: Option<String>,
-    /// Indices into the relevant `ToolEpisode.calls` vector for tool invocations
-    /// that occurred within the trailing K-event window after this skill invocation.
-    pub triggered_tools: Vec<usize>,
+    /// Name-qualified back-references into `Episodes.tools[ref.name].calls[ref.index]`
+    /// for tool invocations that occurred within the trailing K-event window
+    /// after this skill invocation.
+    pub triggered_tools: Vec<CallRef>,
 }
 
 impl SkillInvocation {

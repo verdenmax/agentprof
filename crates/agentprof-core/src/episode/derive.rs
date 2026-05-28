@@ -10,6 +10,7 @@ use chrono::{DateTime, Utc};
 
 use crate::adapter::{Event, EventKind};
 use crate::episode::{
+    call_ref::CallRef,
     hook::{HookCall, HookEpisode},
     mode_segment::{Mode, ModeSegment},
     skill::{SkillEpisode, SkillInvocation},
@@ -251,9 +252,25 @@ impl DeriveState {
         if is_failure {
             ep.fail_count = ep.fail_count.saturating_add(1);
         }
+
+        // Self-describing back-reference for both turns and skill windows.
+        let tool_ref = CallRef::new(name.to_string(), new_idx);
+
+        // Attribute this committed tool call to every currently-open skill
+        // window. Moved here (from `bump_skill_windows`) so the encoding is
+        // by (tool-name, per-name index) instead of a meaningless cumulative
+        // sum across all tool episodes. See ADR-0004 + the CallRef section.
+        for s in &self.open_skills {
+            if let Some(ep) = self.skills.get_mut(&s.name) {
+                if let Some(inv) = ep.invocations.get_mut(s.invocation_idx) {
+                    inv.triggered_tools.push(tool_ref.clone());
+                }
+                ep.subsequent_tool_calls = ep.subsequent_tool_calls.saturating_add(1);
+            }
+        }
+
         if let Some(turn_idx) = self.open_turn_idx {
-            // Stores the index into this tool name's call vector.
-            self.turns[turn_idx].tool_calls.push(new_idx);
+            self.turns[turn_idx].tool_calls.push(tool_ref);
         }
     }
 
@@ -308,7 +325,9 @@ impl DeriveState {
             ep.failure_count = ep.failure_count.saturating_add(1);
         }
         if let Some(turn_idx) = self.open_turn_idx {
-            self.turns[turn_idx].hook_calls.push(new_idx);
+            self.turns[turn_idx]
+                .hook_calls
+                .push(CallRef::new(name.to_string(), new_idx));
         }
     }
 
@@ -321,14 +340,16 @@ impl DeriveState {
             .or_insert_with(|| SkillEpisode::new(name.clone()));
         let new_idx = ep.invocations.len();
         ep.invocations.push(inv);
+        if let Some(turn_idx) = self.open_turn_idx {
+            self.turns[turn_idx]
+                .skill_calls
+                .push(CallRef::new(name.clone(), new_idx));
+        }
         self.open_skills.push(OpenSkill {
             name,
             invocation_idx: new_idx,
             window_remaining: SKILL_TRIGGER_WINDOW,
         });
-        if let Some(turn_idx) = self.open_turn_idx {
-            self.turns[turn_idx].skill_calls.push(new_idx);
-        }
     }
 
     fn on_mode_event<E: Event>(&mut self, ev: &E) {
@@ -386,22 +407,10 @@ impl DeriveState {
         });
     }
 
-    fn bump_skill_windows<E: Event>(&mut self, _idx: usize, ev: &E) {
-        if matches!(ev.kind(), EventKind::ToolExecStart) {
-            let tool_idx = self.tools.values().map(|t| t.calls.len()).sum::<usize>();
-            for s in &mut self.open_skills {
-                // Invariant: every OpenSkill.name was inserted into self.skills
-                // when the SkillInvoked event was processed; the entry is never
-                // removed during a derive pass. Defensive `if let` keeps clippy
-                // happy without an unwrap/expect.
-                if let Some(ep) = self.skills.get_mut(&s.name) {
-                    if let Some(inv) = ep.invocations.get_mut(s.invocation_idx) {
-                        inv.triggered_tools.push(tool_idx);
-                    }
-                    ep.subsequent_tool_calls = ep.subsequent_tool_calls.saturating_add(1);
-                }
-            }
-        }
+    fn bump_skill_windows<E: Event>(&mut self, _idx: usize, _ev: &E) {
+        // Tool-call attribution moved into `commit_tool_call` (which knows
+        // the actual tool name + per-name index, enabling self-describing
+        // `CallRef` back-references). Here we only decrement window timers.
         self.open_skills.retain_mut(|s| {
             s.window_remaining = s.window_remaining.saturating_sub(1);
             s.window_remaining > 0
