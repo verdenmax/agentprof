@@ -1,0 +1,662 @@
+---
+source: crates/agentprof-adapters/tests/episode_derive.rs
+expression: episodes
+---
+{
+  "turns": [
+    {
+      "id": "00000000-0000-0000-0000-000000000062",
+      "started_at": "2026-05-26T14:00:03Z",
+      "ended_at": "2026-05-26T14:00:25Z",
+      "model": null,
+      "mode": null,
+      "output_tokens": null,
+      "status": "Completed",
+      "tool_calls": [],
+      "hook_calls": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "skill_calls": []
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000085",
+      "started_at": "2026-05-26T14:00:26Z",
+      "ended_at": "2026-05-26T14:00:48Z",
+      "model": null,
+      "mode": null,
+      "output_tokens": null,
+      "status": "Completed",
+      "tool_calls": [],
+      "hook_calls": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "skill_calls": []
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000108",
+      "started_at": "2026-05-26T14:00:49Z",
+      "ended_at": "2026-05-26T14:01:11Z",
+      "model": null,
+      "mode": null,
+      "output_tokens": null,
+      "status": "Completed",
+      "tool_calls": [],
+      "hook_calls": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "skill_calls": []
+    }
+  ],
+  "tools": {},
+  "hooks": {
+    "00000000-0000-0000-0000-000000000064": {
+      "name": "00000000-0000-0000-0000-000000000064",
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T14:00:05Z",
+            "ended_at": "2026-05-26T14:00:06Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000062",
+          "success": true,
+          "synthesized_start": false
+        }
+      ],
+      "total_duration": [
+        1,
+        0
+      ],
+      "failure_count": 0
+    },
+    "00000000-0000-0000-0000-000000000066": {
+      "name": "00000000-0000-0000-0000-000000000066",
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T14:00:07Z",
+            "ended_at": "2026-05-26T14:00:08Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000062",
+          "success": true,
+          "synthesized_start": false
+        }
+      ],
+      "total_duration": [
+        1,
+        0
+      ],
+      "failure_count": 0
+    },
+    "00000000-0000-0000-0000-000000000068": {
+      "name": "00000000-0000-0000-0000-000000000068",
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T14:00:09Z",
+            "ended_at": "2026-05-26T14:00:10Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000062",
+          "success": true,
+          "synthesized_start": false
+        }
+      ],
+      "total_duration": [
+        1,
+        0
+      ],
+      "failure_count": 0
+    },
+    "00000000-0000-0000-0000-000000000070": {
+      "name": "00000000-0000-0000-0000-000000000070",
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T14:00:11Z",
+            "ended_at": "2026-05-26T14:00:12Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000062",
+          "success": true,
+          "synthesized_start": false
+        }
+      ],
+      "total_duration": [
+        1,
+        0
+      ],
+      "failure_count": 0
+    },
+    "00000000-0000-0000-0000-000000000072": {
+      "name": "00000000-0000-0000-0000-000000000072",
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T14:00:13Z",
+            "ended_at": "2026-05-26T14:00:14Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000062",
+          "success": true,
+          "synthesized_start": false
+        }
+      ],
+      "total_duration": [
+        1,
+        0
+      ],
+      "failure_count": 0
+    },
+    "00000000-0000-0000-0000-000000000074": {
+      "name": "00000000-0000-0000-0000-000000000074",
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T14:00:15Z",
+            "ended_at": "2026-05-26T14:00:16Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000062",
+          "success": true,
+          "synthesized_start": false
+        }
+      ],
+      "total_duration": [
+        1,
+        0
+      ],
+      "failure_count": 0
+    },
+    "00000000-0000-0000-0000-000000000076": {
+      "name": "00000000-0000-0000-0000-000000000076",
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T14:00:17Z",
+            "ended_at": "2026-05-26T14:00:18Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000062",
+          "success": true,
+          "synthesized_start": false
+        }
+      ],
+      "total_duration": [
+        1,
+        0
+      ],
+      "failure_count": 0
+    },
+    "00000000-0000-0000-0000-000000000078": {
+      "name": "00000000-0000-0000-0000-000000000078",
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T14:00:19Z",
+            "ended_at": "2026-05-26T14:00:20Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000062",
+          "success": true,
+          "synthesized_start": false
+        }
+      ],
+      "total_duration": [
+        1,
+        0
+      ],
+      "failure_count": 0
+    },
+    "00000000-0000-0000-0000-000000000080": {
+      "name": "00000000-0000-0000-0000-000000000080",
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T14:00:21Z",
+            "ended_at": "2026-05-26T14:00:22Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000062",
+          "success": true,
+          "synthesized_start": false
+        }
+      ],
+      "total_duration": [
+        1,
+        0
+      ],
+      "failure_count": 0
+    },
+    "00000000-0000-0000-0000-000000000082": {
+      "name": "00000000-0000-0000-0000-000000000082",
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T14:00:23Z",
+            "ended_at": "2026-05-26T14:00:24Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000062",
+          "success": true,
+          "synthesized_start": false
+        }
+      ],
+      "total_duration": [
+        1,
+        0
+      ],
+      "failure_count": 0
+    },
+    "00000000-0000-0000-0000-000000000087": {
+      "name": "00000000-0000-0000-0000-000000000087",
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T14:00:28Z",
+            "ended_at": "2026-05-26T14:00:29Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000085",
+          "success": true,
+          "synthesized_start": false
+        }
+      ],
+      "total_duration": [
+        1,
+        0
+      ],
+      "failure_count": 0
+    },
+    "00000000-0000-0000-0000-000000000089": {
+      "name": "00000000-0000-0000-0000-000000000089",
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T14:00:30Z",
+            "ended_at": "2026-05-26T14:00:31Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000085",
+          "success": true,
+          "synthesized_start": false
+        }
+      ],
+      "total_duration": [
+        1,
+        0
+      ],
+      "failure_count": 0
+    },
+    "00000000-0000-0000-0000-000000000091": {
+      "name": "00000000-0000-0000-0000-000000000091",
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T14:00:32Z",
+            "ended_at": "2026-05-26T14:00:33Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000085",
+          "success": true,
+          "synthesized_start": false
+        }
+      ],
+      "total_duration": [
+        1,
+        0
+      ],
+      "failure_count": 0
+    },
+    "00000000-0000-0000-0000-000000000093": {
+      "name": "00000000-0000-0000-0000-000000000093",
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T14:00:34Z",
+            "ended_at": "2026-05-26T14:00:35Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000085",
+          "success": true,
+          "synthesized_start": false
+        }
+      ],
+      "total_duration": [
+        1,
+        0
+      ],
+      "failure_count": 0
+    },
+    "00000000-0000-0000-0000-000000000095": {
+      "name": "00000000-0000-0000-0000-000000000095",
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T14:00:36Z",
+            "ended_at": "2026-05-26T14:00:37Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000085",
+          "success": true,
+          "synthesized_start": false
+        }
+      ],
+      "total_duration": [
+        1,
+        0
+      ],
+      "failure_count": 0
+    },
+    "00000000-0000-0000-0000-000000000097": {
+      "name": "00000000-0000-0000-0000-000000000097",
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T14:00:38Z",
+            "ended_at": "2026-05-26T14:00:39Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000085",
+          "success": true,
+          "synthesized_start": false
+        }
+      ],
+      "total_duration": [
+        1,
+        0
+      ],
+      "failure_count": 0
+    },
+    "00000000-0000-0000-0000-000000000099": {
+      "name": "00000000-0000-0000-0000-000000000099",
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T14:00:40Z",
+            "ended_at": "2026-05-26T14:00:41Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000085",
+          "success": true,
+          "synthesized_start": false
+        }
+      ],
+      "total_duration": [
+        1,
+        0
+      ],
+      "failure_count": 0
+    },
+    "00000000-0000-0000-0000-000000000101": {
+      "name": "00000000-0000-0000-0000-000000000101",
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T14:00:42Z",
+            "ended_at": "2026-05-26T14:00:43Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000085",
+          "success": true,
+          "synthesized_start": false
+        }
+      ],
+      "total_duration": [
+        1,
+        0
+      ],
+      "failure_count": 0
+    },
+    "00000000-0000-0000-0000-000000000103": {
+      "name": "00000000-0000-0000-0000-000000000103",
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T14:00:44Z",
+            "ended_at": "2026-05-26T14:00:45Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000085",
+          "success": true,
+          "synthesized_start": false
+        }
+      ],
+      "total_duration": [
+        1,
+        0
+      ],
+      "failure_count": 0
+    },
+    "00000000-0000-0000-0000-000000000105": {
+      "name": "00000000-0000-0000-0000-000000000105",
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T14:00:46Z",
+            "ended_at": "2026-05-26T14:00:47Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000085",
+          "success": true,
+          "synthesized_start": false
+        }
+      ],
+      "total_duration": [
+        1,
+        0
+      ],
+      "failure_count": 0
+    },
+    "00000000-0000-0000-0000-000000000110": {
+      "name": "00000000-0000-0000-0000-000000000110",
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T14:00:51Z",
+            "ended_at": "2026-05-26T14:00:52Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000108",
+          "success": true,
+          "synthesized_start": false
+        }
+      ],
+      "total_duration": [
+        1,
+        0
+      ],
+      "failure_count": 0
+    },
+    "00000000-0000-0000-0000-000000000112": {
+      "name": "00000000-0000-0000-0000-000000000112",
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T14:00:53Z",
+            "ended_at": "2026-05-26T14:00:54Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000108",
+          "success": true,
+          "synthesized_start": false
+        }
+      ],
+      "total_duration": [
+        1,
+        0
+      ],
+      "failure_count": 0
+    },
+    "00000000-0000-0000-0000-000000000114": {
+      "name": "00000000-0000-0000-0000-000000000114",
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T14:00:55Z",
+            "ended_at": "2026-05-26T14:00:56Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000108",
+          "success": true,
+          "synthesized_start": false
+        }
+      ],
+      "total_duration": [
+        1,
+        0
+      ],
+      "failure_count": 0
+    },
+    "00000000-0000-0000-0000-000000000116": {
+      "name": "00000000-0000-0000-0000-000000000116",
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T14:00:57Z",
+            "ended_at": "2026-05-26T14:00:58Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000108",
+          "success": true,
+          "synthesized_start": false
+        }
+      ],
+      "total_duration": [
+        1,
+        0
+      ],
+      "failure_count": 0
+    },
+    "00000000-0000-0000-0000-000000000118": {
+      "name": "00000000-0000-0000-0000-000000000118",
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T14:00:59Z",
+            "ended_at": "2026-05-26T14:01:00Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000108",
+          "success": true,
+          "synthesized_start": false
+        }
+      ],
+      "total_duration": [
+        1,
+        0
+      ],
+      "failure_count": 0
+    },
+    "00000000-0000-0000-0000-000000000120": {
+      "name": "00000000-0000-0000-0000-000000000120",
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T14:01:01Z",
+            "ended_at": "2026-05-26T14:01:02Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000108",
+          "success": true,
+          "synthesized_start": false
+        }
+      ],
+      "total_duration": [
+        1,
+        0
+      ],
+      "failure_count": 0
+    },
+    "00000000-0000-0000-0000-000000000122": {
+      "name": "00000000-0000-0000-0000-000000000122",
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T14:01:03Z",
+            "ended_at": "2026-05-26T14:01:04Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000108",
+          "success": true,
+          "synthesized_start": false
+        }
+      ],
+      "total_duration": [
+        1,
+        0
+      ],
+      "failure_count": 0
+    },
+    "00000000-0000-0000-0000-000000000124": {
+      "name": "00000000-0000-0000-0000-000000000124",
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T14:01:05Z",
+            "ended_at": "2026-05-26T14:01:06Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000108",
+          "success": true,
+          "synthesized_start": false
+        }
+      ],
+      "total_duration": [
+        1,
+        0
+      ],
+      "failure_count": 0
+    },
+    "00000000-0000-0000-0000-000000000126": {
+      "name": "00000000-0000-0000-0000-000000000126",
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T14:01:07Z",
+            "ended_at": "2026-05-26T14:01:08Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000108",
+          "success": true,
+          "synthesized_start": false
+        }
+      ],
+      "total_duration": [
+        1,
+        0
+      ],
+      "failure_count": 0
+    },
+    "00000000-0000-0000-0000-000000000128": {
+      "name": "00000000-0000-0000-0000-000000000128",
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T14:01:09Z",
+            "ended_at": "2026-05-26T14:01:10Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000108",
+          "success": true,
+          "synthesized_start": false
+        }
+      ],
+      "total_duration": [
+        1,
+        0
+      ],
+      "failure_count": 0
+    }
+  },
+  "skills": {},
+  "mode_segments": [
+    {
+      "mode": {
+        "Unknown": "default"
+      },
+      "started_at": "2026-05-26T14:00:00Z",
+      "ended_at": "2026-05-26T14:01:12Z"
+    }
+  ],
+  "aborts": [],
+  "warnings": []
+}

@@ -1,0 +1,105 @@
+---
+source: crates/agentprof-adapters/tests/episode_derive.rs
+expression: episodes
+---
+{
+  "turns": [
+    {
+      "id": "00000000-0000-0000-0000-000000000901",
+      "started_at": "2026-05-27T01:00:01Z",
+      "ended_at": "2026-05-27T01:00:04Z",
+      "model": null,
+      "mode": null,
+      "output_tokens": null,
+      "status": "Completed",
+      "tool_calls": [
+        0
+      ],
+      "hook_calls": [
+        0
+      ],
+      "skill_calls": []
+    }
+  ],
+  "tools": {
+    "00000000-0000-0000-0000-000000000903": {
+      "name": "00000000-0000-0000-0000-000000000903",
+      "source": {
+        "kind": "builtin"
+      },
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-27T01:00:03Z",
+            "ended_at": "2026-05-27T01:00:03Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000901",
+          "status": "OrphanSynthesizedStart",
+          "user_requested": false
+        }
+      ],
+      "total_duration": [
+        0,
+        0
+      ],
+      "fail_count": 0
+    }
+  },
+  "hooks": {
+    "00000000-0000-0000-0000-000000000902": {
+      "name": "00000000-0000-0000-0000-000000000902",
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-27T01:00:02Z",
+            "ended_at": "2026-05-27T01:00:02Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000901",
+          "success": true,
+          "synthesized_start": true
+        }
+      ],
+      "total_duration": [
+        0,
+        0
+      ],
+      "failure_count": 0
+    }
+  },
+  "skills": {},
+  "mode_segments": [
+    {
+      "mode": {
+        "Unknown": "default"
+      },
+      "started_at": "2026-05-27T01:00:00Z",
+      "ended_at": "2026-05-27T01:00:05Z"
+    }
+  ],
+  "aborts": [
+    {
+      "reason": "abort",
+      "at": "2026-05-27T01:00:05Z"
+    }
+  ],
+  "warnings": [
+    {
+      "SynthesizedStart": {
+        "kind": "HookStart",
+        "end_event_id": "00000000-0000-0000-0000-000000000902"
+      }
+    },
+    {
+      "SynthesizedStart": {
+        "kind": "ToolExecStart",
+        "end_event_id": "00000000-0000-0000-0000-000000000903"
+      }
+    },
+    {
+      "AbortWithoutOpenElement": {
+        "reason": "abort",
+        "at": "2026-05-27T01:00:05Z"
+      }
+    }
+  ]
+}
