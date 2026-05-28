@@ -340,6 +340,88 @@ fn subagent_failed_round_trips() {
     }
 }
 
+// -- M1.3 Task 4 (commit 4b): Session{Warning,Resume,Compaction*} tests. --
+
+#[test]
+fn session_warning_round_trips() {
+    let line = r#"{"type":"session.warning","data":{"message":"MCP server 'protein-copilot' is slow","warningType":"mcp"},"id":"e-sw-1","timestamp":"2026-04-28T12:50:51.432Z","parentId":"p1"}"#;
+    assert_round_trips(line, |e| matches!(e, CopilotEvent::SessionWarning(_)));
+    let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+    if let CopilotEvent::SessionWarning(env) = evt {
+        assert_eq!(env.data.warning_type.as_deref(), Some("mcp"));
+    } else {
+        panic!("expected SessionWarning");
+    }
+}
+
+#[test]
+fn session_resume_round_trips() {
+    let line = r#"{"type":"session.resume","data":{"alreadyInUse":false,"context":{"cwd":"/home/me/proj"},"eventCount":281,"reasoningEffort":"high","resumeTime":"2026-05-04T06:55:09.418Z","selectedModel":"claude-opus-4.6"},"id":"e-sr-1","timestamp":"2026-05-04T06:55:09.418Z","parentId":"p1"}"#;
+    assert_round_trips(line, |e| matches!(e, CopilotEvent::SessionResume(_)));
+    let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+    if let CopilotEvent::SessionResume(env) = evt {
+        assert_eq!(env.data.event_count, Some(281));
+        assert_eq!(env.data.selected_model.as_deref(), Some("claude-opus-4.6"));
+        assert_eq!(
+            env.data.context.as_ref().map(|c| c.cwd.as_str()),
+            Some("/home/me/proj"),
+        );
+    } else {
+        panic!("expected SessionResume");
+    }
+}
+
+#[test]
+fn session_compaction_start_round_trips() {
+    let line = r#"{"type":"session.compaction_start","data":{"conversationTokens":944498,"systemTokens":8279,"toolDefinitionsTokens":7836},"id":"e-cs-1","timestamp":"2026-05-14T12:41:30.551Z","parentId":"p1"}"#;
+    assert_round_trips(line, |e| {
+        matches!(e, CopilotEvent::SessionCompactionStart(_))
+    });
+    let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+    if let CopilotEvent::SessionCompactionStart(env) = evt {
+        assert_eq!(env.data.conversation_tokens, Some(944_498));
+        assert_eq!(env.data.system_tokens, Some(8_279));
+        assert_eq!(env.data.tool_definitions_tokens, Some(7_836));
+    } else {
+        panic!("expected SessionCompactionStart");
+    }
+}
+
+#[test]
+fn session_compaction_complete_round_trips_newer_shape() {
+    let line = r#"{"type":"session.compaction_complete","data":{"checkpointNumber":3,"checkpointPath":"/tmp/x","compactionTokensUsed":{"cacheReadTokens":36226,"cacheWriteTokens":0,"duration":28204,"inputTokens":36232,"model":"claude-opus-4.7-xhigh","outputTokens":2463},"preCompactionMessagesLength":5,"preCompactionTokens":713261,"success":true,"summaryContent":"<overview>..."},"id":"e-cc-1","timestamp":"2026-05-13T02:25:35.332Z","parentId":"p1"}"#;
+    assert_round_trips(line, |e| {
+        matches!(e, CopilotEvent::SessionCompactionComplete(_))
+    });
+    let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+    if let CopilotEvent::SessionCompactionComplete(env) = evt {
+        assert_eq!(env.data.checkpoint_number, Some(3));
+        assert_eq!(env.data.success, Some(true));
+        let tokens = env.data.compaction_tokens_used.as_ref().unwrap();
+        assert_eq!(tokens.cache_read_tokens, Some(36_226));
+        assert_eq!(tokens.input_tokens, Some(36_232));
+    } else {
+        panic!("expected SessionCompactionComplete");
+    }
+}
+
+#[test]
+fn session_compaction_complete_round_trips_older_shape() {
+    let line = r#"{"type":"session.compaction_complete","data":{"checkpointNumber":4,"checkpointPath":"/tmp/y","compactionTokensUsed":{"cachedInput":0,"input":109298,"output":3742},"preCompactionMessagesLength":253,"preCompactionTokens":135484,"requestId":"00000-x","success":true,"summaryContent":"<overview>"},"id":"e-cc-2","timestamp":"2026-04-08T12:56:24.469Z","parentId":"p2"}"#;
+    assert_round_trips(line, |e| {
+        matches!(e, CopilotEvent::SessionCompactionComplete(_))
+    });
+    let evt: CopilotEvent = serde_json::from_str(line).unwrap();
+    if let CopilotEvent::SessionCompactionComplete(env) = evt {
+        let tokens = env.data.compaction_tokens_used.as_ref().unwrap();
+        assert_eq!(tokens.cached_input, Some(0));
+        assert_eq!(tokens.input, Some(109_298));
+        assert_eq!(tokens.output, Some(3_742));
+    } else {
+        panic!("expected SessionCompactionComplete");
+    }
+}
+
 use agentprof_core::adapter::{Event, EventKind};
 
 #[test]

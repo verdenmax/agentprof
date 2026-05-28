@@ -48,7 +48,7 @@ pub struct WithEnvelope<D> {
 
 /// One line from `events.jsonl`, discriminated by the wire-format `type` field.
 ///
-/// Carries 21 named variants — session lifecycle (`session.*`), user/assistant
+/// Carries 25 named variants — session lifecycle (`session.*`), user/assistant
 /// messaging (`user.message`, `assistant.message`, `assistant.turn_start`,
 /// `assistant.turn_end`), system messages (`system.message`), tool
 /// execution (`tool.execution_start`, `tool.execution_complete`,
@@ -122,6 +122,18 @@ pub enum CopilotEvent {
     /// Skill activated for this session.
     #[serde(rename = "skill.invoked")]
     SkillInvoked(WithEnvelope<SkillData>),
+    /// Session received a warning (e.g. MCP server unresponsive).
+    #[serde(rename = "session.warning")]
+    SessionWarning(WithEnvelope<SessionWarningData>),
+    /// Existing session resumed from on-disk state.
+    #[serde(rename = "session.resume")]
+    SessionResume(WithEnvelope<SessionResumeData>),
+    /// Conversation context compaction begun.
+    #[serde(rename = "session.compaction_start")]
+    SessionCompactionStart(WithEnvelope<SessionCompactionStartData>),
+    /// Conversation context compaction finished.
+    #[serde(rename = "session.compaction_complete")]
+    SessionCompactionComplete(WithEnvelope<SessionCompactionCompleteData>),
     /// Subagent (task delegated to a sub-LLM) invocation started.
     #[serde(rename = "subagent.started")]
     SubagentStarted(WithEnvelope<SubagentStartedData>),
@@ -625,6 +637,149 @@ pub struct AbortData {
     pub reason: String,
 }
 
+// -- session.warning / session.resume / session.compaction_* payloads --
+
+/// Payload for `session.warning`.
+///
+/// Observed warning types include `mcp` (MCP server unresponsive). Fields are
+/// optional because the wire schema is still loose and future Copilot CLI
+/// versions may omit either.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+#[serde(rename_all = "camelCase")]
+pub struct SessionWarningData {
+    /// Human-readable warning text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    /// Warning category (e.g. `mcp`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warning_type: Option<String>,
+}
+
+/// Payload for `session.resume`.
+///
+/// Emitted when an existing session is reopened (`copilot resume <id>`).
+/// All non-trivial fields are optional since the producer evolves between
+/// CLI versions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+#[serde(rename_all = "camelCase")]
+pub struct SessionResumeData {
+    /// Whether another live process was holding the session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub already_in_use: Option<bool>,
+    /// Workspace context captured at resume time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<SessionContext>,
+    /// Number of events already on disk for this session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_count: Option<u64>,
+    /// Reasoning effort knob in effect (e.g. `high`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
+    /// ISO-8601 timestamp of the resume itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_time: Option<DateTime<Utc>>,
+    /// Model selected for the resumed session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_model: Option<String>,
+}
+
+/// Payload for `session.compaction_start`.
+///
+/// Captures the pre-compaction token breakdown at the moment the agent
+/// decided to compact the conversation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+#[serde(rename_all = "camelCase")]
+pub struct SessionCompactionStartData {
+    /// Tokens occupied by the conversation transcript.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation_tokens: Option<u64>,
+    /// Tokens occupied by the system prompt(s).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_tokens: Option<u64>,
+    /// Tokens occupied by tool definitions in context.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_definitions_tokens: Option<u64>,
+}
+
+/// Token breakdown for a single compaction request.
+///
+/// Two flavors of shape have been observed: a richer one with cache token
+/// detail + Copilot usage rollup, and a simpler `cachedInput`/`input`/`output`
+/// triple. All fields are optional and forward-compatible.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+#[serde(rename_all = "camelCase")]
+pub struct CompactionTokensUsed {
+    /// Cache-read tokens (newer shape).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_read_tokens: Option<u64>,
+    /// Cache-write tokens (newer shape).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_write_tokens: Option<u64>,
+    /// Cached-input tokens (older shape).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cached_input: Option<u64>,
+    /// Free-form Copilot usage rollup (preserved verbatim).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub copilot_usage: Option<serde_json::Value>,
+    /// Duration of the compaction request in milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration: Option<u64>,
+    /// Input tokens (either shape).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<u64>,
+    /// Input tokens (newer-shape alias).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_tokens: Option<u64>,
+    /// Model that performed the compaction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Output tokens (either shape).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<u64>,
+    /// Output tokens (newer-shape alias).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_tokens: Option<u64>,
+}
+
+/// Payload for `session.compaction_complete`.
+///
+/// Records the compaction outcome — including the summary content that
+/// replaced the compacted history and the location of the resulting
+/// checkpoint on disk.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+#[serde(rename_all = "camelCase")]
+pub struct SessionCompactionCompleteData {
+    /// Sequence number of the resulting checkpoint within this session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint_number: Option<u64>,
+    /// Filesystem path of the on-disk checkpoint produced by compaction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint_path: Option<String>,
+    /// Token cost of the compaction request itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compaction_tokens_used: Option<CompactionTokensUsed>,
+    /// Number of messages in the conversation before compaction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pre_compaction_messages_length: Option<u64>,
+    /// Token count of the conversation before compaction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pre_compaction_tokens: Option<u64>,
+    /// Upstream API request id for the compaction call.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    /// Whether the compaction completed successfully.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub success: Option<bool>,
+    /// Summarized content that replaced the compacted history.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary_content: Option<String>,
+}
+
 // -- subagent.* payloads --
 //
 // Note: `subagent.started` and `subagent.completed` carry `agentId` at the
@@ -734,6 +889,10 @@ impl CopilotEvent {
             Self::HookStart(env) => &env.id,
             Self::HookEnd(env) => &env.id,
             Self::SkillInvoked(env) => &env.id,
+            Self::SessionWarning(env) => &env.id,
+            Self::SessionResume(env) => &env.id,
+            Self::SessionCompactionStart(env) => &env.id,
+            Self::SessionCompactionComplete(env) => &env.id,
             Self::SubagentStarted(env) => &env.id,
             Self::SubagentCompleted(env) => &env.id,
             Self::SubagentFailed(env) => &env.id,
@@ -776,6 +935,10 @@ impl CopilotEvent {
             Self::HookStart(_) => K::HookStart,
             Self::HookEnd(_) => K::HookEnd,
             Self::SkillInvoked(_) => K::SkillInvoked,
+            Self::SessionWarning(_) => K::SessionWarning,
+            Self::SessionResume(_) => K::SessionResume,
+            Self::SessionCompactionStart(_) => K::SessionCompactionStart,
+            Self::SessionCompactionComplete(_) => K::SessionCompactionComplete,
             Self::SubagentStarted(_) => K::SubagentStarted,
             Self::SubagentCompleted(_) => K::SubagentCompleted,
             Self::SubagentFailed(_) => K::SubagentFailed,
@@ -809,6 +972,10 @@ impl CopilotEvent {
             Self::HookStart(env) => env.timestamp,
             Self::HookEnd(env) => env.timestamp,
             Self::SkillInvoked(env) => env.timestamp,
+            Self::SessionWarning(env) => env.timestamp,
+            Self::SessionResume(env) => env.timestamp,
+            Self::SessionCompactionStart(env) => env.timestamp,
+            Self::SessionCompactionComplete(env) => env.timestamp,
             Self::SubagentStarted(env) => env.timestamp,
             Self::SubagentCompleted(env) => env.timestamp,
             Self::SubagentFailed(env) => env.timestamp,
@@ -842,6 +1009,10 @@ impl CopilotEvent {
             Self::HookStart(env) => env.parent_id.as_deref(),
             Self::HookEnd(env) => env.parent_id.as_deref(),
             Self::SkillInvoked(env) => env.parent_id.as_deref(),
+            Self::SessionWarning(env) => env.parent_id.as_deref(),
+            Self::SessionResume(env) => env.parent_id.as_deref(),
+            Self::SessionCompactionStart(env) => env.parent_id.as_deref(),
+            Self::SessionCompactionComplete(env) => env.parent_id.as_deref(),
             Self::SubagentStarted(env) => env.parent_id.as_deref(),
             Self::SubagentCompleted(env) => env.parent_id.as_deref(),
             Self::SubagentFailed(env) => env.parent_id.as_deref(),
