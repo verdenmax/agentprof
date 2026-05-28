@@ -1,23 +1,34 @@
 # xtask
 
-> Build / maintenance / release tasks for agentprof. Follows the [`cargo-xtask`](https://github.com/matklad/cargo-xtask) convention: a normal workspace crate driven via `cargo run -p xtask -- <task>`.
+Build / release / maintenance driver for the agentprof workspace.
+Follows the [cargo-xtask](https://github.com/matklad/cargo-xtask) convention.
 
-This crate is **not** published to crates.io (`publish = false`).
+## Subcommands
 
-## Planned tasks
+### `schema-audit`
 
-| Task | Purpose |
-|---|---|
-| `anonymize` | Strip paths / emails / tokens from a real session log to produce a test fixture |
-| `dist-check` | Verify release-profile build for all platforms before tagging |
-| `release-notes` | Generate `CHANGELOG` excerpt from the most recent `feat:` / `fix:` / `BREAKING:` commits |
+Audit Copilot CLI session data against the current `CopilotEvent` schema.
 
-## Local commands
+```bash
+# default: audit ~/.copilot/session-state, print markdown to stdout
+cargo run -p xtask -- schema-audit
 
-```sh
-cargo run -p xtask -- --help
+# write to file
+cargo run -p xtask -- schema-audit --output audit-2026-05-27.md
+
+# limit to 50 most recent sessions
+cargo run -p xtask -- schema-audit --sample-limit 50
+
+# audit a specific session
+cargo run -p xtask -- schema-audit --sessions 252068e5-ca16-4186-a181-719462643d83
+
+# audit a custom root (e.g. test fixtures)
+cargo run -p xtask -- schema-audit --root crates/agentprof-adapters/tests/fixtures/copilot
 ```
 
-## Change history
+The report has four sections: Session 覆盖, Unknown 事件分类 (with candidate Rust
+variant names), ParseWarning 分布, 事件类型平衡分析.
 
-See [`CHANGELOG.md`](../CHANGELOG.md) — entries prefixed `xtask:`.
+Run this after Copilot CLI upgrades to detect schema drift. See
+`docs/internals/adr-0002-copilot-event-schema.md` for the variant table
+maintained based on these audits.
