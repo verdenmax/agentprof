@@ -91,9 +91,10 @@ pub fn derive_episodes<E: Event>(events: &[E], meta: &SessionMeta) -> Episodes {
             EventKind::HookStart => state.on_hook_start(ev),
             EventKind::HookEnd => state.on_hook_end(ev),
             EventKind::SkillInvoked => state.on_skill_invoked(ev),
+            EventKind::AssistantMessage => state.on_assistant_message(ev),
             EventKind::ModeChanged | EventKind::ModelChange => state.on_mode_event(ev),
             EventKind::Abort => state.on_abort(ev),
-            _ => {} // metadata-only events (Session*, *Message, Shutdown, Unknown): no-op for derive
+            _ => {} // metadata-only events (Session*, UserMessage, SystemMessage, Shutdown, Unknown): no-op for derive
         }
         state.bump_skill_windows(idx, ev);
     }
@@ -114,6 +115,12 @@ struct DeriveState {
     hooks: BTreeMap<String, HookEpisode>,
     skills: BTreeMap<String, SkillEpisode>,
     mode_segments: Vec<ModeSegment>,
+    /// Active session mode tracked across the event stream. Updated by
+    /// [`Self::on_mode_event`] when it sees `ModeChanged` events with a
+    /// non-None [`Event::payload_mode`]. Captured at [`Self::on_turn_start`]
+    /// and written into the new `Turn.mode` field. `None` until the first
+    /// `mode_changed` event arrives.
+    current_mode: Option<Mode>,
     aborts: Vec<AbortInfo>,
     warnings: Vec<DeriveWarning>,
 }
@@ -155,6 +162,7 @@ impl DeriveState {
                 Mode::Unknown("default".into()),
                 meta.started_at,
             )],
+            current_mode: None,
             aborts: Vec::new(),
             warnings: Vec::new(),
         }
@@ -204,9 +212,38 @@ impl DeriveState {
     }
 
     fn on_turn_start<E: Event>(&mut self, ev: &E) {
-        let turn = Turn::new(ev.id().to_string(), ev.timestamp());
+        let mut turn = Turn::new(ev.id().to_string(), ev.timestamp());
+        // Attribute the currently-active mode to this turn. If no
+        // session.mode_changed event has been seen yet, mode stays None
+        // (per spec FR-7). Mode-changes that happen mid-turn DON'T
+        // retroactively update this turn's mode — only subsequent turns
+        // see the new mode. Matches user intuition: 'this turn was
+        // started in X mode'.
+        turn.mode.clone_from(&self.current_mode);
         self.turns.push(turn);
         self.open_turn_idx = Some(self.turns.len() - 1);
+    }
+
+    fn on_assistant_message<E: Event>(&mut self, ev: &E) {
+        // Populate Turn.model (last-wins across messages) and Turn.output_tokens
+        // (saturating sum across messages). Per spec FR-4, FR-5.
+        //
+        // If no turn is open (data anomaly — assistant.message arriving
+        // before turn_start), silently ignore: the data is still in the
+        // event stream, we just don't have a Turn to attribute it to.
+        // Per spec FR-8.
+        let Some(idx) = self.open_turn_idx else {
+            return;
+        };
+        let Some(turn) = self.turns.get_mut(idx) else {
+            return;
+        };
+        if let Some(model) = ev.payload_model() {
+            turn.model = Some(model.to_string());
+        }
+        if let Some(tokens) = ev.payload_output_tokens() {
+            turn.output_tokens = Some(turn.output_tokens.unwrap_or(0).saturating_add(tokens));
+        }
     }
 
     fn on_turn_end<E: Event>(&mut self, ev: &E) {
@@ -427,13 +464,21 @@ impl DeriveState {
 
     fn on_mode_event<E: Event>(&mut self, ev: &E) {
         let ts = ev.timestamp();
+        // Close the previous ModeSegment regardless of whether we have a
+        // new value (existing behavior preserved).
         if let Some(seg) = self.mode_segments.last_mut() {
             seg.ended_at = Some(ts);
         }
-        // PLACEHOLDER: Mode value extraction is payload-specific.
-        // Task 10b can refine to read the actual mode value.
-        self.mode_segments
-            .push(ModeSegment::new(Mode::Unknown("changed".into()), ts));
+        // Read the actual mode from the payload. Per spec FR-6 + FR-7:
+        // - ModeChanged events carry data.new_mode → Some
+        // - ModelChange events do NOT carry mode → None (we still close
+        //   the previous segment but don't push a new one, since the
+        //   active mode is unchanged)
+        if let Some(new_mode_str) = ev.payload_mode() {
+            let new_mode = Mode::from_wire(new_mode_str);
+            self.current_mode = Some(new_mode.clone());
+            self.mode_segments.push(ModeSegment::new(new_mode, ts));
+        }
     }
 
     fn on_abort<E: Event>(&mut self, ev: &E) {
@@ -910,5 +955,144 @@ mod tests {
         assert!(ep.tools.contains_key("tool-evt"));
         assert!(ep.hooks.contains_key("hook-evt"));
         assert!(ep.skills.contains_key("skill-evt"));
+    }
+
+    /// Richer test stub that lets each test customize the payload methods.
+    /// The simpler `E` struct above (defined earlier in this `mod tests`)
+    /// doesn't override payload methods — all default to None.
+    struct MetadataE {
+        id: &'static str,
+        kind: EventKind,
+        ts: DateTime<Utc>,
+        model: Option<&'static str>,
+        output_tokens: Option<u32>,
+        mode: Option<&'static str>,
+    }
+    impl Event for MetadataE {
+        fn id(&self) -> &str {
+            self.id
+        }
+        fn kind(&self) -> EventKind {
+            self.kind
+        }
+        fn timestamp(&self) -> DateTime<Utc> {
+            self.ts
+        }
+        fn parent_id(&self) -> Option<&str> {
+            None
+        }
+        fn payload_model(&self) -> Option<&str> {
+            self.model
+        }
+        fn payload_output_tokens(&self) -> Option<u32> {
+            self.output_tokens
+        }
+        fn payload_mode(&self) -> Option<&str> {
+            self.mode
+        }
+    }
+
+    fn turn_start(id: &'static str, secs: u32) -> MetadataE {
+        MetadataE {
+            id,
+            kind: EventKind::TurnStart,
+            ts: at(secs),
+            model: None,
+            output_tokens: None,
+            mode: None,
+        }
+    }
+    fn turn_end(secs: u32) -> MetadataE {
+        MetadataE {
+            id: "te",
+            kind: EventKind::TurnEnd,
+            ts: at(secs),
+            model: None,
+            output_tokens: None,
+            mode: None,
+        }
+    }
+    fn assistant_msg(model: &'static str, tokens: u32, secs: u32) -> MetadataE {
+        MetadataE {
+            id: "am",
+            kind: EventKind::AssistantMessage,
+            ts: at(secs),
+            model: Some(model),
+            output_tokens: Some(tokens),
+            mode: None,
+        }
+    }
+    fn mode_change(mode: &'static str, secs: u32) -> MetadataE {
+        MetadataE {
+            id: "mc",
+            kind: EventKind::ModeChanged,
+            ts: at(secs),
+            model: None,
+            output_tokens: None,
+            mode: Some(mode),
+        }
+    }
+
+    #[test]
+    fn assistant_message_populates_model_and_output_tokens() {
+        let events = vec![
+            turn_start("t1", 1),
+            assistant_msg("claude-opus-4.7", 412, 2),
+            turn_end(3),
+        ];
+        let ep = derive_episodes(&events, &meta());
+        assert_eq!(ep.turns.len(), 1);
+        assert_eq!(ep.turns[0].model.as_deref(), Some("claude-opus-4.7"));
+        assert_eq!(ep.turns[0].output_tokens, Some(412));
+    }
+
+    #[test]
+    fn multiple_assistant_messages_sum_output_tokens_and_last_wins_model() {
+        // Two messages in same turn: model changes mid-turn (rare but
+        // possible), tokens should sum, model should be last-wins.
+        let events = vec![
+            turn_start("t1", 1),
+            assistant_msg("gpt-5-mini", 100, 2),
+            assistant_msg("claude-opus-4.7", 250, 3),
+            turn_end(4),
+        ];
+        let ep = derive_episodes(&events, &meta());
+        assert_eq!(ep.turns.len(), 1);
+        // Sum: 100 + 250 = 350
+        assert_eq!(ep.turns[0].output_tokens, Some(350));
+        // Last-wins: the second message's model.
+        assert_eq!(ep.turns[0].model.as_deref(), Some("claude-opus-4.7"));
+    }
+
+    #[test]
+    fn mode_change_attributes_to_next_turn_not_current() {
+        // Sequence: mode→ask, turn-A opens, mode→auto mid-turn, turn-A
+        // ends, turn-B opens, turn-B ends. Expected:
+        //   turn-A.mode = Some(Ask)   (captured at turn_start; not retroactively updated)
+        //   turn-B.mode = Some(Auto)  (captures the new current_mode)
+        let events = vec![
+            mode_change("ask", 1),
+            turn_start("t-A", 2),
+            mode_change("auto", 3),
+            turn_end(4),
+            turn_start("t-B", 5),
+            turn_end(6),
+        ];
+        let ep = derive_episodes(&events, &meta());
+        assert_eq!(ep.turns.len(), 2);
+        assert_eq!(ep.turns[0].mode, Some(Mode::Ask));
+        assert_eq!(ep.turns[1].mode, Some(Mode::Auto));
+    }
+
+    #[test]
+    fn turn_without_assistant_message_has_none_model_and_tokens() {
+        // Defensive: a turn that opens and closes with no assistant.message
+        // in between (atypical but possible) keeps model/output_tokens
+        // at None — and that's the user-facing signal.
+        let events = vec![turn_start("t1", 1), turn_end(2)];
+        let ep = derive_episodes(&events, &meta());
+        assert_eq!(ep.turns.len(), 1);
+        assert_eq!(ep.turns[0].model, None);
+        assert_eq!(ep.turns[0].output_tokens, None);
     }
 }
