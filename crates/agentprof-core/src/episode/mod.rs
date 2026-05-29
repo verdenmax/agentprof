@@ -38,7 +38,7 @@ pub mod turn;
 pub mod warning;
 
 pub use call_ref::CallRef;
-pub use derive::derive_episodes;
+pub use derive::{derive_episodes, ORPHAN_TOOL_SENTINEL};
 pub use episodes::Episodes;
 pub use hook::{HookCall, HookEpisode};
 pub use mode_segment::{Mode, ModeSegment};

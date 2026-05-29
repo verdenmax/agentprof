@@ -62,12 +62,15 @@ A single new trait method with a `None` default implementation. CopilotEvent ove
 
 | Variant kind | `payload_name()` source |
 |---|---|
-| `ToolExecStart` / `ToolExecComplete` / `ToolUserRequested` | `payload.tool_name` |
-| `HookStart` / `HookEnd` | `payload.hook_name` |
-| `SkillInvoked` | `payload.skill_name` |
+| `ToolExecStart` / `ToolUserRequested` | `payload.tool_name` |
+| `ToolExecComplete` | `None` — wire payload (`ToolResultData`) has no `tool_name` field; name is preserved by `derive_episodes` via the `OpenToolCall` stack pop |
+| `HookStart` / `HookEnd` | `payload.hook_type` |
+| `SkillInvoked` | `payload.name` |
 | All other variants | `None` |
 
 `derive_episodes` uses `event.payload_name().map(str::to_string).unwrap_or_else(|| event.id().to_string())` as the BTreeMap key. Variants returning `None` (e.g., `SessionStart`) don't reach the tool/hook/skill paths in the algorithm dispatch, so the fallback never triggers in practice — but the safety net is documented for future agent adapters.
+
+> **Note**: Earlier drafts of this table listed `ToolExecComplete` alongside `ToolExecStart` with `payload.tool_name`. That was inaccurate — `ToolResultData` has no `tool_name` field (verify by inspecting `crates/agentprof-adapters/src/copilot/event.rs::ToolResultData`). The orphan branch of `on_tool_complete` (synthesized start for an orphan end) therefore cannot extract a name via `payload_name()`; see ADR-0005 Update §1 below for how the orphan branch handles this.
 
 ### D-2: Attribute back-references to start-time turn via `turn_id` lookup
 
@@ -193,3 +196,47 @@ The split: **core defines data; cli (and future tui/storage) defines presentatio
 - **REF-006**: `.github/copilot-instructions.md` §3 (dep graph: core is leaf) — motivates D-3 placement decision.
 - **REF-007**: `.github/copilot-instructions.md` §7 (workspace coding rules) — `#[non_exhaustive]` discipline, `unwrap_used = deny` outside tests, rustdoc with `# Examples`.
 - **REF-008**: `agentprof_core::adapter::Event` trait (M1.2 + extended here) — the seam at which name extraction becomes adapter-agnostic.
+
+---
+
+## Update 2026-05-29 (M1.4 audit followups)
+
+A 4-part audit ran against the shipped M1.4 implementation (commits `ca69264` through `4e272fd`). Two additive refinements landed on `fix/m1.4-audit-followups`. Status stays **Accepted**; these are not reversals of D-1 / D-2 / D-3 but defensive elaborations.
+
+### Update §1: Orphan `tool.execution_complete` aggregation via sentinel
+
+**Context.** D-1 reads "use `payload_name()` as the `ToolEpisode` key with `event.id()` fallback". The audit (Part 2, M-2) found this fallback emits per-event UUIDs into `tool_rank` output for orphan `tool.execution_complete` events — because `ToolResultData` has no `tool_name` field, `payload_name()` returns `None`, and the fallback to `event.id()` produces UUIDs that masquerade as tool names.
+
+**Decision.** `derive_episodes` aggregates ALL orphan completes under a single sentinel name, `ORPHAN_TOOL_SENTINEL = "<orphan>"`, exported from `agentprof_core::episode`. The accompanying `DeriveWarning::SynthesizedStart` already records the original event id, so per-call accountability is preserved without polluting the rollup.
+
+**Implementation.** `on_tool_complete`'s orphan branch (`derive.rs:217-235`) replaces the fallback chain with a direct `ORPHAN_TOOL_SENTINEL.to_string()`. The angle-bracket form cannot collide with a real agent's tool name in any wire format. Future TUI / SQLite consumers can special-case this key for display, e.g. `(synthesized: 3 orphan completes)`.
+
+**Tests.** `orphan_tool_complete_aggregates_under_sentinel_not_event_id` (3 orphan events → 1 ToolEpisode with 3 calls + 3 SynthesizedStart warnings carrying the original ids). Both `episode_derive__episode__orphan-events` and `analyzer_on_fixtures__analysis__orphan-events` snapshots re-accepted.
+
+### Update §2: `DeriveWarning::PayloadNameMissing` for silent-failure defense
+
+**Context.** D-1 establishes `Event::payload_name() -> Option<&str>` with a default `None` impl. This is great for forward compatibility (new variants are non-breaking), but the audit (Part 4, design D1) flagged it as a silent-failure footgun: a future Claude or Codex adapter author who forgets to override `payload_name()` for a name-bearing variant will see `derive_episodes` silently degrade into one episode per event with no warning.
+
+**Decision.** A new `DeriveWarning::PayloadNameMissing { kind: EventKind, event_id: String }` variant is emitted whenever `payload_name()` returns `None` for an event whose dispatch kind indicates it SHOULD have a name (`ToolExecStart` / `HookStart` / `HookEnd` orphan branch / `SkillInvoked`). The graceful degradation behavior is preserved (output still produced via `event.id()` fallback), but downstream consumers can now flag the adapter as misconfigured.
+
+**Implementation.** A new `DeriveState::resolve_payload_name(ev, expected_kind) -> String` helper consolidates the name-resolution + warning-emit pattern at all 4 callsites (`derive.rs:178-189`). The `expected_kind` parameter is the kind the caller dispatched on, reported as the warning's `kind` rather than `ev.kind()` so the signal stays stable even if a future adapter mislabels the event. The orphan `tool.execution_complete` branch does NOT use this helper because it has the `ORPHAN_TOOL_SENTINEL` aggregation instead (see Update §1) — this is documented in the `PayloadNameMissing` rustdoc.
+
+**Markdown renderer.** `cmd::format::md::write_warnings` adds a `PayloadNameMissing: N` counter alongside the existing 4 categories.
+
+**Tests.** `payload_name_missing_warning_fires_when_adapter_returns_none` feeds the stub `E` (no `payload_name` override) through `ToolExecStart` / `HookStart` / `SkillInvoked` dispatch and verifies 3 warnings emit with correct kind + event_id, AND that graceful degradation produces episodes keyed by `event.id()`. Existing fixtures and snapshots are unaffected because `CopilotEvent` correctly overrides `payload_name()` for all 5 name-bearing variants.
+
+### Update §3: D-1 table corrections (documentation accuracy)
+
+The original D-1 table had three documentation errors found by the audit (Part 1, observation 1):
+
+- Listed `ToolExecComplete` alongside `ToolExecStart` as `payload.tool_name`. In reality `ToolResultData` has no `tool_name` field and `CopilotEvent::payload_name()` returns `None` for this variant.
+- Listed `HookStart`/`HookEnd` source as `payload.hook_name`. Real field is `hook_type`.
+- Listed `SkillInvoked` source as `payload.skill_name`. Real field is `name`.
+
+The table has been corrected. No code changed — the implementation was always correct; only the documentation was stale.
+
+### Update §4: `percentile` documentation precision
+
+The audit (Part 2, M-1) found `ToolRankRow.p50_duration` / `HookRankRow.p50_duration` field docs said "Median per-call duration" but the implementation uses nearest-rank with `f64::round` (half-away-from-zero), which for even samples rounds UP to the upper midpoint (e.g. `[1s, 2s]` → `p50 = 2s`, not `1.5s`). The docs are now changed to "Approximate median (nearest-rank percentile, not averaged-when-even statistical median)". The algorithm is unchanged.
+
+Rationale for keeping nearest-rank: every returned value is a real observation (no synthetic averages), at the cost of slight upward bias on even samples. Fine for the small per-tool / per-hook samples M1.4 emits. M1.5+ can add linear interpolation if strict statistical medians become a requirement; an opt-in `Percentile::Median` enum + separate function is the likely shape (would NOT change `p50_duration` field semantics).

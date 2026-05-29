@@ -83,7 +83,11 @@ impl FromStr for SessionSelector {
 }
 
 fn looks_like_uuid(s: &str) -> bool {
-    s.len() == 36 && s.chars().filter(|c| *c == '-').count() == 4
+    s.len() == 36
+        && s.chars().enumerate().all(|(i, c)| match i {
+            8 | 13 | 18 | 23 => c == '-',
+            _ => c.is_ascii_hexdigit(),
+        })
 }
 
 /// Output serialization format.
@@ -152,7 +156,11 @@ impl ExitKind {
 #[allow(clippy::needless_pass_by_value)] // main() owns the parsed Cli enum and moves the variant payload in.
 pub fn run(cmd: AnalyzeCmd) -> Result<()> {
     let adapter = registry::adapter_for(cmd.agent).ok_or_else(|| {
-        ExitKind::UserError.into_anyhow(format!("no adapter wired for agent {:?}", cmd.agent))
+        ExitKind::UserError.into_anyhow(format!(
+            "{:?} adapter not yet implemented (M1.4 ships copilot only; \
+             claude and codex are on the M1.5+ roadmap — see docs/plan.md)",
+            cmd.agent
+        ))
     })?;
 
     let sref = resolve_session(&adapter, cmd.root.clone(), &cmd.session)?;
@@ -185,16 +193,26 @@ fn resolve_session(
 
 #[allow(clippy::trivially_copy_pass_by_ref)] // CopilotAdapter is a unit struct today but the Adapter trait API takes &self.
 fn resolve_session_by_path(adapter: &CopilotAdapter, p: &Path) -> Result<SessionRef> {
+    // Resolve the user-supplied path to a concrete events.jsonl file:
+    //   - existing file → use as-is
+    //   - existing directory → join "events.jsonl"
+    //   - non-existent path ending in ".jsonl" → treat as the (missing) file
+    //     itself; otherwise treat as a (missing) session directory and look
+    //     for a child events.jsonl. This avoids the misleading double-tail
+    //     error "events.jsonl not found at /x/events.jsonl/events.jsonl".
     let path = if p.is_file() {
+        p.to_path_buf()
+    } else if p.is_dir() {
+        p.join("events.jsonl")
+    } else if p.extension().and_then(|e| e.to_str()) == Some("jsonl") {
         p.to_path_buf()
     } else {
         p.join("events.jsonl")
     };
     if !path.is_file() {
         return Err(ExitKind::UserError.into_anyhow(format!(
-            "session events.jsonl not found at {} (and {} is not a file)",
-            path.display(),
-            p.display()
+            "session events.jsonl not found at {}",
+            path.display()
         )));
     }
     let meta = std::fs::metadata(&path).ok();
@@ -273,8 +291,15 @@ fn resolve_session_by_discovery(
 fn render_report(report: &AnalysisReport, cmd: &AnalyzeCmd) -> Result<String> {
     match cmd.export {
         ExportFormat::Md => Ok(format::md::render(report, &cmd.section)),
-        ExportFormat::Json => format::json::render(report)
-            .map_err(|e| ExitKind::OutputError.into_anyhow(format!("json render: {e}"))),
+        ExportFormat::Json => {
+            // serde_json::to_string_pretty omits the trailing newline;
+            // append one so the shell prompt doesn't stick to `}` on
+            // stdout and so file output has a POSIX-compliant final line.
+            let mut s = format::json::render(report)
+                .map_err(|e| ExitKind::OutputError.into_anyhow(format!("json render: {e}")))?;
+            s.push('\n');
+            Ok(s)
+        }
     }
 }
 
@@ -352,5 +377,80 @@ mod tests {
         assert!(e.downcast_ref::<ExitKind>().is_some());
         let kind = e.downcast_ref::<ExitKind>().copied().unwrap();
         assert!(matches!(kind, ExitKind::DataError));
+    }
+
+    #[test]
+    fn exit_kind_downcast_survives_extra_context_layers() {
+        // anyhow walks the entire context chain when downcasting, so adding
+        // extra .context(...) on top of an ExitKind-tagged error must NOT
+        // hide the ExitKind from `classify_error` in main.rs. This is the
+        // defense against the M1.4 audit's "ExitKind downcast is a future
+        // footgun" warning (audit D5): if someone later writes
+        //   `cmd::analyze::run(cmd).context("processing analyze command")`
+        // in main.rs's dispatcher, exit codes must still resolve correctly.
+        //
+        // Note: anyhow::Error has an inherent `.context()` method, so no
+        // trait import is needed even though the Context trait exists.
+        let e = ExitKind::OutputError
+            .into_anyhow("disk full".to_string())
+            .context("writing report.md")
+            .context("processing analyze command");
+
+        // Full message chain should expose all layers.
+        let displayed = format!("{e:#}");
+        assert!(
+            displayed.contains("disk full"),
+            "lost innermost message: {displayed}"
+        );
+        assert!(
+            displayed.contains("writing report.md"),
+            "lost middle context: {displayed}"
+        );
+        assert!(
+            displayed.contains("processing analyze command"),
+            "lost outermost context: {displayed}"
+        );
+
+        // Critical assertion: ExitKind is still findable via downcast.
+        assert!(e.downcast_ref::<ExitKind>().is_some());
+        let kind = e.downcast_ref::<ExitKind>().copied().unwrap();
+        assert!(matches!(kind, ExitKind::OutputError));
+    }
+
+    #[test]
+    fn looks_like_uuid_accepts_canonical_form() {
+        assert!(looks_like_uuid("00000000-0000-0000-0000-000000000001"));
+        assert!(looks_like_uuid("abcdef01-2345-6789-abcd-ef0123456789"));
+        assert!(looks_like_uuid("ABCDEF01-2345-6789-ABCD-EF0123456789"));
+    }
+
+    #[test]
+    fn looks_like_uuid_rejects_wrong_length() {
+        assert!(!looks_like_uuid(""));
+        assert!(!looks_like_uuid("00000000-0000-0000-0000-00000000000"));
+        assert!(!looks_like_uuid("00000000-0000-0000-0000-0000000000010"));
+    }
+
+    #[test]
+    fn looks_like_uuid_rejects_dashes_in_wrong_positions() {
+        // 36 chars + 4 dashes but dashes mis-placed.
+        assert!(!looks_like_uuid("0-000000-0000-0000-0000-00000000000-"));
+    }
+
+    #[test]
+    fn looks_like_uuid_rejects_non_hex_with_correct_shape() {
+        // 36 chars, 4 dashes in right slots, but contains 'g' (not hex).
+        assert!(!looks_like_uuid("0000000g-0000-0000-0000-000000000001"));
+        // Trailing typo.
+        assert!(!looks_like_uuid("00000000-0000-0000-0000-00000000000g"));
+        assert!(!looks_like_uuid("00000000-0000-0000-0000-00000000000Z"));
+    }
+
+    #[test]
+    fn session_selector_rejects_uuid_shaped_non_hex() {
+        // Without hex validation this would parse as Uuid and leak through
+        // to discover_sessions, dumping real session IDs in the error.
+        let err = SessionSelector::from_str("00000000-0000-0000-0000-00000000000g").unwrap_err();
+        assert!(err.contains("unrecognized session selector"));
     }
 }

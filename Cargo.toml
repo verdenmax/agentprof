@@ -50,7 +50,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # CLI
 clap        = { version = "4", features = ["derive", "env"] }
 directories = "5"
-askama      = "0.12"
 
 # adapters
 walkdir = "2"

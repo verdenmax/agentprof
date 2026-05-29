@@ -25,6 +25,24 @@ use crate::model::{SessionMeta, ToolSource};
 /// See ADR-0004 NEG-003 + IMP-003 for rationale.
 const SKILL_TRIGGER_WINDOW: usize = 50;
 
+/// Sentinel `ToolEpisode` name used when `tool.execution_complete` arrives
+/// without a matching `tool.execution_start` (orphan-synthesized start).
+///
+/// The wire payload of `tool.execution_complete` ([`ToolResultData`]) carries
+/// only `tool_call_id`, not `tool_name`. With nothing meaningful to key on,
+/// `derive_episodes` aggregates all such orphan calls under this single
+/// sentinel name rather than emitting a separate `ToolEpisode` per opaque
+/// event id. The accompanying [`DeriveWarning::SynthesizedStart`] records
+/// the original event id for per-call accountability.
+///
+/// The angle-bracket form is deliberately not a valid tool name in any
+/// agent's wire format, so it cannot collide with a real tool. Downstream
+/// consumers (markdown / JSON renderers, future TUI) may special-case this
+/// key for display, e.g. "(synthesized: 3 orphan completes)".
+///
+/// [`ToolResultData`]: crate::episode::tool::ToolCall
+pub const ORPHAN_TOOL_SENTINEL: &str = "<orphan>";
+
 /// Derive episodes from a slice of events and session metadata.
 ///
 /// **Pure.** Same input → same output, byte-for-byte. Snapshot-stable.
@@ -157,6 +175,34 @@ impl DeriveState {
         self.last_event_ts = Some(ts);
     }
 
+    /// Extract the payload-defined name from an event, with adapter-quality
+    /// instrumentation.
+    ///
+    /// Returns `event.payload_name().to_string()` when the adapter override
+    /// provides a name, otherwise falls back to `event.id().to_string()` AND
+    /// emits a [`DeriveWarning::PayloadNameMissing`] so downstream consumers
+    /// can flag the adapter as misconfigured. This is the defense-in-depth
+    /// signal for ADR-0005 D-1's "silent failure" risk identified by the
+    /// M1.4 audit: future Codex/Claude adapter authors who forget to override
+    /// `Event::payload_name` for a name-bearing variant will see the warning
+    /// instead of silently degrading into per-event-UUID groupings.
+    ///
+    /// `expected_kind` is the kind the caller dispatched on (one of
+    /// `ToolExecStart` / `HookStart` / `HookEnd` / `SkillInvoked`). It is
+    /// reported as the warning's `kind` field rather than `ev.kind()` so the
+    /// signal stays stable even if the underlying adapter mislabels the
+    /// event.
+    fn resolve_payload_name<E: Event>(&mut self, ev: &E, expected_kind: EventKind) -> String {
+        if let Some(name) = ev.payload_name() {
+            return name.to_string();
+        }
+        self.warnings.push(DeriveWarning::PayloadNameMissing {
+            kind: expected_kind,
+            event_id: ev.id().to_string(),
+        });
+        ev.id().to_string()
+    }
+
     fn on_turn_start<E: Event>(&mut self, ev: &E) {
         let turn = Turn::new(ev.id().to_string(), ev.timestamp());
         self.turns.push(turn);
@@ -188,10 +234,8 @@ impl DeriveState {
         // Use real payload-defined name (e.g. "bash", "PreToolUse", "brainstorming")
         // via Event::payload_name(); fall back to event.id() as a safety net for
         // adapters that haven't implemented payload_name for a relevant variant.
-        // See ADR-0005 D-1 + IMP-003.
-        let name = ev
-            .payload_name()
-            .map_or_else(|| ev.id().to_string(), str::to_string);
+        // See ADR-0005 D-1 + IMP-003 + the M1.4 audit Update section.
+        let name = self.resolve_payload_name(ev, EventKind::ToolExecStart);
         let source = ToolSource::infer(&name);
         let turn_id = self.open_turn_idx.map(|i| self.turns[i].id.clone());
         self.open_tool_calls.push(OpenToolCall {
@@ -216,10 +260,18 @@ impl DeriveState {
             self.commit_tool_call(&open.name, &open.source, call);
         } else {
             // Orphan complete → synthesize 0ms Start.
+            //
+            // ToolExecComplete's payload (ToolResultData) has no tool_name
+            // field, so payload_name() returns None for the only adapter
+            // wired today (CopilotEvent). Rather than fall back to ev.id()
+            // — a per-event UUID that would create a fresh ToolEpisode per
+            // orphan event and pollute tool_rank output with opaque keys —
+            // aggregate all orphan completes under a single sentinel name.
+            // The per-call SynthesizedStart warning below preserves the
+            // original event id for accountability. See ADR-0005 Update
+            // section (M1.4 audit followups) for the design rationale.
             let span = Span::instant(ts);
-            let name = ev
-                .payload_name()
-                .map_or_else(|| ev.id().to_string(), str::to_string);
+            let name = ORPHAN_TOOL_SENTINEL.to_string();
             let source = ToolSource::infer(&name);
             let call = ToolCall {
                 span,
@@ -287,9 +339,7 @@ impl DeriveState {
     }
 
     fn on_hook_start<E: Event>(&mut self, ev: &E) {
-        let name = ev
-            .payload_name()
-            .map_or_else(|| ev.id().to_string(), str::to_string);
+        let name = self.resolve_payload_name(ev, EventKind::HookStart);
         let turn_id = self.open_turn_idx.map(|i| self.turns[i].id.clone());
         self.open_hook_calls.push(OpenHookCall {
             name,
@@ -310,9 +360,12 @@ impl DeriveState {
             };
             self.commit_hook_call(&open.name, call);
         } else {
-            let name = ev
-                .payload_name()
-                .map_or_else(|| ev.id().to_string(), str::to_string);
+            // Orphan hook.end: HookEnd payload carries hook_type so
+            // payload_name() returns Some for CopilotEvent. For future
+            // adapters that haven't implemented payload_name on HookEnd,
+            // resolve_payload_name will emit PayloadNameMissing (using
+            // HookEnd as the kind, since that's the actual event seen).
+            let name = self.resolve_payload_name(ev, EventKind::HookEnd);
             let call = HookCall {
                 span: Span::instant(ts),
                 turn_id: self.open_turn_idx.map(|i| self.turns[i].id.clone()),
@@ -352,9 +405,7 @@ impl DeriveState {
     }
 
     fn on_skill_invoked<E: Event>(&mut self, ev: &E) {
-        let name = ev
-            .payload_name()
-            .map_or_else(|| ev.id().to_string(), str::to_string);
+        let name = self.resolve_payload_name(ev, EventKind::SkillInvoked);
         let inv = SkillInvocation::new(ev.timestamp());
         let ep = self
             .skills
@@ -702,5 +753,162 @@ mod tests {
             .next()
             .expect("exactly one tool episode expected");
         assert_eq!(tool_ep.calls[0].turn_id.as_deref(), Some("turn-A"));
+    }
+
+    #[test]
+    fn orphan_tool_complete_aggregates_under_sentinel_not_event_id() {
+        // Three orphan tool.execution_complete events with no matching
+        // tool.execution_start. Each has a distinct event id. They should
+        // ALL aggregate under ORPHAN_TOOL_SENTINEL ("<orphan>") and each
+        // emit a SynthesizedStart warning carrying the original id.
+        //
+        // Before the fix they each created a separate ToolEpisode keyed by
+        // the event UUID, polluting tool_rank with opaque entries.
+        let events = vec![
+            E {
+                id: "t1",
+                kind: EventKind::TurnStart,
+                ts: at(1),
+            },
+            E {
+                id: "orphan-A",
+                kind: EventKind::ToolExecComplete,
+                ts: at(2),
+            },
+            E {
+                id: "orphan-B",
+                kind: EventKind::ToolExecComplete,
+                ts: at(3),
+            },
+            E {
+                id: "orphan-C",
+                kind: EventKind::ToolExecComplete,
+                ts: at(4),
+            },
+            E {
+                id: "t1-end",
+                kind: EventKind::TurnEnd,
+                ts: at(5),
+            },
+        ];
+        let ep = derive_episodes(&events, &meta());
+
+        // Exactly ONE ToolEpisode keyed by the sentinel.
+        assert_eq!(
+            ep.tools.len(),
+            1,
+            "all orphans should aggregate to one episode"
+        );
+        assert!(
+            ep.tools.contains_key(ORPHAN_TOOL_SENTINEL),
+            "expected key '{ORPHAN_TOOL_SENTINEL}', got {:?}",
+            ep.tools.keys().collect::<Vec<_>>()
+        );
+
+        let orphan_ep = &ep.tools[ORPHAN_TOOL_SENTINEL];
+        assert_eq!(orphan_ep.name, ORPHAN_TOOL_SENTINEL);
+        assert_eq!(orphan_ep.calls.len(), 3, "3 orphan completes → 3 calls");
+        for call in &orphan_ep.calls {
+            assert!(matches!(
+                call.status,
+                ToolCallStatus::OrphanSynthesizedStart
+            ));
+            assert_eq!(call.turn_id.as_deref(), Some("t1"));
+        }
+
+        // Per-call accountability via warnings (carry original event ids).
+        let synth: Vec<&str> = ep
+            .warnings
+            .iter()
+            .filter_map(|w| match w {
+                DeriveWarning::SynthesizedStart {
+                    kind: EventKind::ToolExecStart,
+                    end_event_id,
+                } => Some(end_event_id.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(synth, ["orphan-A", "orphan-B", "orphan-C"]);
+
+        // Back-reference also lives on the turn.
+        assert_eq!(ep.turns[0].tool_calls.len(), 3);
+        for tref in &ep.turns[0].tool_calls {
+            assert_eq!(tref.name, ORPHAN_TOOL_SENTINEL);
+        }
+    }
+
+    #[test]
+    fn payload_name_missing_warning_fires_when_adapter_returns_none() {
+        // The stub Event `E` does NOT override `payload_name`, so the
+        // trait's default `None` is returned. Feeding it ToolExecStart /
+        // HookStart / SkillInvoked kinds simulates a future adapter that
+        // forgot to override payload_name. Each event should produce one
+        // PayloadNameMissing warning carrying the original kind + id, AND
+        // the name should fall back to event.id() so derive_episodes still
+        // produces output (graceful degradation).
+        let events = vec![
+            E {
+                id: "turn",
+                kind: EventKind::TurnStart,
+                ts: at(1),
+            },
+            E {
+                id: "tool-evt",
+                kind: EventKind::ToolExecStart,
+                ts: at(2),
+            },
+            E {
+                id: "hook-evt",
+                kind: EventKind::HookStart,
+                ts: at(3),
+            },
+            E {
+                id: "skill-evt",
+                kind: EventKind::SkillInvoked,
+                ts: at(4),
+            },
+            E {
+                id: "tool-end",
+                kind: EventKind::ToolExecComplete,
+                ts: at(5),
+            },
+            E {
+                id: "hook-end",
+                kind: EventKind::HookEnd,
+                ts: at(6),
+            },
+            E {
+                id: "turn-end",
+                kind: EventKind::TurnEnd,
+                ts: at(7),
+            },
+        ];
+        let ep = derive_episodes(&events, &meta());
+
+        // Collect just the PayloadNameMissing warnings.
+        let missing: Vec<(EventKind, &str)> = ep
+            .warnings
+            .iter()
+            .filter_map(|w| match w {
+                DeriveWarning::PayloadNameMissing { kind, event_id } => {
+                    Some((*kind, event_id.as_str()))
+                }
+                _ => None,
+            })
+            .collect();
+
+        // ToolExecStart + HookStart + SkillInvoked each emit one warning
+        // (3 total). HookEnd happy path (matched) does NOT emit because the
+        // name comes from the OpenHookCall, not the End event.
+        assert_eq!(missing.len(), 3, "got: {missing:?}");
+        assert!(missing.contains(&(EventKind::ToolExecStart, "tool-evt")));
+        assert!(missing.contains(&(EventKind::HookStart, "hook-evt")));
+        assert!(missing.contains(&(EventKind::SkillInvoked, "skill-evt")));
+
+        // Graceful degradation: event.id() fallback produced ToolEpisode /
+        // HookEpisode / SkillEpisode keys.
+        assert!(ep.tools.contains_key("tool-evt"));
+        assert!(ep.hooks.contains_key("hook-evt"));
+        assert!(ep.skills.contains_key("skill-evt"));
     }
 }
