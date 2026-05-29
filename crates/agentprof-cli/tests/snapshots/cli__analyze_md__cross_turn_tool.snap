@@ -1,0 +1,33 @@
+---
+source: crates/agentprof-cli/tests/cli.rs
+expression: md
+---
+# agentprof analyze — 00000000-0000-0000-0000-000000001000
+
+## Session
+- Agent: Copilot (v1.0.99-test)
+- Started: 2026-05-29 01:00:00 UTC
+- CWD: /tmp/agentprof-fixture/cross-turn-tool
+- Live: no
+- Turns: 2
+- Tools tracked: 1
+- Hooks tracked: 0
+- Derive warnings: 0
+
+## Turn Summary
+| # | Turn ID | Status | Duration | Model | Mode | Tools | Hooks | Skills | Out-Tokens |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | turn-A | Completed | 2.00s | — | — | 1 | 0 | 0 | — |
+| 2 | turn-B | Completed | 4.00s | — | — | 0 | 0 | 0 | — |
+
+## Tool Rank (by total duration)
+| Tool | Source | Calls | OK | Fail | Orphan | User-req | Total | p50 | p95 | Max |
+|---|---|---|---|---|---|---|---|---|---|---|
+| bash | Builtin | 1 | 1 | 0 | 0 | 0 | 5.00s | 5.00s | 5.00s | 5.00s |
+
+## Hook Rank (by total duration)
+| Hook | Calls | OK | Fail | Synth | Total | p50 | p95 |
+|---|---|---|---|---|---|---|---|
+
+## Warnings
+(none)
