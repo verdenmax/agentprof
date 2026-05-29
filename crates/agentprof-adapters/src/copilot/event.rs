@@ -1163,6 +1163,30 @@ impl CopilotEvent {
             Self::Unknown => None,
         }
     }
+
+    /// Returns the payload-defined name for variants that have one:
+    /// - `ToolExecStart` / `ToolUserRequested` → `data.tool_name`
+    /// - `HookStart` / `HookEnd` → `data.hook_type` (e.g. `"PreToolUse"`, `"SessionStart"`)
+    /// - `SkillInvoked` → `data.name`
+    /// - All other variants (including `ToolExecComplete`) → `None`
+    ///
+    /// Note: `tool.execution_complete`'s payload (`ToolResultData`) does NOT
+    /// carry tool name; the name is established at `tool.execution_start` and
+    /// must be looked up via `tool_call_id`. Since `derive_episodes` matches
+    /// complete-to-start by stack order, the Complete side returns `None`
+    /// here — the algorithm's stack pop preserves the name from the prior
+    /// Start.
+    #[must_use]
+    pub fn payload_name(&self) -> Option<&str> {
+        match self {
+            Self::ToolExecStart(env) => Some(env.data.tool_name.as_str()),
+            Self::ToolUserRequested(env) => Some(env.data.tool_name.as_str()),
+            Self::HookStart(env) => Some(env.data.hook_type.as_str()),
+            Self::HookEnd(env) => Some(env.data.hook_type.as_str()),
+            Self::SkillInvoked(env) => Some(env.data.name.as_str()),
+            _ => None,
+        }
+    }
 }
 
 impl agentprof_core::adapter::Event for CopilotEvent {
@@ -1177,5 +1201,117 @@ impl agentprof_core::adapter::Event for CopilotEvent {
     }
     fn parent_id(&self) -> Option<&str> {
         self.parent_id()
+    }
+    fn payload_name(&self) -> Option<&str> {
+        self.payload_name()
+    }
+}
+
+#[cfg(test)]
+mod payload_name_tests {
+    use super::*;
+    use chrono::{TimeZone, Utc};
+
+    fn envelope<D>(data: D) -> WithEnvelope<D> {
+        WithEnvelope {
+            id: "e".into(),
+            timestamp: Utc.with_ymd_and_hms(2026, 5, 29, 0, 0, 0).unwrap(),
+            parent_id: None,
+            ephemeral: None,
+            agent_id: None,
+            data,
+        }
+    }
+
+    fn hook_input() -> HookInput {
+        HookInput {
+            session_id: "s".into(),
+            timestamp: 0,
+            cwd: "/".into(),
+            source: "tool_use".into(),
+            initial_prompt: None,
+        }
+    }
+
+    #[test]
+    fn tool_exec_start_returns_tool_name() {
+        let ev = CopilotEvent::ToolExecStart(envelope(ToolExecData {
+            tool_call_id: "tc".into(),
+            tool_name: "bash".into(),
+            arguments: serde_json::json!({}),
+            turn_id: None,
+            parent_tool_call_id: None,
+        }));
+        assert_eq!(ev.payload_name(), Some("bash"));
+    }
+
+    #[test]
+    fn tool_user_requested_returns_tool_name() {
+        let ev = CopilotEvent::ToolUserRequested(envelope(ToolUserRequestedData {
+            tool_call_id: "tc".into(),
+            tool_name: "shell".into(),
+            arguments: ToolUserArgs {
+                command: "ls".into(),
+                description: "list".into(),
+            },
+        }));
+        assert_eq!(ev.payload_name(), Some("shell"));
+    }
+
+    #[test]
+    fn hook_start_returns_hook_type() {
+        let ev = CopilotEvent::HookStart(envelope(HookStartData {
+            hook_invocation_id: "hi".into(),
+            hook_type: "PreToolUse".into(),
+            input: hook_input(),
+        }));
+        assert_eq!(ev.payload_name(), Some("PreToolUse"));
+    }
+
+    #[test]
+    fn hook_end_returns_hook_type() {
+        let ev = CopilotEvent::HookEnd(envelope(HookEndData {
+            hook_invocation_id: "hi".into(),
+            hook_type: "PostToolUse".into(),
+            output: None,
+            success: true,
+        }));
+        assert_eq!(ev.payload_name(), Some("PostToolUse"));
+    }
+
+    #[test]
+    fn skill_invoked_returns_skill_name() {
+        let ev = CopilotEvent::SkillInvoked(envelope(SkillData {
+            name: "brainstorming".into(),
+            path: "/p".into(),
+            content: String::new(),
+            source: "plugin".into(),
+            plugin_name: None,
+            plugin_version: None,
+            description: "desc".into(),
+            trigger: "user".into(),
+        }));
+        assert_eq!(ev.payload_name(), Some("brainstorming"));
+    }
+
+    #[test]
+    fn tool_exec_complete_returns_none() {
+        let ev = CopilotEvent::ToolExecComplete(envelope(ToolResultData {
+            tool_call_id: "tc".into(),
+            model: None,
+            interaction_id: None,
+            turn_id: None,
+            success: true,
+            result: None,
+            tool_telemetry: None,
+            error: None,
+        }));
+        assert_eq!(ev.payload_name(), None);
+    }
+
+    #[test]
+    fn unknown_returns_none() {
+        let ev = CopilotEvent::Unknown;
+        assert_eq!(ev.payload_name(), None);
     }
 }
