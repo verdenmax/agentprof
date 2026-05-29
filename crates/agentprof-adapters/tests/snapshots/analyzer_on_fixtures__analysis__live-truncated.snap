@@ -1,0 +1,32 @@
+---
+source: crates/agentprof-adapters/tests/analyzer_on_fixtures.rs
+expression: report
+---
+{
+  "meta": {
+    "id": "00000000-0000-0000-0000-000000000007",
+    "agent": "copilot",
+    "producer": "copilot-agent",
+    "agent_version": "1.0.54",
+    "started_at": "2026-05-26T15:00:00Z",
+    "cwd": "/tmp/agentprof-fixture/live-truncated",
+    "is_live": true
+  },
+  "turn_summary": [
+    {
+      "turn_id": "00000000-0000-0000-0000-000000000072",
+      "started_at": "2026-05-26T15:00:02Z",
+      "duration": null,
+      "status": "Open",
+      "model": null,
+      "mode": null,
+      "output_tokens": null,
+      "tool_call_count": 0,
+      "hook_call_count": 0,
+      "skill_call_count": 0
+    }
+  ],
+  "tool_rank": [],
+  "hook_rank": [],
+  "warnings": []
+}

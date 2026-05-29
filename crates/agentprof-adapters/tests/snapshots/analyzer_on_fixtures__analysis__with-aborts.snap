@@ -1,0 +1,84 @@
+---
+source: crates/agentprof-adapters/tests/analyzer_on_fixtures.rs
+expression: report
+---
+{
+  "meta": {
+    "id": "00000000-0000-0000-0000-000000000008",
+    "agent": "copilot",
+    "producer": "copilot-agent",
+    "agent_version": "1.0.54",
+    "started_at": "2026-05-26T16:00:00Z",
+    "cwd": "/tmp/agentprof-fixture/with-aborts",
+    "is_live": false
+  },
+  "turn_summary": [
+    {
+      "turn_id": "00000000-0000-0000-0000-000000000202",
+      "started_at": "2026-05-26T16:00:02Z",
+      "duration": 4000,
+      "status": "Completed",
+      "model": null,
+      "mode": null,
+      "output_tokens": null,
+      "tool_call_count": 1,
+      "hook_call_count": 0,
+      "skill_call_count": 0
+    },
+    {
+      "turn_id": "00000000-0000-0000-0000-000000000207",
+      "started_at": "2026-05-26T16:00:07Z",
+      "duration": 5000,
+      "status": "Completed",
+      "model": null,
+      "mode": null,
+      "output_tokens": null,
+      "tool_call_count": 0,
+      "hook_call_count": 2,
+      "skill_call_count": 0
+    }
+  ],
+  "tool_rank": [
+    {
+      "name": "bash",
+      "source": {
+        "kind": "builtin"
+      },
+      "call_count": 1,
+      "success_count": 0,
+      "failure_count": 1,
+      "orphan_count": 0,
+      "user_requested_count": 0,
+      "total_duration": 1000,
+      "p50_duration": 1000,
+      "p95_duration": 1000,
+      "max_duration": 1000
+    }
+  ],
+  "hook_rank": [
+    {
+      "name": "PostToolUse",
+      "call_count": 2,
+      "success_count": 1,
+      "failure_count": 1,
+      "synthesized_start_count": 1,
+      "total_duration": 1000,
+      "p50_duration": 1000,
+      "p95_duration": 1000
+    }
+  ],
+  "warnings": [
+    {
+      "SynthesizedStart": {
+        "kind": "HookStart",
+        "end_event_id": "00000000-0000-0000-0000-000000000211"
+      }
+    },
+    {
+      "AbortWithoutOpenElement": {
+        "reason": "abort",
+        "at": "2026-05-26T16:00:13Z"
+      }
+    }
+  ]
+}

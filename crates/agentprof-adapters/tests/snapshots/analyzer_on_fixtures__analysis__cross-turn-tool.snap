@@ -1,0 +1,60 @@
+---
+source: crates/agentprof-adapters/tests/analyzer_on_fixtures.rs
+expression: report
+---
+{
+  "meta": {
+    "id": "00000000-0000-0000-0000-000000001000",
+    "agent": "copilot",
+    "producer": "copilot-agent",
+    "agent_version": "1.0.99-test",
+    "started_at": "2026-05-29T01:00:00Z",
+    "cwd": "/tmp/agentprof-fixture/cross-turn-tool",
+    "is_live": false
+  },
+  "turn_summary": [
+    {
+      "turn_id": "turn-A",
+      "started_at": "2026-05-29T01:00:01Z",
+      "duration": 2000,
+      "status": "Completed",
+      "model": null,
+      "mode": null,
+      "output_tokens": null,
+      "tool_call_count": 1,
+      "hook_call_count": 0,
+      "skill_call_count": 0
+    },
+    {
+      "turn_id": "turn-B",
+      "started_at": "2026-05-29T01:00:04Z",
+      "duration": 4000,
+      "status": "Completed",
+      "model": null,
+      "mode": null,
+      "output_tokens": null,
+      "tool_call_count": 0,
+      "hook_call_count": 0,
+      "skill_call_count": 0
+    }
+  ],
+  "tool_rank": [
+    {
+      "name": "bash",
+      "source": {
+        "kind": "builtin"
+      },
+      "call_count": 1,
+      "success_count": 1,
+      "failure_count": 0,
+      "orphan_count": 0,
+      "user_requested_count": 0,
+      "total_duration": 5000,
+      "p50_duration": 5000,
+      "p95_duration": 5000,
+      "max_duration": 5000
+    }
+  ],
+  "hook_rank": [],
+  "warnings": []
+}
