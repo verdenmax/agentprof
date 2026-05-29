@@ -209,6 +209,89 @@ pub trait Event {
     fn payload_name(&self) -> Option<&str> {
         None
     }
+
+    /// Adapter-specific model identifier for the AI provider that produced
+    /// this event. Returns `Some` for variants whose payload carries a
+    /// model name (e.g. `AssistantMessage` in `CopilotEvent`), `None`
+    /// otherwise.
+    ///
+    /// Used by `derive_episodes` to populate `Turn.model` (last-wins
+    /// across assistant messages within a turn). M1.5 ROI computations
+    /// will use this for per-token price lookup.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::adapter::{Event, EventKind};
+    /// use chrono::Utc;
+    ///
+    /// struct StubEvent;
+    /// impl Event for StubEvent {
+    ///     fn id(&self) -> &str { "x" }
+    ///     fn kind(&self) -> EventKind { EventKind::Unknown }
+    ///     fn timestamp(&self) -> chrono::DateTime<Utc> { Utc::now() }
+    ///     fn parent_id(&self) -> Option<&str> { None }
+    ///     // payload_model() inherits the default `None` impl.
+    /// }
+    /// assert_eq!(StubEvent.payload_model(), None);
+    /// ```
+    fn payload_model(&self) -> Option<&str> {
+        None
+    }
+
+    /// Adapter-specific output token count for events that report it
+    /// (e.g. `AssistantMessage` in `CopilotEvent`). Returns `None` for
+    /// other variants.
+    ///
+    /// Used by `derive_episodes` to populate `Turn.output_tokens`
+    /// (saturating sum across assistant messages within a turn). M1.5 ROI
+    /// computations will use this for per-message cost calculation.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::adapter::{Event, EventKind};
+    /// use chrono::Utc;
+    ///
+    /// struct StubEvent;
+    /// impl Event for StubEvent {
+    ///     fn id(&self) -> &str { "x" }
+    ///     fn kind(&self) -> EventKind { EventKind::Unknown }
+    ///     fn timestamp(&self) -> chrono::DateTime<Utc> { Utc::now() }
+    ///     fn parent_id(&self) -> Option<&str> { None }
+    /// }
+    /// assert_eq!(StubEvent.payload_output_tokens(), None);
+    /// ```
+    fn payload_output_tokens(&self) -> Option<u32> {
+        None
+    }
+
+    /// Adapter-specific new mode string for mode-transition events
+    /// (e.g. `ModeChanged` in `CopilotEvent`). Returns `None` for variants
+    /// without a mode payload.
+    ///
+    /// Used by `derive_episodes` to track the active session mode and
+    /// attribute it to subsequently-opened turns. The string is converted
+    /// to [`crate::episode::Mode`] via `Mode::from_wire`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::adapter::{Event, EventKind};
+    /// use chrono::Utc;
+    ///
+    /// struct StubEvent;
+    /// impl Event for StubEvent {
+    ///     fn id(&self) -> &str { "x" }
+    ///     fn kind(&self) -> EventKind { EventKind::Unknown }
+    ///     fn timestamp(&self) -> chrono::DateTime<Utc> { Utc::now() }
+    ///     fn parent_id(&self) -> Option<&str> { None }
+    /// }
+    /// assert_eq!(StubEvent.payload_mode(), None);
+    /// ```
+    fn payload_mode(&self) -> Option<&str> {
+        None
+    }
 }
 
 /// Reference to a single discoverable session.
@@ -413,5 +496,68 @@ mod tests {
     #[test]
     fn default_payload_name_is_none() {
         assert!(DefaultPayloadNameEvent.payload_name().is_none());
+    }
+
+    #[test]
+    fn default_payload_model_is_none() {
+        use chrono::TimeZone;
+        struct DefaultPayloadModelEvent;
+        impl Event for DefaultPayloadModelEvent {
+            fn id(&self) -> &'static str {
+                "e"
+            }
+            fn kind(&self) -> EventKind {
+                EventKind::Unknown
+            }
+            fn timestamp(&self) -> DateTime<Utc> {
+                Utc.with_ymd_and_hms(2026, 5, 29, 0, 0, 0).unwrap()
+            }
+            fn parent_id(&self) -> Option<&str> {
+                None
+            }
+        }
+        assert_eq!(DefaultPayloadModelEvent.payload_model(), None);
+    }
+
+    #[test]
+    fn default_payload_output_tokens_is_none() {
+        use chrono::TimeZone;
+        struct DefaultPayloadTokensEvent;
+        impl Event for DefaultPayloadTokensEvent {
+            fn id(&self) -> &'static str {
+                "e"
+            }
+            fn kind(&self) -> EventKind {
+                EventKind::Unknown
+            }
+            fn timestamp(&self) -> DateTime<Utc> {
+                Utc.with_ymd_and_hms(2026, 5, 29, 0, 0, 0).unwrap()
+            }
+            fn parent_id(&self) -> Option<&str> {
+                None
+            }
+        }
+        assert_eq!(DefaultPayloadTokensEvent.payload_output_tokens(), None);
+    }
+
+    #[test]
+    fn default_payload_mode_is_none() {
+        use chrono::TimeZone;
+        struct DefaultPayloadModeEvent;
+        impl Event for DefaultPayloadModeEvent {
+            fn id(&self) -> &'static str {
+                "e"
+            }
+            fn kind(&self) -> EventKind {
+                EventKind::Unknown
+            }
+            fn timestamp(&self) -> DateTime<Utc> {
+                Utc.with_ymd_and_hms(2026, 5, 29, 0, 0, 0).unwrap()
+            }
+            fn parent_id(&self) -> Option<&str> {
+                None
+            }
+        }
+        assert_eq!(DefaultPayloadModeEvent.payload_mode(), None);
     }
 }
