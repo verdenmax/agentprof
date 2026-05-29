@@ -1187,6 +1187,45 @@ impl CopilotEvent {
             _ => None,
         }
     }
+
+    /// Returns the model identifier from the payload for variants that
+    /// have one:
+    /// - `AssistantMessage` → `data.model`
+    /// - All other variants → `None`
+    #[must_use]
+    pub fn payload_model(&self) -> Option<&str> {
+        match self {
+            Self::AssistantMessage(env) => Some(env.data.model.as_str()),
+            _ => None,
+        }
+    }
+
+    /// Returns the output token count from the payload for variants that
+    /// report it:
+    /// - `AssistantMessage` → `data.output_tokens`
+    /// - All other variants → `None`
+    #[must_use]
+    pub const fn payload_output_tokens(&self) -> Option<u32> {
+        match self {
+            Self::AssistantMessage(env) => Some(env.data.output_tokens),
+            _ => None,
+        }
+    }
+
+    /// Returns the new mode string from the payload for mode-transition
+    /// variants:
+    /// - `ModeChanged` → `data.new_mode`
+    /// - All other variants → `None`
+    ///
+    /// `derive_episodes` converts this string into a
+    /// [`agentprof_core::episode::Mode`] via `Mode::from_wire`.
+    #[must_use]
+    pub fn payload_mode(&self) -> Option<&str> {
+        match self {
+            Self::ModeChanged(env) => Some(env.data.new_mode.as_str()),
+            _ => None,
+        }
+    }
 }
 
 impl agentprof_core::adapter::Event for CopilotEvent {
@@ -1204,6 +1243,15 @@ impl agentprof_core::adapter::Event for CopilotEvent {
     }
     fn payload_name(&self) -> Option<&str> {
         self.payload_name()
+    }
+    fn payload_model(&self) -> Option<&str> {
+        self.payload_model()
+    }
+    fn payload_output_tokens(&self) -> Option<u32> {
+        self.payload_output_tokens()
+    }
+    fn payload_mode(&self) -> Option<&str> {
+        self.payload_mode()
     }
 }
 
@@ -1313,5 +1361,80 @@ mod payload_name_tests {
     fn unknown_returns_none() {
         let ev = CopilotEvent::Unknown;
         assert_eq!(ev.payload_name(), None);
+    }
+}
+
+#[cfg(test)]
+mod payload_metadata_tests {
+    use super::*;
+    use chrono::{TimeZone, Utc};
+
+    fn envelope<D>(data: D) -> WithEnvelope<D> {
+        WithEnvelope {
+            id: "e".into(),
+            timestamp: Utc.with_ymd_and_hms(2026, 5, 29, 0, 0, 0).unwrap(),
+            parent_id: None,
+            ephemeral: None,
+            agent_id: None,
+            data,
+        }
+    }
+
+    fn assistant_message(model: &str, output_tokens: u32) -> CopilotEvent {
+        CopilotEvent::AssistantMessage(envelope(AssistantMessageData {
+            message_id: "m".into(),
+            model: model.into(),
+            content: String::new(),
+            tool_requests: Vec::new(),
+            interaction_id: "i".into(),
+            turn_id: "0".into(),
+            reasoning_opaque: None,
+            reasoning_text: None,
+            encrypted_content: None,
+            output_tokens,
+            request_id: None,
+            service_request_id: None,
+        }))
+    }
+
+    #[test]
+    fn assistant_message_returns_model() {
+        let ev = assistant_message("claude-opus-4.7", 412);
+        assert_eq!(ev.payload_model(), Some("claude-opus-4.7"));
+    }
+
+    #[test]
+    fn assistant_message_returns_output_tokens() {
+        let ev = assistant_message("gpt-5-mini", 88);
+        assert_eq!(ev.payload_output_tokens(), Some(88));
+    }
+
+    #[test]
+    fn mode_changed_returns_new_mode() {
+        let ev = CopilotEvent::ModeChanged(envelope(ModeChangeData {
+            previous_mode: "ask".into(),
+            new_mode: "auto".into(),
+        }));
+        assert_eq!(ev.payload_mode(), Some("auto"));
+    }
+
+    #[test]
+    fn non_assistant_message_has_no_model_or_tokens() {
+        let ev = CopilotEvent::Unknown;
+        assert_eq!(ev.payload_model(), None);
+        assert_eq!(ev.payload_output_tokens(), None);
+        assert_eq!(ev.payload_mode(), None);
+    }
+
+    #[test]
+    fn mode_unchanged_payloads_return_none_for_mode() {
+        // ModelChange has a payload but it's not a mode-transition event.
+        let ev = CopilotEvent::ModelChange(envelope(ModelChangeData {
+            new_model: "gpt-5".into(),
+        }));
+        assert_eq!(ev.payload_mode(), None);
+        // ModelChange ALSO doesn't carry payload_model — only
+        // AssistantMessage does. ModelChange just announces a switch.
+        assert_eq!(ev.payload_model(), None);
     }
 }
