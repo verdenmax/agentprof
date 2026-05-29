@@ -185,10 +185,13 @@ impl DeriveState {
     }
 
     fn on_tool_start<E: Event>(&mut self, ev: &E) {
-        // PLACEHOLDER (Task 10b): Event trait does not yet expose payload-level
-        // tool name; use ev.id() as opaque key. ToolSource is inferred from
-        // that key's prefix (mcp__/skill__/other → Builtin).
-        let name = ev.id().to_string();
+        // Use real payload-defined name (e.g. "bash", "PreToolUse", "brainstorming")
+        // via Event::payload_name(); fall back to event.id() as a safety net for
+        // adapters that haven't implemented payload_name for a relevant variant.
+        // See ADR-0005 D-1 + IMP-003.
+        let name = ev
+            .payload_name()
+            .map_or_else(|| ev.id().to_string(), str::to_string);
         let source = ToolSource::infer(&name);
         let turn_id = self.open_turn_idx.map(|i| self.turns[i].id.clone());
         self.open_tool_calls.push(OpenToolCall {
@@ -214,7 +217,9 @@ impl DeriveState {
         } else {
             // Orphan complete → synthesize 0ms Start.
             let span = Span::instant(ts);
-            let name = ev.id().to_string(); // PLACEHOLDER
+            let name = ev
+                .payload_name()
+                .map_or_else(|| ev.id().to_string(), str::to_string);
             let source = ToolSource::infer(&name);
             let call = ToolCall {
                 span,
@@ -242,6 +247,7 @@ impl DeriveState {
     fn commit_tool_call(&mut self, name: &str, source: &ToolSource, call: ToolCall) {
         let dur = call.span.duration();
         let is_failure = matches!(call.status, ToolCallStatus::Failure { .. });
+        let start_turn_id = call.turn_id.clone();
         let ep = self
             .tools
             .entry(name.to_string())
@@ -269,13 +275,21 @@ impl DeriveState {
             }
         }
 
-        if let Some(turn_idx) = self.open_turn_idx {
-            self.turns[turn_idx].tool_calls.push(tool_ref);
+        // Attribute back-reference to the Turn open AT START time (call.turn_id),
+        // not the Turn open at commit time. Fixes commit-call-turn-divergence —
+        // a tool whose span crosses turn boundaries belongs to its start turn.
+        // See ADR-0005 D-2.
+        if let Some(turn_id) = start_turn_id.as_ref() {
+            if let Some(turn_idx) = self.turns.iter().rposition(|t| &t.id == turn_id) {
+                self.turns[turn_idx].tool_calls.push(tool_ref);
+            }
         }
     }
 
     fn on_hook_start<E: Event>(&mut self, ev: &E) {
-        let name = ev.id().to_string(); // PLACEHOLDER — Task 10b will read payload
+        let name = ev
+            .payload_name()
+            .map_or_else(|| ev.id().to_string(), str::to_string);
         let turn_id = self.open_turn_idx.map(|i| self.turns[i].id.clone());
         self.open_hook_calls.push(OpenHookCall {
             name,
@@ -296,7 +310,9 @@ impl DeriveState {
             };
             self.commit_hook_call(&open.name, call);
         } else {
-            let name = ev.id().to_string();
+            let name = ev
+                .payload_name()
+                .map_or_else(|| ev.id().to_string(), str::to_string);
             let call = HookCall {
                 span: Span::instant(ts),
                 turn_id: self.open_turn_idx.map(|i| self.turns[i].id.clone()),
@@ -314,6 +330,7 @@ impl DeriveState {
     fn commit_hook_call(&mut self, name: &str, call: HookCall) {
         let dur = call.span.duration();
         let failed = !call.success;
+        let start_turn_id = call.turn_id.clone();
         let ep = self
             .hooks
             .entry(name.to_string())
@@ -324,15 +341,20 @@ impl DeriveState {
         if failed {
             ep.failure_count = ep.failure_count.saturating_add(1);
         }
-        if let Some(turn_idx) = self.open_turn_idx {
-            self.turns[turn_idx]
-                .hook_calls
-                .push(CallRef::new(name.to_string(), new_idx));
+        // See commit_tool_call (ADR-0005 D-2) for rationale.
+        if let Some(turn_id) = start_turn_id.as_ref() {
+            if let Some(turn_idx) = self.turns.iter().rposition(|t| &t.id == turn_id) {
+                self.turns[turn_idx]
+                    .hook_calls
+                    .push(CallRef::new(name.to_string(), new_idx));
+            }
         }
     }
 
     fn on_skill_invoked<E: Event>(&mut self, ev: &E) {
-        let name = ev.id().to_string(); // PLACEHOLDER
+        let name = ev
+            .payload_name()
+            .map_or_else(|| ev.id().to_string(), str::to_string);
         let inv = SkillInvocation::new(ev.timestamp());
         let ep = self
             .skills
@@ -623,5 +645,62 @@ mod tests {
             .warnings
             .iter()
             .any(|w| matches!(w, DeriveWarning::NonMonotonicTimestamp { .. })));
+    }
+
+    #[test]
+    fn cross_turn_tool_attributes_to_start_time_turn() {
+        let events = vec![
+            E {
+                id: "turn-A",
+                kind: EventKind::TurnStart,
+                ts: at(1),
+            },
+            E {
+                id: "tool-X-start",
+                kind: EventKind::ToolExecStart,
+                ts: at(2),
+            },
+            E {
+                id: "turn-A-end",
+                kind: EventKind::TurnEnd,
+                ts: at(3),
+            },
+            E {
+                id: "turn-B",
+                kind: EventKind::TurnStart,
+                ts: at(4),
+            },
+            E {
+                id: "tool-X-end",
+                kind: EventKind::ToolExecComplete,
+                ts: at(5),
+            },
+            E {
+                id: "turn-B-end",
+                kind: EventKind::TurnEnd,
+                ts: at(6),
+            },
+        ];
+        let ep = derive_episodes(&events, &meta());
+        assert_eq!(ep.turns.len(), 2);
+        // The tool started during turn-A; the back-reference must land on turn-A,
+        // even though the ToolExecComplete event arrives during turn-B.
+        assert_eq!(
+            ep.turns[0].tool_calls.len(),
+            1,
+            "tool should attribute to start-time turn (turn-A)"
+        );
+        assert_eq!(
+            ep.turns[1].tool_calls.len(),
+            0,
+            "turn-B should not own a tool it didn't start"
+        );
+        // The committed ToolCall.turn_id must agree.
+        let tool_ep = ep
+            .tools
+            .values()
+            .next()
+            .expect("exactly one tool episode expected");
+        assert_eq!(tool_ep.calls[0].turn_id.as_deref(), Some("turn-A"));
     }
 }
