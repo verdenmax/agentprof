@@ -141,6 +141,37 @@ tests / `cargo doc -Dwarnings`).
   P2-optional)
 - `skill-call-count-fixture` (fixture reshape, not a bug; P3-defer)
 
+#### Turn metadata extraction (`feat/turn-metadata-extraction`)
+
+Discovered while validating the M1.4 audit fixes by running `agentprof analyze` against the `minimal` fixture and a real local Copilot session. The Markdown report's **Model / Mode / Out-Tokens** columns were all `—` for every turn, despite the wire data carrying these fields (`AssistantMessageData.model`, `AssistantMessageData.output_tokens`, `ModeChangeData.new_mode`). Root cause: `derive_episodes` never read these payload fields — the existing `Turn` struct fields were initialized to `None` by `Turn::new()` and never written to. Spec FR-2.2 required only "fields exist and correctly typed", which the M1.4 audit verified as compliant — the audit had no obligation to check "fields populated with real data". This was a real audit / spec blind spot that surfaced immediately on first user inspection.
+
+**`agentprof-core`:**
+- `Event` trait extended with 3 new methods, all with default `None` (mirroring ADR-0005 D-1): `payload_model() -> Option<&str>`, `payload_output_tokens() -> Option<u32>`, `payload_mode() -> Option<&str>`.
+- `DeriveState` gains a `current_mode: Option<Mode>` field tracking the active session mode across the event stream.
+- New `on_assistant_message` handler populates `Turn.model` (last-wins across messages in a turn) and `Turn.output_tokens` (saturating sum). M1.5 ROI computations consume both.
+- `on_mode_event` now reads `ev.payload_mode()` instead of pushing a hard-coded `Mode::Unknown("changed")` segment — the M1.3 PLACEHOLDER for "Task 10b will read actual mode value" is now resolved.
+- `on_turn_start` captures `current_mode.clone_from(&...)` into `turn.mode`. Mid-turn mode changes don't retroactively update the current turn (matches user intuition: "this turn was started in X mode").
+- Dispatch table gains `EventKind::AssistantMessage => state.on_assistant_message(ev)`.
+
+**`agentprof-adapters`:**
+- `CopilotEvent` overrides the 3 new trait methods for `AssistantMessage` and `ModeChanged` variants. `ModelChange` deliberately returns `None` for both `payload_model` and `payload_mode` (it announces a model switch, not a per-message model or a mode change).
+
+**Snapshots:**
+- 14 snapshots re-accepted (7 `episode_derive__*.snap` + 7 `analyzer_on_fixtures__*.snap`). `minimal` fixture now shows `model: "gpt-5-mini"`, `output_tokens: 10` (was both null). `with-mode-transitions` fixture shows populated `mode` values (`{"Unknown": "plan"}`, `{"Unknown": "autopilot"}`, etc. — wire vocabulary differs from `Mode::{Ask,Auto,Expert}` known set, so they correctly fall to the forward-compat `Unknown` variant). Fixtures without `assistant.message` events (cross-turn-tool, orphan-events) keep `model`/`output_tokens` as null — confirms we only populate fields with source data.
+
+**Tests:**
+- 3 unit tests for trait default `None` (adapter.rs)
+- 5 unit tests for CopilotEvent overrides + ModelChange-vs-ModeChange disambiguation (event.rs)
+- 4 unit tests for `derive.rs` aggregation semantics: single-message attribution, sum + last-wins, mode-mid-turn semantics, defensive no-message
+- 1 CLI integration test asserting `minimal` fixture's `turn_summary[0].output_tokens == 10` end-to-end
+
+**Out of scope (M1.5 deliverables):**
+- Cost / ROI computation logic (price tables, per-model tokenizers, `--with-cost` flag)
+- `agentprof aggregate` cross-session rollups
+- This commit only provides the **inputs** M1.5 will consume.
+
+**Test count delta:** 214 → 230 (+16: 3 + 5 + 4 + 1 unit/integration + 3 doctests, plus snapshot diffs which don't change count).
+
 ### Added
 
 #### M1.2 — Copilot CLI adapter (`feat/m1.2-copilot-adapter`)

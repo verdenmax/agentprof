@@ -8,9 +8,11 @@ expression: episodes
       "id": "00000000-0000-0000-0000-000000000223",
       "started_at": "2026-05-26T17:00:03Z",
       "ended_at": "2026-05-26T17:00:05Z",
-      "model": null,
-      "mode": null,
-      "output_tokens": null,
+      "model": "gpt-5-mini",
+      "mode": {
+        "Unknown": "plan"
+      },
+      "output_tokens": 12,
       "status": "Completed",
       "tool_calls": [],
       "hook_calls": [],
@@ -20,9 +22,11 @@ expression: episodes
       "id": "00000000-0000-0000-0000-000000000227",
       "started_at": "2026-05-26T17:00:07Z",
       "ended_at": "2026-05-26T17:00:09Z",
-      "model": null,
-      "mode": null,
-      "output_tokens": null,
+      "model": "gpt-5-mini",
+      "mode": {
+        "Unknown": "autopilot"
+      },
+      "output_tokens": 10,
       "status": "Completed",
       "tool_calls": [],
       "hook_calls": [],
@@ -42,21 +46,21 @@ expression: episodes
     },
     {
       "mode": {
-        "Unknown": "changed"
+        "Unknown": "plan"
       },
       "started_at": "2026-05-26T17:00:02Z",
       "ended_at": "2026-05-26T17:00:06Z"
     },
     {
       "mode": {
-        "Unknown": "changed"
+        "Unknown": "autopilot"
       },
       "started_at": "2026-05-26T17:00:06Z",
       "ended_at": "2026-05-26T17:00:10Z"
     },
     {
       "mode": {
-        "Unknown": "changed"
+        "Unknown": "interactive"
       },
       "started_at": "2026-05-26T17:00:10Z",
       "ended_at": "2026-05-26T17:00:11Z"
