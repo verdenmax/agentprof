@@ -214,3 +214,40 @@ fn analyze_unsupported_agent_exits_with_friendly_message() {
         .stderr(contains("not yet implemented"))
         .stderr(contains("M1.4 ships copilot only"));
 }
+
+#[test]
+fn analyze_minimal_fixture_populates_turn_metadata_in_json() {
+    // Regression test for turn-metadata-extraction: the `minimal` fixture
+    // has an assistant.message with model='gpt-5-mini' + outputTokens=10.
+    // Before turn-metadata-extraction, Turn.model and Turn.output_tokens
+    // were always None (despite the data being in the wire format).
+    //
+    // This locks the end-to-end pipeline: parser reads the field →
+    // CopilotEvent::payload_model/output_tokens returns Some →
+    // derive_episodes' on_assistant_message writes to Turn →
+    // analyzer's turn_summary copies into TurnSummaryRow →
+    // json renderer serializes → JSON contains the real values.
+    let out = Command::cargo_bin("agentprof")
+        .unwrap()
+        .args(["analyze", "--session"])
+        .arg(fixtures_root().join("minimal"))
+        .args(["--export", "json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let s = String::from_utf8(out).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&s).expect("output must be valid JSON");
+
+    let turns = parsed["turn_summary"].as_array().unwrap();
+    assert_eq!(turns.len(), 1, "minimal has exactly 1 turn");
+    assert_eq!(
+        turns[0]["model"], "gpt-5-mini",
+        "Turn.model must come from assistant.message.data.model"
+    );
+    assert_eq!(
+        turns[0]["output_tokens"], 10,
+        "Turn.output_tokens must come from assistant.message.data.output_tokens"
+    );
+}
