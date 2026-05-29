@@ -44,4 +44,28 @@ pub enum DeriveWarning {
         /// Timestamp of this event (lesser than `prev_at`).
         this_at: DateTime<Utc>,
     },
+    /// Adapter's [`Event::payload_name`](crate::adapter::Event::payload_name)
+    /// returned `None` for an event whose `EventKind` indicates it SHOULD
+    /// carry a payload-defined name (`ToolExecStart`, `HookStart`,
+    /// `SkillInvoked`). `derive_episodes` falls back to the event id, which
+    /// works for snapshot stability but produces per-event UUIDs as
+    /// [`ToolEpisode`](crate::episode::ToolEpisode) /
+    /// [`HookEpisode`](crate::episode::HookEpisode) /
+    /// [`SkillEpisode`](crate::episode::SkillEpisode) keys — defeating the
+    /// purpose of the per-name aggregation.
+    ///
+    /// This warning is the signal that an adapter author forgot to override
+    /// `Event::payload_name` for a relevant variant (a real risk for
+    /// upcoming Claude / Codex adapters in Phase 2 / 3). It is **not** an
+    /// indictment of the data: when `CopilotEvent` is fully implemented,
+    /// this warning never fires on real Copilot sessions. The
+    /// orphan-complete case for `ToolExecComplete` is handled separately by
+    /// the [`ORPHAN_TOOL_SENTINEL`](crate::episode::ORPHAN_TOOL_SENTINEL)
+    /// aggregation and does NOT emit this warning.
+    PayloadNameMissing {
+        /// Kind of the event whose `payload_name()` returned `None`.
+        kind: EventKind,
+        /// Id of the offending event (for adapter debugging).
+        event_id: String,
+    },
 }

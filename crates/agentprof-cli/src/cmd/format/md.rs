@@ -187,12 +187,14 @@ fn write_warnings(out: &mut String, report: &AnalysisReport) {
     let mut open_at_end = 0_usize;
     let mut abort = 0_usize;
     let mut non_monotonic = 0_usize;
+    let mut payload_name_missing = 0_usize;
     for w in &report.warnings {
         match w {
             DeriveWarning::SynthesizedStart { .. } => synthesized += 1,
             DeriveWarning::OpenAtEndOfSession { .. } => open_at_end += 1,
             DeriveWarning::AbortWithoutOpenElement { .. } => abort += 1,
             DeriveWarning::NonMonotonicTimestamp { .. } => non_monotonic += 1,
+            DeriveWarning::PayloadNameMissing { .. } => payload_name_missing += 1,
             // Future DeriveWarning variants: surface in 'other' bucket
             // rather than miscounting an existing category.
             _ => {}
@@ -202,6 +204,7 @@ fn write_warnings(out: &mut String, report: &AnalysisReport) {
     let _ = writeln!(out, "- OpenAtEndOfSession: {open_at_end}");
     let _ = writeln!(out, "- AbortWithoutOpenElement: {abort}");
     let _ = writeln!(out, "- NonMonotonicTimestamp: {non_monotonic}");
+    let _ = writeln!(out, "- PayloadNameMissing: {payload_name_missing}");
 }
 
 // ---------- formatting helpers ----------
