@@ -240,3 +240,40 @@ The table has been corrected. No code changed — the implementation was always 
 The audit (Part 2, M-1) found `ToolRankRow.p50_duration` / `HookRankRow.p50_duration` field docs said "Median per-call duration" but the implementation uses nearest-rank with `f64::round` (half-away-from-zero), which for even samples rounds UP to the upper midpoint (e.g. `[1s, 2s]` → `p50 = 2s`, not `1.5s`). The docs are now changed to "Approximate median (nearest-rank percentile, not averaged-when-even statistical median)". The algorithm is unchanged.
 
 Rationale for keeping nearest-rank: every returned value is a real observation (no synthetic averages), at the cost of slight upward bias on even samples. Fine for the small per-tool / per-hook samples M1.4 emits. M1.5+ can add linear interpolation if strict statistical medians become a requirement; an opt-in `Percentile::Median` enum + separate function is the likely shape (would NOT change `p50_duration` field semantics).
+
+### Update §5: Turn metadata extraction (`payload_model` / `payload_output_tokens` / `payload_mode`)
+
+**Context.** The M1.4 audit (Part 4) verified that `Turn.model` / `Turn.mode` / `Turn.output_tokens` fields exist with correct types per spec FR-2.2, but did not check whether they're actually populated from real wire data. User-facing inspection (2026-05-29) revealed all three columns show `—` in the `agentprof analyze` Markdown table for every fixture and every real Copilot session — the `derive_episodes` algorithm never wrote to these fields after `Turn::new()` initialized them to `None`.
+
+The M1.5 milestone deliverables (per-tool ROI scoring, waste-estimate-USD, cross-session aggregation) all consume these three fields:
+- `model` → price-per-token lookup + tokenizer choice
+- `output_tokens` → `session_total_cost = Σ output_tokens × output_price[model]`
+- `mode` → ROI interpretation context (`auto` vs `ask` modes have different ROI thresholds)
+
+Shipping M1.4 without populating these would have forced M1.5 to do a foundational data-plumbing pass first.
+
+**Decision.** Extend the `Event` trait with three new methods, all with default `None`, following the same pattern as D-1 (`payload_name`):
+
+```rust
+fn payload_model(&self) -> Option<&str> { None }
+fn payload_output_tokens(&self) -> Option<u32> { None }
+fn payload_mode(&self) -> Option<&str> { None }
+```
+
+`CopilotEvent` overrides:
+- `AssistantMessage(env)` → `payload_model = Some(env.data.model)`, `payload_output_tokens = Some(env.data.output_tokens)`
+- `ModeChanged(env)` → `payload_mode = Some(env.data.new_mode)`
+- All other variants → trait defaults (`None`)
+
+**Aggregation strategies in `derive_episodes`** (locked by this Update):
+- `Turn.output_tokens`: **saturating sum** across all `assistant.message` events in a turn. M1.5 ROI formula requires turn total.
+- `Turn.model`: **last-wins** across messages. Mid-turn model switches are rare but possible; the final message's model is the effective one.
+- `Turn.mode`: **captured at `turn_start`** from `DeriveState.current_mode` (which tracks the latest `session.mode_changed` event). Mode changes mid-turn don't retroactively update the current turn — only subsequent turns see the new mode.
+
+**Implementation.** A new `DeriveState.current_mode: Option<Mode>` field threads through the algorithm. `on_mode_event` now reads the actual mode from `ev.payload_mode()` (replacing the M1.3 PLACEHOLDER `Mode::Unknown("changed")`). `on_turn_start` clones `current_mode` into the new turn via `clone_from` (clippy-preferred). A new `on_assistant_message` handler writes `Turn.model` + `Turn.output_tokens`. Dispatch table gains `EventKind::AssistantMessage => state.on_assistant_message(ev)`.
+
+**No new `DeriveWarning` variants.** Unlike `PayloadNameMissing` (where missing → opaque-UUID `ToolEpisode` keys, a real degradation), missing `model` / `output_tokens` / `mode` only produces `None`-valued cells — a clear user signal on its own. Adding `PayloadXxxMissing` for every metadata field would inflate the warning vocabulary without proportional value.
+
+**Tests.** 3 trait-default unit tests (`adapter.rs`), 5 CopilotEvent override tests (`event.rs`), 4 `derive.rs` integration tests covering sum / last-wins / mode-mid-turn / defensive-no-message scenarios, snapshot re-acceptance for 14 affected `.snap` files (7 episode + 7 analyzer layers), 1 CLI end-to-end regression test asserting `minimal` fixture's `turn_summary[0].output_tokens == 10`.
+
+**Status.** Spec `docs/superpowers/specs/2026-05-29-turn-metadata-extraction-design.md` (Approved). This Update is the architectural record; the spec is the implementation contract.
