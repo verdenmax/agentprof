@@ -26,6 +26,7 @@ sessions. Per `docs/internals/adr-0003-synthetic-fixture-strategy.md`.
 | `with-mode-transitions/` | interactive → plan → autopilot | FR-2.7 |
 | `live-truncated/` | No shutdown, inuse.lock, last line partial | FR-1.4, FR-1.9 |
 | `orphan-events/` | Test `derive_episodes` orphan synthesis + abort-without-open paths (M1.3 Phase C) | FR-2.5, FR-2.8 |
+| `cross-turn-tool/` | Lock in ADR-0005 D-2 commit-call-turn-divergence fix: tool spans turn boundary, back-ref lands in start-time turn | FR-1.5, FR-1.6 |
 
 ## Local smoke tests (developers only)
 

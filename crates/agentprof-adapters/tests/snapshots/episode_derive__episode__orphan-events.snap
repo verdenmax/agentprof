@@ -20,7 +20,7 @@ expression: episodes
       ],
       "hook_calls": [
         {
-          "name": "00000000-0000-0000-0000-000000000902",
+          "name": "PreToolUse",
           "index": 0
         }
       ],
@@ -52,8 +52,8 @@ expression: episodes
     }
   },
   "hooks": {
-    "00000000-0000-0000-0000-000000000902": {
-      "name": "00000000-0000-0000-0000-000000000902",
+    "PreToolUse": {
+      "name": "PreToolUse",
       "calls": [
         {
           "span": {

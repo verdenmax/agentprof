@@ -14,7 +14,7 @@ expression: episodes
       "status": "Completed",
       "tool_calls": [
         {
-          "name": "00000000-0000-0000-0000-000000000204",
+          "name": "bash",
           "index": 0
         }
       ],
@@ -32,20 +32,20 @@ expression: episodes
       "tool_calls": [],
       "hook_calls": [
         {
-          "name": "00000000-0000-0000-0000-000000000209",
+          "name": "PostToolUse",
           "index": 0
         },
         {
-          "name": "00000000-0000-0000-0000-000000000211",
-          "index": 0
+          "name": "PostToolUse",
+          "index": 1
         }
       ],
       "skill_calls": []
     }
   ],
   "tools": {
-    "00000000-0000-0000-0000-000000000204": {
-      "name": "00000000-0000-0000-0000-000000000204",
+    "bash": {
+      "name": "bash",
       "source": {
         "kind": "builtin"
       },
@@ -72,8 +72,8 @@ expression: episodes
     }
   },
   "hooks": {
-    "00000000-0000-0000-0000-000000000209": {
-      "name": "00000000-0000-0000-0000-000000000209",
+    "PostToolUse": {
+      "name": "PostToolUse",
       "calls": [
         {
           "span": {
@@ -83,17 +83,7 @@ expression: episodes
           "turn_id": "00000000-0000-0000-0000-000000000207",
           "success": false,
           "synthesized_start": false
-        }
-      ],
-      "total_duration": [
-        1,
-        0
-      ],
-      "failure_count": 1
-    },
-    "00000000-0000-0000-0000-000000000211": {
-      "name": "00000000-0000-0000-0000-000000000211",
-      "calls": [
+        },
         {
           "span": {
             "started_at": "2026-05-26T16:00:11Z",
@@ -105,10 +95,10 @@ expression: episodes
         }
       ],
       "total_duration": [
-        0,
+        1,
         0
       ],
-      "failure_count": 0
+      "failure_count": 1
     }
   },
   "skills": {},

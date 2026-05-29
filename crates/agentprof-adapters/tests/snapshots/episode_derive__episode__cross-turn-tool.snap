@@ -5,9 +5,9 @@ expression: episodes
 {
   "turns": [
     {
-      "id": "00000000-0000-0000-0000-000000000053",
-      "started_at": "2026-05-26T13:00:03Z",
-      "ended_at": "2026-05-26T13:00:07Z",
+      "id": "turn-A",
+      "started_at": "2026-05-29T01:00:01Z",
+      "ended_at": "2026-05-29T01:00:03Z",
       "model": null,
       "mode": null,
       "output_tokens": null,
@@ -18,6 +18,18 @@ expression: episodes
           "index": 0
         }
       ],
+      "hook_calls": [],
+      "skill_calls": []
+    },
+    {
+      "id": "turn-B",
+      "started_at": "2026-05-29T01:00:04Z",
+      "ended_at": "2026-05-29T01:00:08Z",
+      "model": null,
+      "mode": null,
+      "output_tokens": null,
+      "status": "Completed",
+      "tool_calls": [],
       "hook_calls": [],
       "skill_calls": []
     }
@@ -31,47 +43,30 @@ expression: episodes
       "calls": [
         {
           "span": {
-            "started_at": "2026-05-26T13:00:05Z",
-            "ended_at": "2026-05-26T13:00:06Z"
+            "started_at": "2026-05-29T01:00:02Z",
+            "ended_at": "2026-05-29T01:00:07Z"
           },
-          "turn_id": "00000000-0000-0000-0000-000000000053",
+          "turn_id": "turn-A",
           "status": "Success",
           "user_requested": false
         }
       ],
       "total_duration": [
-        1,
+        5,
         0
       ],
       "fail_count": 0
     }
   },
   "hooks": {},
-  "skills": {
-    "synthetic-example": {
-      "name": "synthetic-example",
-      "invocations": [
-        {
-          "at": "2026-05-26T13:00:02Z",
-          "turn_id": null,
-          "triggered_tools": [
-            {
-              "name": "bash",
-              "index": 0
-            }
-          ]
-        }
-      ],
-      "subsequent_tool_calls": 1
-    }
-  },
+  "skills": {},
   "mode_segments": [
     {
       "mode": {
         "Unknown": "default"
       },
-      "started_at": "2026-05-26T13:00:00Z",
-      "ended_at": "2026-05-26T13:00:08Z"
+      "started_at": "2026-05-29T01:00:00Z",
+      "ended_at": "2026-05-29T01:00:08Z"
     }
   ],
   "aborts": [],
