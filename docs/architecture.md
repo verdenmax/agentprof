@@ -297,18 +297,40 @@ pub struct SessionRef {
 - **waste_estimate_usd(session)** = `Σ schema_tokens(unused_tools) × assistant_turn_count × input_price_per_token`。其中 `assistant_turn_count` 是 schema 实际被附加到 prompt 的次数（每个 assistant turn 一次）。
 - **roi_score(tool)**：基于 `tokens_per_call = schema_tokens / max(call_count, 1)` 的分位数打 1–5 星；`call_count == 0` → `RoiScore::Wasted`（建议 kill）。
 
+### 7.2 分析层 rollups（`agentprof-core::analyzer`）
+
+M1.4 引入的纯函数 rollups，消费 `&Episodes` 产出 per-row 分析数据：
+
+| 函数 | 输出 | 排序 |
+|---|---|---|
+| `turn_summary(&Episodes)` | `Vec<TurnSummaryRow>` | 时间顺序（保持 `Episodes.turns` 次序） |
+| `tool_rank(&Episodes)` | `Vec<ToolRankRow>` | `total_duration` 降序 |
+| `hook_rank(&Episodes)` | `Vec<HookRankRow>` | `total_duration` 降序 |
+| `analyze(&Episodes, &SessionMeta)` | `AnalysisReport` | 打包 meta + 上述 3 个 rollups + warnings |
+
+`AnalysisReport` 是导出层（markdown / JSON 渲染器，未来 TUI / 存储层）共享的稳定结构。所有 `Duration` 字段通过 `duration_ms` / `duration_ms_opt` serde helper 序列化为整型毫秒（per ADR-0004 IMP-007，保证快照稳定）。
+
+**关键算法**：
+- `tool_rank::percentile()` — 排序 + 索引 `round((pct/100) * (len-1))`。空切片 → `Duration::zero()`；单元素 → 返回该元素。
+- `hook_rank` 复用 `tool_rank::percentile`，无重复实现。
+- `commit_tool_call` / `commit_hook_call` 通过 `call.turn_id` + `rposition` 查找把 tool/hook back-reference 归到**开始时所在的 Turn**（不是结束时的 `open_turn_idx`）。修复 commit-call-turn-divergence，确保 cross-turn span 的归属正确。详见 ADR-0005 D-2。
+
+详细决策（D-1 / D-2 / D-3 + 10 个 IMP）见 [`docs/internals/adr-0005-analyzer-and-payload-name.md`](internals/adr-0005-analyzer-and-payload-name.md)。
+
 ---
 
 ## 8. CLI 协议（`agentprof <COMMAND>`）
 
 ```
-analyze [--agent claude|codex|copilot|auto]
-        [--session <id>] [--path <p>]
-        [--export tui|speedscope|html|md|csv]
-        [--out <file>]
-        [--use-anthropic-api]
-    分析单个 session（默认最近一次），输出选择的视图。
-    --agent auto 用最近修改时间挑 session。
+analyze [--agent copilot]                     # M1.4: copilot only; auto/claude/codex 留给 M1.5+
+        [--session latest|previous|<uuid>|<path>]   # 默认 latest
+        [--root <dir>]                        # 覆盖 adapter 默认 session-state 根
+        [--export md|json]                    # M1.4: md (默认) 或 json; tui/speedscope/html/csv 留给 M1.5+
+        [--output <file>]                     # 写文件而非 stdout
+        [--section turn-summary,tool-rank,hook-rank]   # 只影响 --export md；默认全部
+    分析单个 session（默认 latest），输出 markdown 或 JSON 报告。
+    Session 选择优先级：显式 path > UUID > latest/previous（按 mtime 排序）。
+    退出码：0 成功 / 1 用户错误 / 2 数据错误 / 3 输出错误 / 130 SIGINT。
 
 list    [--agent ...] [--since 7d] [--limit 50]
     列出可用的 session（id、时间、模型、turn 数、总 token、利用率）。
@@ -615,6 +637,7 @@ pub fn compute_roi(/* ... */) -> Result<Vec<RoiRow>, CoreError> {
 | 0002 | Copilot event schema | Accepted（Updated 2026-05-27 for M1.3 Phase B） | 2026-05-26 |
 | 0003 | Synthetic-only fixture strategy | Accepted | 2026-05-26 |
 | 0004 | Episode derivation — lenient single-pass algorithm | Accepted | 2026-05-27 |
+| 0005 | Analyzer foundations — payload_name + start-time turn attribution + AnalysisReport placement | Accepted | 2026-05-29 |
 
 ### 14.5 文档同步的 CI 强制
 

@@ -3,9 +3,11 @@
 > Perf flamegraph and ROI profiler for AI coding agents (Claude Code / Codex CLI / Copilot CLI).
 > Tell which tools earn their `tools_schema` tokens — and which ones you can safely kill.
 
-**Status: pre-alpha skeleton.** Architecture is finalized in
-[`docs/architecture.md`](docs/architecture.md). Phase 0 prototype implementation
-has not started yet — see [`docs/plan.md`](docs/plan.md) for the roadmap.
+**Status: M1.4 — `analyze` subcommand shipped.** First user-facing release;
+Copilot CLI session analysis with markdown + JSON output works end-to-end.
+TUI, multi-session aggregation, Claude / Codex adapters land in M1.5+.
+See [`docs/plan.md`](docs/plan.md) for the roadmap and
+[`docs/architecture.md`](docs/architecture.md) for the architecture (L1).
 
 ---
 
@@ -46,6 +48,64 @@ cargo install --git https://github.com/agentprof/agentprof agentprof-cli
 
 The above are placeholders — release binaries will be wired up once the first
 prototype lands.
+
+---
+
+## Quick start (M1.4)
+
+`agentprof analyze` is now shipped — it can read a real Copilot CLI session
+and produce a structured report:
+
+```sh
+# From source (release binaries forthcoming)
+git clone <repo>
+cd agentprof
+cargo install --path crates/agentprof-cli
+
+# Default: analyze your latest Copilot CLI session, markdown to stdout
+agentprof analyze
+
+# Choose export format and output destination
+agentprof analyze --export json --output report.json
+
+# Analyze a specific session path (handy for testing with the fixtures)
+agentprof analyze --session ./crates/agentprof-adapters/tests/fixtures/copilot/cross-turn-tool
+```
+
+Sample output structure:
+
+```markdown
+# agentprof analyze — <session-uuid>
+
+## Session
+- Agent: Copilot (v1.0.99)
+- Started: 2026-05-29 12:43:43 UTC
+- CWD: /path/to/cwd
+- Live: no
+- Turns: N
+...
+
+## Turn Summary
+| # | Turn ID | Status | Duration | Model | Mode | Tools | Hooks | Skills | Out-Tokens |
+| 1 | turn-a  | Completed | 2.34s | claude-opus-4.7 | auto | 3 | 1 | 0 | 412 |
+...
+
+## Tool Rank (by total duration)
+| Tool | Source | Calls | OK | Fail | Orphan | User-req | Total | p50 | p95 | Max |
+| bash | Builtin | 12 | 11 | 1 | 0 | 0 | 18.45s | 220ms | 4.20s | 8.10s |
+...
+
+## Hook Rank (by total duration)
+| Hook | Calls | OK | Fail | Synth | Total | p50 | p95 |
+| PreToolUse | 25 | 25 | 0 | 0 | 1.82s | 60ms | 180ms |
+...
+
+## Warnings
+(none)
+```
+
+See [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) for
+full CLI documentation.
 
 ---
 

@@ -23,6 +23,7 @@ diagram and §5 / §5.1 / §6 for the data model and adapter contract.
 | `model` | `RawSession<E>`, `SessionMeta`, `ToolSource` + `ToolSource::infer` |
 | `error` | `CoreError`, `ParseWarning` (7 variants: `Json`, `Io`, `OutOfOrder`, `UnclosedTurn`, `UnclosedToolCall`, `UnclosedHook`, `UnknownToolSourcePrefix`) |
 | `episode` | `derive_episodes<E>`, `Episodes`, `Turn`, `ToolEpisode`, `HookEpisode`, `SkillEpisode`, `ModeSegment`, `CallRef`, `DeriveWarning` |
+| `analyzer` | `analyze(&Episodes, &SessionMeta) → AnalysisReport`; `turn_summary` / `tool_rank` / `hook_rank` rollups; `percentile` helper; `duration_ms` / `duration_ms_opt` serde helpers |
 
 ## Quick start
 
@@ -62,6 +63,7 @@ cargo clippy -p agentprof-core --all-features -- -D warnings
 | 0001 | Events-first product pivot |
 | 0002 | Copilot event schema (Updated 2026-05-27 for M1.3 Phase B) |
 | 0004 | Episode derivation algorithm |
+| 0005 | Analyzer foundations + payload_name trait extension + commit-call-turn-divergence fix |
 
 ## Changelog
 
