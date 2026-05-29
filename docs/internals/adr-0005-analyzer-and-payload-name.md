@@ -62,12 +62,15 @@ A single new trait method with a `None` default implementation. CopilotEvent ove
 
 | Variant kind | `payload_name()` source |
 |---|---|
-| `ToolExecStart` / `ToolExecComplete` / `ToolUserRequested` | `payload.tool_name` |
-| `HookStart` / `HookEnd` | `payload.hook_name` |
-| `SkillInvoked` | `payload.skill_name` |
+| `ToolExecStart` / `ToolUserRequested` | `payload.tool_name` |
+| `ToolExecComplete` | `None` — wire payload (`ToolResultData`) has no `tool_name` field; name is preserved by `derive_episodes` via the `OpenToolCall` stack pop |
+| `HookStart` / `HookEnd` | `payload.hook_type` |
+| `SkillInvoked` | `payload.name` |
 | All other variants | `None` |
 
 `derive_episodes` uses `event.payload_name().map(str::to_string).unwrap_or_else(|| event.id().to_string())` as the BTreeMap key. Variants returning `None` (e.g., `SessionStart`) don't reach the tool/hook/skill paths in the algorithm dispatch, so the fallback never triggers in practice — but the safety net is documented for future agent adapters.
+
+> **Note**: Earlier drafts of this table listed `ToolExecComplete` alongside `ToolExecStart` with `payload.tool_name`. That was inaccurate — `ToolResultData` has no `tool_name` field (verify by inspecting `crates/agentprof-adapters/src/copilot/event.rs::ToolResultData`). The orphan branch of `on_tool_complete` (synthesized start for an orphan end) therefore cannot extract a name via `payload_name()`; see ADR-0005 Update §1 below for how the orphan branch handles this.
 
 ### D-2: Attribute back-references to start-time turn via `turn_id` lookup
 
