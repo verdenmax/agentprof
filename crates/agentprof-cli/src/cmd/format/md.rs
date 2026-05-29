@@ -5,6 +5,7 @@
 //! Sections can be filtered via the `--section` CLI flag (Session and
 //! Warnings are always included).
 
+use std::borrow::Cow;
 use std::fmt::Write as _;
 
 use chrono::Duration;
@@ -78,10 +79,10 @@ fn write_header(out: &mut String, report: &AnalysisReport) {
         report.meta.started_at.format("%Y-%m-%d %H:%M:%S UTC")
     );
     if let Some(cwd) = &report.meta.cwd {
-        let _ = writeln!(out, "- CWD: {cwd}");
+        let _ = writeln!(out, "- CWD: {}", md_cell_escape(cwd));
     }
     if let Some(branch) = &report.meta.branch {
-        let _ = writeln!(out, "- Branch: {branch}");
+        let _ = writeln!(out, "- Branch: {}", md_cell_escape(branch));
     }
     let _ = writeln!(
         out,
@@ -107,10 +108,12 @@ fn write_turn_summary(out: &mut String, report: &AnalysisReport) {
             out,
             "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
             i + 1,
-            row.turn_id,
+            md_cell_escape(&row.turn_id),
             fmt_status(&row.status),
             row.duration.map_or_else(|| "—".into(), fmt_duration),
-            row.model.as_deref().unwrap_or("—"),
+            row.model
+                .as_deref()
+                .map_or_else(|| Cow::Borrowed("—"), md_cell_escape),
             row.mode.as_ref().map_or_else(|| "—".into(), fmt_mode),
             row.tool_call_count,
             row.hook_call_count,
@@ -132,9 +135,9 @@ fn write_tool_rank(out: &mut String, report: &AnalysisReport) {
     for row in &report.tool_rank {
         let _ = writeln!(
             out,
-            "| {} | {:?} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
-            row.name,
-            row.source,
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
+            md_cell_escape(&row.name),
+            md_cell_escape(&format!("{:?}", row.source)),
             row.call_count,
             row.success_count,
             row.failure_count,
@@ -160,7 +163,7 @@ fn write_hook_rank(out: &mut String, report: &AnalysisReport) {
         let _ = writeln!(
             out,
             "| {} | {} | {} | {} | {} | {} | {} | {} |",
-            row.name,
+            md_cell_escape(&row.name),
             row.call_count,
             row.success_count,
             row.failure_count,
@@ -203,11 +206,43 @@ fn write_warnings(out: &mut String, report: &AnalysisReport) {
 
 // ---------- formatting helpers ----------
 
+/// Escape user-controlled string for safe insertion into a GFM table cell.
+///
+/// Replaces:
+/// - `\|` for cell-delimiter pipes (would split the row otherwise)
+/// - `<br>` for newlines (would terminate the cell + the table early)
+/// - `\\` literal stays as `\\` (Rust escape; GFM doesn't process backslashes
+///   outside `\|`)
+///
+/// Returns `Cow::Borrowed` when no escaping is needed (common case for
+/// well-formed tool names like `bash` or `mcp__github__search_issues`).
+///
+/// Note: this function does NOT escape backticks, asterisks, underscores, or
+/// other markdown formatting characters. Cell content is interpreted as
+/// markdown by renderers, which is the intended behavior — a tool named
+/// `*bold*` will be rendered as bold. Only the structural characters (`|`,
+/// `\n`) need defensive escaping because they break the **table layout**,
+/// not just the cell rendering.
+fn md_cell_escape(s: &str) -> Cow<'_, str> {
+    if !s.contains('|') && !s.contains('\n') {
+        return Cow::Borrowed(s);
+    }
+    let mut out = String::with_capacity(s.len() + 4);
+    for c in s.chars() {
+        match c {
+            '|' => out.push_str("\\|"),
+            '\n' => out.push_str("<br>"),
+            other => out.push(other),
+        }
+    }
+    Cow::Owned(out)
+}
+
 fn fmt_status(status: &TurnStatus) -> String {
     match status {
         TurnStatus::Open => "Open".into(),
         TurnStatus::Completed => "Completed".into(),
-        TurnStatus::Aborted(info) => format!("Aborted({})", info.reason),
+        TurnStatus::Aborted(info) => format!("Aborted({})", md_cell_escape(&info.reason)),
         // `TurnStatus` is `#[non_exhaustive]`; surface unknown variants
         // visibly so a future enum addition doesn't silently format to
         // an empty cell.
@@ -220,7 +255,7 @@ fn fmt_mode(mode: &Mode) -> String {
         Mode::Ask => "ask".into(),
         Mode::Auto => "auto".into(),
         Mode::Expert => "expert".into(),
-        Mode::Unknown(s) => s.clone(),
+        Mode::Unknown(s) => md_cell_escape(s).into_owned(),
         // `Mode` is `#[non_exhaustive]`; same rationale as fmt_status.
         _ => "?".into(),
     }
@@ -329,5 +364,51 @@ mod tests {
         assert_eq!(fmt_mode(&Mode::Auto), "auto");
         assert_eq!(fmt_mode(&Mode::Expert), "expert");
         assert_eq!(fmt_mode(&Mode::Unknown("yolo".into())), "yolo");
+    }
+
+    #[test]
+    fn md_cell_escape_passes_through_safe_strings() {
+        let safe = "bash";
+        let escaped = md_cell_escape(safe);
+        assert_eq!(escaped, "bash");
+        // The Cow should remain Borrowed (no allocation) for safe strings.
+        assert!(matches!(escaped, Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn md_cell_escape_escapes_pipes() {
+        let dangerous = "a|b|c";
+        assert_eq!(md_cell_escape(dangerous), "a\\|b\\|c");
+    }
+
+    #[test]
+    fn md_cell_escape_replaces_newlines_with_br() {
+        let multiline = "line1\nline2";
+        assert_eq!(md_cell_escape(multiline), "line1<br>line2");
+    }
+
+    #[test]
+    fn md_cell_escape_handles_mixed_dangerous_chars() {
+        let nasty = "tool|name\nwith pipes";
+        assert_eq!(md_cell_escape(nasty), "tool\\|name<br>with pipes");
+    }
+
+    #[test]
+    fn fmt_status_escapes_abort_reason_with_pipe() {
+        use agentprof_core::episode::AbortInfo;
+        let info = AbortInfo::new("user|cancel".into(), Utc::now());
+        // Pipe in reason must NOT split the markdown cell.
+        assert_eq!(
+            fmt_status(&TurnStatus::Aborted(info)),
+            "Aborted(user\\|cancel)"
+        );
+    }
+
+    #[test]
+    fn fmt_mode_escapes_unknown_with_pipe() {
+        assert_eq!(
+            fmt_mode(&Mode::Unknown("pipe|in|mode".into())),
+            "pipe\\|in\\|mode"
+        );
     }
 }
