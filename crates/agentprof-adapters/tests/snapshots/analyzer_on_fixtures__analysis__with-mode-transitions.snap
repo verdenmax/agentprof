@@ -18,9 +18,11 @@ expression: report
       "started_at": "2026-05-26T17:00:03Z",
       "duration": 2000,
       "status": "Completed",
-      "model": null,
-      "mode": null,
-      "output_tokens": null,
+      "model": "gpt-5-mini",
+      "mode": {
+        "Unknown": "plan"
+      },
+      "output_tokens": 12,
       "tool_call_count": 0,
       "hook_call_count": 0,
       "skill_call_count": 0
@@ -30,9 +32,11 @@ expression: report
       "started_at": "2026-05-26T17:00:07Z",
       "duration": 2000,
       "status": "Completed",
-      "model": null,
-      "mode": null,
-      "output_tokens": null,
+      "model": "gpt-5-mini",
+      "mode": {
+        "Unknown": "autopilot"
+      },
+      "output_tokens": 10,
       "tool_call_count": 0,
       "hook_call_count": 0,
       "skill_call_count": 0

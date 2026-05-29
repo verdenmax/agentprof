@@ -18,9 +18,9 @@ expression: report
       "started_at": "2026-05-26T13:00:03Z",
       "duration": 4000,
       "status": "Completed",
-      "model": null,
+      "model": "gpt-5-mini",
       "mode": null,
-      "output_tokens": null,
+      "output_tokens": 15,
       "tool_call_count": 1,
       "hook_call_count": 0,
       "skill_call_count": 0
