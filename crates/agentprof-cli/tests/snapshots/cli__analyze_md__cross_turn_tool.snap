@@ -17,8 +17,8 @@ expression: md
 ## Turn Summary
 | # | Turn ID | Status | Duration | Model | Mode | Tools | Hooks | Skills | Out-Tokens |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 | turn-A | Completed | 2.00s | — | — | 1 | 0 | 0 | — |
-| 2 | turn-B | Completed | 4.00s | — | — | 0 | 0 | 0 | — |
+| 1 | turn-A | Completed | 2.00s | — | interactive | 1 | 0 | 0 | — |
+| 2 | turn-B | Completed | 4.00s | — | interactive | 0 | 0 | 0 | — |
 
 ## Tool Rank (by total duration)
 | Tool | Source | Calls | OK | Fail | Orphan | User-req | Total | p50 | p95 | Max |

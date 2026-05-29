@@ -9,7 +9,7 @@ expression: episodes
       "started_at": "2026-05-26T15:00:02Z",
       "ended_at": null,
       "model": null,
-      "mode": null,
+      "mode": "Interactive",
       "output_tokens": null,
       "status": "Open",
       "tool_calls": [],
@@ -22,9 +22,7 @@ expression: episodes
   "skills": {},
   "mode_segments": [
     {
-      "mode": {
-        "Unknown": "default"
-      },
+      "mode": "Interactive",
       "started_at": "2026-05-26T15:00:00Z",
       "ended_at": "2026-05-26T15:00:02Z"
     }

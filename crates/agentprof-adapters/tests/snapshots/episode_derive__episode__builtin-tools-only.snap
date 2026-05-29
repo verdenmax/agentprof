@@ -9,7 +9,7 @@ expression: episodes
       "started_at": "2026-05-26T11:00:02Z",
       "ended_at": "2026-05-26T11:00:08Z",
       "model": "gpt-5-mini",
-      "mode": null,
+      "mode": "Interactive",
       "output_tokens": 20,
       "status": "Completed",
       "tool_calls": [
@@ -76,9 +76,7 @@ expression: episodes
   "skills": {},
   "mode_segments": [
     {
-      "mode": {
-        "Unknown": "default"
-      },
+      "mode": "Interactive",
       "started_at": "2026-05-26T11:00:00Z",
       "ended_at": "2026-05-26T11:00:09Z"
     }

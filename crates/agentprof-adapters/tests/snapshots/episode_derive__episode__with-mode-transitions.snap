@@ -9,9 +9,7 @@ expression: episodes
       "started_at": "2026-05-26T17:00:03Z",
       "ended_at": "2026-05-26T17:00:05Z",
       "model": "gpt-5-mini",
-      "mode": {
-        "Unknown": "plan"
-      },
+      "mode": "Plan",
       "output_tokens": 12,
       "status": "Completed",
       "tool_calls": [],
@@ -23,9 +21,7 @@ expression: episodes
       "started_at": "2026-05-26T17:00:07Z",
       "ended_at": "2026-05-26T17:00:09Z",
       "model": "gpt-5-mini",
-      "mode": {
-        "Unknown": "autopilot"
-      },
+      "mode": "Autopilot",
       "output_tokens": 10,
       "status": "Completed",
       "tool_calls": [],
@@ -38,30 +34,22 @@ expression: episodes
   "skills": {},
   "mode_segments": [
     {
-      "mode": {
-        "Unknown": "default"
-      },
+      "mode": "Interactive",
       "started_at": "2026-05-26T17:00:00Z",
       "ended_at": "2026-05-26T17:00:02Z"
     },
     {
-      "mode": {
-        "Unknown": "plan"
-      },
+      "mode": "Plan",
       "started_at": "2026-05-26T17:00:02Z",
       "ended_at": "2026-05-26T17:00:06Z"
     },
     {
-      "mode": {
-        "Unknown": "autopilot"
-      },
+      "mode": "Autopilot",
       "started_at": "2026-05-26T17:00:06Z",
       "ended_at": "2026-05-26T17:00:10Z"
     },
     {
-      "mode": {
-        "Unknown": "interactive"
-      },
+      "mode": "Interactive",
       "started_at": "2026-05-26T17:00:10Z",
       "ended_at": "2026-05-26T17:00:11Z"
     }
