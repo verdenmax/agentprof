@@ -9,6 +9,8 @@
 //!
 //! - [`adapter`] — the [`adapter::Adapter`] trait, [`adapter::Event`] trait,
 //!   and supporting types.
+//! - [`analyzer`] — rollup functions ([`analyzer::analyze`],
+//!   [`analyzer::AnalysisReport`]) consuming `Episodes`.
 //! - [`model`] — domain types ([`model::session::RawSession`],
 //!   [`model::meta::SessionMeta`], [`model::tool_source::ToolSource`]).
 //! - [`error`] — workspace-level errors ([`error::CoreError`],
@@ -21,6 +23,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used))]
 
 pub mod adapter;
+pub mod analyzer;
 pub mod episode;
 pub mod error;
 pub mod model;

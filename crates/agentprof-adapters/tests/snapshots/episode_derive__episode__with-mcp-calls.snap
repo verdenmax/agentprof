@@ -14,11 +14,11 @@ expression: episodes
       "status": "Completed",
       "tool_calls": [
         {
-          "name": "00000000-0000-0000-0000-000000000044",
+          "name": "mcp__github__search_issues",
           "index": 0
         },
         {
-          "name": "00000000-0000-0000-0000-000000000046",
+          "name": "mcp__filesystem__read_file",
           "index": 0
         }
       ],
@@ -27,16 +27,17 @@ expression: episodes
     }
   ],
   "tools": {
-    "00000000-0000-0000-0000-000000000044": {
-      "name": "00000000-0000-0000-0000-000000000044",
+    "mcp__filesystem__read_file": {
+      "name": "mcp__filesystem__read_file",
       "source": {
-        "kind": "builtin"
+        "kind": "mcp",
+        "server": "filesystem"
       },
       "calls": [
         {
           "span": {
-            "started_at": "2026-05-26T12:00:04Z",
-            "ended_at": "2026-05-26T12:00:05Z"
+            "started_at": "2026-05-26T12:00:06Z",
+            "ended_at": "2026-05-26T12:00:07Z"
           },
           "turn_id": "00000000-0000-0000-0000-000000000042",
           "status": "Success",
@@ -49,16 +50,17 @@ expression: episodes
       ],
       "fail_count": 0
     },
-    "00000000-0000-0000-0000-000000000046": {
-      "name": "00000000-0000-0000-0000-000000000046",
+    "mcp__github__search_issues": {
+      "name": "mcp__github__search_issues",
       "source": {
-        "kind": "builtin"
+        "kind": "mcp",
+        "server": "github"
       },
       "calls": [
         {
           "span": {
-            "started_at": "2026-05-26T12:00:06Z",
-            "ended_at": "2026-05-26T12:00:07Z"
+            "started_at": "2026-05-26T12:00:04Z",
+            "ended_at": "2026-05-26T12:00:05Z"
           },
           "turn_id": "00000000-0000-0000-0000-000000000042",
           "status": "Success",

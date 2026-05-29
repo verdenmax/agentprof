@@ -15,6 +15,10 @@ workspace = true
 default = []
 # Enable the optional Anthropic `count_tokens` HTTP API for precise tokenization.
 anthropic-api = ["dep:reqwest", "dep:tokio"]
+# Enable `clap::ValueEnum` derive on public enums (e.g. `AgentKind`) so
+# `agentprof-cli` can use them directly in clap args without leaking
+# clap into the core domain.
+clap-derive   = ["dep:clap"]
 
 [dependencies]
 serde       = { workspace = true }
@@ -24,5 +28,6 @@ chrono      = { workspace = true }
 tracing     = { workspace = true }
 tiktoken-rs = { workspace = true }
 
+clap    = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
 tokio   = { workspace = true, optional = true }

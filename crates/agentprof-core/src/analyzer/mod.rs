@@ -1,0 +1,232 @@
+//! # Analyzer rollups
+//!
+//! Pure rollup functions that consume `&Episodes` and produce per-row
+//! analytics. [`analyze`] bundles all three rollups + meta + warnings
+//! into a single [`AnalysisReport`] for downstream rendering.
+//!
+//! All rollup functions are **agent-agnostic** — they operate on the
+//! shared [`Episodes`] shape from [`crate::episode`], so Claude
+//! (Phase 2) and Codex (Phase 3) adapters automatically benefit.
+//!
+//! See `docs/internals/adr-0005-analyzer-and-payload-name.md` for the
+//! decision to place this layer in `agentprof-core` (rather than
+//! `agentprof-cli`) so future TUI and storage consumers can reuse it.
+//!
+//! ## Module layout
+//!
+//! | Module | Purpose |
+//! |---|---|
+//! | [`mod@turn_summary`] | Per-Turn row: status, duration, model, mode, tool/hook/skill counts, output_tokens |
+//! | [`mod@tool_rank`] | Per-tool-name row: call counts (success/failure/orphan/user-requested), p50/p95/max duration |
+//! | [`mod@hook_rank`] | Per-hook-name row: call counts, p50/p95 duration, success/failure |
+
+pub mod hook_rank;
+pub mod tool_rank;
+pub mod turn_summary;
+
+pub use hook_rank::{hook_rank, HookRankRow};
+pub use tool_rank::{tool_rank, ToolRankRow};
+pub use turn_summary::{turn_summary, TurnSummaryRow};
+
+use serde::{Deserialize, Serialize};
+
+use crate::episode::{DeriveWarning, Episodes};
+use crate::model::SessionMeta;
+
+/// Bundled analyzer output for a single session.
+///
+/// Constructed by [`analyze`]. Snapshot-stable: every contained `Vec` is
+/// in deterministic order; all `Duration` fields serialize to integer
+/// milliseconds (see [`duration_ms`] helper module).
+///
+/// # Examples
+///
+/// ```
+/// use agentprof_core::adapter::AgentKind;
+/// use agentprof_core::analyzer::{analyze, AnalysisReport};
+/// use agentprof_core::episode::Episodes;
+/// use agentprof_core::model::SessionMeta;
+/// use chrono::Utc;
+///
+/// let episodes = Episodes::new();
+/// let meta = SessionMeta::new("s1".into(), AgentKind::Copilot, Utc::now(), false);
+/// let report: AnalysisReport = analyze(&episodes, &meta);
+/// assert!(report.turn_summary.is_empty());
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct AnalysisReport {
+    /// Source session metadata (cloned from input).
+    pub meta: SessionMeta,
+    /// Per-Turn rows in chronological order.
+    pub turn_summary: Vec<TurnSummaryRow>,
+    /// Per-tool rows in `total_duration` descending order.
+    pub tool_rank: Vec<ToolRankRow>,
+    /// Per-hook rows in `total_duration` descending order.
+    pub hook_rank: Vec<HookRankRow>,
+    /// `DeriveWarning`s carried forward from `Episodes`.
+    pub warnings: Vec<DeriveWarning>,
+}
+
+impl AnalysisReport {
+    /// Construct an empty `AnalysisReport` with the given meta.
+    ///
+    /// All rollups start as empty `Vec`s. Used as a baseline when no
+    /// `Episodes` are available (e.g. error paths).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::adapter::AgentKind;
+    /// use agentprof_core::analyzer::AnalysisReport;
+    /// use agentprof_core::model::SessionMeta;
+    /// use chrono::Utc;
+    ///
+    /// let meta = SessionMeta::new("s1".into(), AgentKind::Copilot, Utc::now(), false);
+    /// let r = AnalysisReport::new(meta);
+    /// assert!(r.turn_summary.is_empty());
+    /// ```
+    #[must_use]
+    pub const fn new(meta: SessionMeta) -> Self {
+        Self {
+            meta,
+            turn_summary: Vec::new(),
+            tool_rank: Vec::new(),
+            hook_rank: Vec::new(),
+            warnings: Vec::new(),
+        }
+    }
+}
+
+/// Compute all 3 analyzer rollups for a session.
+///
+/// Pure function: same `(&Episodes, &SessionMeta)` → byte-identical
+/// `AnalysisReport`. No I/O, no clock access.
+///
+/// # Examples
+///
+/// ```
+/// use agentprof_core::adapter::AgentKind;
+/// use agentprof_core::analyzer::analyze;
+/// use agentprof_core::episode::Episodes;
+/// use agentprof_core::model::SessionMeta;
+/// use chrono::Utc;
+///
+/// let episodes = Episodes::new();
+/// let meta = SessionMeta::new("s1".into(), AgentKind::Copilot, Utc::now(), false);
+/// let report = analyze(&episodes, &meta);
+/// assert_eq!(report.turn_summary.len(), 0);
+/// assert_eq!(report.tool_rank.len(), 0);
+/// assert_eq!(report.hook_rank.len(), 0);
+/// ```
+#[must_use]
+pub fn analyze(episodes: &Episodes, meta: &SessionMeta) -> AnalysisReport {
+    AnalysisReport {
+        meta: meta.clone(),
+        turn_summary: turn_summary(episodes),
+        tool_rank: tool_rank(episodes),
+        hook_rank: hook_rank(episodes),
+        warnings: episodes.warnings.clone(),
+    }
+}
+
+// ---------- Duration <-> milliseconds serde helper ----------
+
+/// Serde helpers for [`chrono::Duration`] ↔ integer-milliseconds JSON.
+///
+/// Use as `#[serde(with = "duration_ms")]` on `Duration` fields.
+/// Matches the ADR-0004 IMP-007 snapshot-stability convention.
+pub mod duration_ms {
+    use chrono::Duration;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    /// Serialize a [`Duration`] as integer milliseconds.
+    ///
+    /// # Errors
+    ///
+    /// Propagates serializer errors. Cannot fail intrinsically — `i64`
+    /// always serializes.
+    #[allow(clippy::trivially_copy_pass_by_ref)] // serde calling convention
+    pub fn serialize<S: Serializer>(d: &Duration, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_i64(d.num_milliseconds())
+    }
+
+    /// Deserialize integer milliseconds into a [`Duration`].
+    ///
+    /// # Errors
+    ///
+    /// Propagates deserializer errors (e.g. non-integer JSON).
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Duration, D::Error> {
+        let ms = i64::deserialize(d)?;
+        Ok(Duration::milliseconds(ms))
+    }
+}
+
+/// `Option<Duration>` variant of [`duration_ms`].
+pub mod duration_ms_opt {
+    use chrono::Duration;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    /// Serialize an `Option<Duration>` as either integer milliseconds or `null`.
+    ///
+    /// # Errors
+    ///
+    /// Propagates serializer errors. Cannot fail intrinsically.
+    pub fn serialize<S: Serializer>(d: &Option<Duration>, s: S) -> Result<S::Ok, S::Error> {
+        match d {
+            Some(d) => s.serialize_i64(d.num_milliseconds()),
+            None => s.serialize_none(),
+        }
+    }
+
+    /// Deserialize `null | int_ms` into `Option<Duration>`.
+    ///
+    /// # Errors
+    ///
+    /// Propagates deserializer errors (e.g. non-integer non-null JSON).
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Duration>, D::Error> {
+        let opt = Option::<i64>::deserialize(d)?;
+        Ok(opt.map(Duration::milliseconds))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::adapter::AgentKind;
+    use chrono::Utc;
+
+    fn meta() -> SessionMeta {
+        SessionMeta::new("s1".into(), AgentKind::Copilot, Utc::now(), false)
+    }
+
+    #[test]
+    fn analyze_empty_episodes_produces_empty_report_with_meta() {
+        let report = analyze(&Episodes::new(), &meta());
+        assert!(report.turn_summary.is_empty());
+        assert!(report.tool_rank.is_empty());
+        assert!(report.hook_rank.is_empty());
+        assert!(report.warnings.is_empty());
+        assert_eq!(report.meta.id, "s1");
+    }
+
+    #[test]
+    fn analyze_clones_warnings_from_episodes() {
+        let mut ep = Episodes::new();
+        ep.warnings.push(DeriveWarning::AbortWithoutOpenElement {
+            reason: "test".into(),
+            at: Utc::now(),
+        });
+        let report = analyze(&ep, &meta());
+        assert_eq!(report.warnings.len(), 1);
+    }
+
+    #[test]
+    fn report_new_starts_empty() {
+        let r = AnalysisReport::new(meta());
+        assert!(r.turn_summary.is_empty());
+        assert!(r.tool_rank.is_empty());
+        assert!(r.hook_rank.is_empty());
+        assert!(r.warnings.is_empty());
+    }
+}

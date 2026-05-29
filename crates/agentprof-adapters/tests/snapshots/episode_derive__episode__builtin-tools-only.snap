@@ -14,11 +14,11 @@ expression: episodes
       "status": "Completed",
       "tool_calls": [
         {
-          "name": "00000000-0000-0000-0000-000000000034",
+          "name": "bash",
           "index": 0
         },
         {
-          "name": "00000000-0000-0000-0000-000000000036",
+          "name": "str_replace_editor",
           "index": 0
         }
       ],
@@ -27,8 +27,8 @@ expression: episodes
     }
   ],
   "tools": {
-    "00000000-0000-0000-0000-000000000034": {
-      "name": "00000000-0000-0000-0000-000000000034",
+    "bash": {
+      "name": "bash",
       "source": {
         "kind": "builtin"
       },
@@ -49,8 +49,8 @@ expression: episodes
       ],
       "fail_count": 0
     },
-    "00000000-0000-0000-0000-000000000036": {
-      "name": "00000000-0000-0000-0000-000000000036",
+    "str_replace_editor": {
+      "name": "str_replace_editor",
       "source": {
         "kind": "builtin"
       },

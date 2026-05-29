@@ -29,6 +29,7 @@ use crate::model::session::RawSession;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 #[non_exhaustive]
+#[cfg_attr(feature = "clap-derive", derive(clap::ValueEnum))]
 pub enum AgentKind {
     /// GitHub Copilot CLI (`~/.copilot/session-state/<uuid>/events.jsonl`).
     Copilot,
@@ -180,6 +181,34 @@ pub trait Event {
     fn timestamp(&self) -> DateTime<Utc>;
     /// Parent event ID (forms a DAG mirroring the trace tree); `None` at session start.
     fn parent_id(&self) -> Option<&str>;
+
+    /// Adapter-specific payload-defined name for the event (e.g. tool name,
+    /// hook name/type, skill name). Returns `None` for events without such a
+    /// concept (`session.start`, `user.message`, etc).
+    ///
+    /// Used by `derive_episodes` to key tools/hooks/skills by their real
+    /// payload names instead of opaque event IDs. Default returns `None`;
+    /// adapters override for payload-bearing variants.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::adapter::{Event, EventKind};
+    /// use chrono::Utc;
+    ///
+    /// struct StubEvent;
+    /// impl Event for StubEvent {
+    ///     fn id(&self) -> &str { "x" }
+    ///     fn kind(&self) -> EventKind { EventKind::Unknown }
+    ///     fn timestamp(&self) -> chrono::DateTime<Utc> { Utc::now() }
+    ///     fn parent_id(&self) -> Option<&str> { None }
+    ///     // payload_name() inherits the default `None` impl.
+    /// }
+    /// assert_eq!(StubEvent.payload_name(), None);
+    /// ```
+    fn payload_name(&self) -> Option<&str> {
+        None
+    }
 }
 
 /// Reference to a single discoverable session.
@@ -363,5 +392,26 @@ mod tests {
             is_live: false,
         };
         assert_eq!(sref.agent, AgentKind::Copilot);
+    }
+
+    struct DefaultPayloadNameEvent;
+    impl Event for DefaultPayloadNameEvent {
+        fn id(&self) -> &'static str {
+            "default"
+        }
+        fn kind(&self) -> EventKind {
+            EventKind::Unknown
+        }
+        fn timestamp(&self) -> chrono::DateTime<Utc> {
+            Utc::now()
+        }
+        fn parent_id(&self) -> Option<&str> {
+            None
+        }
+    }
+
+    #[test]
+    fn default_payload_name_is_none() {
+        assert!(DefaultPayloadNameEvent.payload_name().is_none());
     }
 }

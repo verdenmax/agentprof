@@ -1,0 +1,77 @@
+---
+source: crates/agentprof-adapters/tests/analyzer_on_fixtures.rs
+expression: report
+---
+{
+  "meta": {
+    "id": "00000000-0000-0000-0000-000000000006",
+    "agent": "copilot",
+    "producer": "copilot-agent",
+    "agent_version": "1.0.54",
+    "started_at": "2026-05-26T14:00:00Z",
+    "cwd": "/tmp/agentprof-fixture/with-hooks-heavy",
+    "is_live": false
+  },
+  "turn_summary": [
+    {
+      "turn_id": "00000000-0000-0000-0000-000000000062",
+      "started_at": "2026-05-26T14:00:03Z",
+      "duration": 22000,
+      "status": "Completed",
+      "model": null,
+      "mode": null,
+      "output_tokens": null,
+      "tool_call_count": 0,
+      "hook_call_count": 10,
+      "skill_call_count": 0
+    },
+    {
+      "turn_id": "00000000-0000-0000-0000-000000000085",
+      "started_at": "2026-05-26T14:00:26Z",
+      "duration": 22000,
+      "status": "Completed",
+      "model": null,
+      "mode": null,
+      "output_tokens": null,
+      "tool_call_count": 0,
+      "hook_call_count": 10,
+      "skill_call_count": 0
+    },
+    {
+      "turn_id": "00000000-0000-0000-0000-000000000108",
+      "started_at": "2026-05-26T14:00:49Z",
+      "duration": 22000,
+      "status": "Completed",
+      "model": null,
+      "mode": null,
+      "output_tokens": null,
+      "tool_call_count": 0,
+      "hook_call_count": 10,
+      "skill_call_count": 0
+    }
+  ],
+  "tool_rank": [],
+  "hook_rank": [
+    {
+      "name": "PostToolUse",
+      "call_count": 15,
+      "success_count": 15,
+      "failure_count": 0,
+      "synthesized_start_count": 0,
+      "total_duration": 15000,
+      "p50_duration": 1000,
+      "p95_duration": 1000
+    },
+    {
+      "name": "PreToolUse",
+      "call_count": 15,
+      "success_count": 15,
+      "failure_count": 0,
+      "synthesized_start_count": 0,
+      "total_duration": 15000,
+      "p50_duration": 1000,
+      "p95_duration": 1000
+    }
+  ],
+  "warnings": []
+}

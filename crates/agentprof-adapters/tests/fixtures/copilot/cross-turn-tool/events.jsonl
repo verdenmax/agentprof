@@ -1,0 +1,7 @@
+{"type":"session.start","id":"00000000-0000-0000-0000-000000001000","timestamp":"2026-05-29T01:00:00.000Z","data":{"sessionId":"00000000-0000-0000-0000-000000001000","version":1,"producer":"copilot-agent","copilotVersion":"1.0.99-test","startTime":"2026-05-29T01:00:00.000Z","context":{"cwd":"/tmp/agentprof-fixture/cross-turn-tool"},"alreadyInUse":false}}
+{"type":"assistant.turn_start","id":"turn-A","timestamp":"2026-05-29T01:00:01.000Z","parentId":null,"data":{"turnId":"turn-A","interactionId":"i-A"}}
+{"type":"tool.execution_start","id":"tool-X-start","timestamp":"2026-05-29T01:00:02.000Z","parentId":"turn-A","data":{"toolCallId":"tc-X","toolName":"bash","arguments":{"command":"sleep 5"},"turnId":"turn-A"}}
+{"type":"assistant.turn_end","id":"turn-A-end","timestamp":"2026-05-29T01:00:03.000Z","parentId":"turn-A","data":{"turnId":"turn-A"}}
+{"type":"assistant.turn_start","id":"turn-B","timestamp":"2026-05-29T01:00:04.000Z","parentId":null,"data":{"turnId":"turn-B","interactionId":"i-B"}}
+{"type":"tool.execution_complete","id":"tool-X-end","timestamp":"2026-05-29T01:00:07.000Z","parentId":"turn-B","data":{"toolCallId":"tc-X","model":"claude-test","interactionId":"i-A","success":true,"turnId":"turn-A"}}
+{"type":"assistant.turn_end","id":"turn-B-end","timestamp":"2026-05-29T01:00:08.000Z","parentId":"turn-B","data":{"turnId":"turn-B"}}

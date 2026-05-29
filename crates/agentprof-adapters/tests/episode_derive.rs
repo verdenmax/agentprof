@@ -53,6 +53,7 @@ episode_test!(episode_with_aborts, "with-aborts");
 episode_test!(episode_with_mode_transitions, "with-mode-transitions");
 episode_test!(episode_live_truncated, "live-truncated");
 episode_test!(episode_orphan_events, "orphan-events");
+episode_test!(episode_cross_turn_tool, "cross-turn-tool");
 
 // corrupt fixture: load may fail or produce warnings; we just assert no panic.
 #[test]

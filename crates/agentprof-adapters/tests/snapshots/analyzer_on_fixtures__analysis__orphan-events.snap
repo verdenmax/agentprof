@@ -1,0 +1,78 @@
+---
+source: crates/agentprof-adapters/tests/analyzer_on_fixtures.rs
+expression: report
+---
+{
+  "meta": {
+    "id": "00000000-0000-0000-0000-000000000900",
+    "agent": "copilot",
+    "producer": "copilot-agent",
+    "agent_version": "1.0.99",
+    "started_at": "2026-05-27T01:00:00Z",
+    "cwd": "/tmp/agentprof-fixture/orphan-events",
+    "is_live": false
+  },
+  "turn_summary": [
+    {
+      "turn_id": "00000000-0000-0000-0000-000000000901",
+      "started_at": "2026-05-27T01:00:01Z",
+      "duration": 3000,
+      "status": "Completed",
+      "model": null,
+      "mode": null,
+      "output_tokens": null,
+      "tool_call_count": 1,
+      "hook_call_count": 1,
+      "skill_call_count": 0
+    }
+  ],
+  "tool_rank": [
+    {
+      "name": "00000000-0000-0000-0000-000000000903",
+      "source": {
+        "kind": "builtin"
+      },
+      "call_count": 1,
+      "success_count": 0,
+      "failure_count": 0,
+      "orphan_count": 1,
+      "user_requested_count": 0,
+      "total_duration": 0,
+      "p50_duration": 0,
+      "p95_duration": 0,
+      "max_duration": 0
+    }
+  ],
+  "hook_rank": [
+    {
+      "name": "PreToolUse",
+      "call_count": 1,
+      "success_count": 1,
+      "failure_count": 0,
+      "synthesized_start_count": 1,
+      "total_duration": 0,
+      "p50_duration": 0,
+      "p95_duration": 0
+    }
+  ],
+  "warnings": [
+    {
+      "SynthesizedStart": {
+        "kind": "HookStart",
+        "end_event_id": "00000000-0000-0000-0000-000000000902"
+      }
+    },
+    {
+      "SynthesizedStart": {
+        "kind": "ToolExecStart",
+        "end_event_id": "00000000-0000-0000-0000-000000000903"
+      }
+    },
+    {
+      "AbortWithoutOpenElement": {
+        "reason": "abort",
+        "at": "2026-05-27T01:00:05Z"
+      }
+    }
+  ]
+}

@@ -37,6 +37,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "thiserror 2.0.18",
  "tracing",
  "tracing-subscriber",
 ]
@@ -46,6 +47,7 @@ name = "agentprof-core"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "clap",
  "reqwest",
  "serde",
  "serde_json",
