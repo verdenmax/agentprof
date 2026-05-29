@@ -24,13 +24,14 @@ anthropic-api = ["agentprof-core/anthropic-api"]
 otlp          = ["agentprof-storage/otlp"]
 
 [dependencies]
-agentprof-core     = { workspace = true }
+agentprof-core     = { workspace = true, features = ["clap-derive"] }
 agentprof-adapters = { workspace = true }
 agentprof-storage  = { workspace = true }
 agentprof-tui      = { workspace = true }
 
 clap               = { workspace = true }
 anyhow             = { workspace = true }
+thiserror          = { workspace = true }
 tracing            = { workspace = true }
 tracing-subscriber = { workspace = true }
 serde              = { workspace = true }

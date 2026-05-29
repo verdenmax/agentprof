@@ -29,6 +29,7 @@ use crate::model::session::RawSession;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 #[non_exhaustive]
+#[cfg_attr(feature = "clap-derive", derive(clap::ValueEnum))]
 pub enum AgentKind {
     /// GitHub Copilot CLI (`~/.copilot/session-state/<uuid>/events.jsonl`).
     Copilot,
