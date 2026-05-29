@@ -5,10 +5,12 @@
 //!
 //! Verifies:
 //! - md happy path: structure + turn ids visible
-//! - json happy path: parseable + expected top-level keys
+//! - json happy path: parseable + expected top-level keys + ADR-0005 D-2 invariant
 //! - `--output` writes a file and acknowledges on stderr
-//! - error paths: nonexistent root, unknown UUID → exit 1 with helpful
-//!   diagnostics
+//! - error paths:
+//!   - exit 1 (UserError): nonexistent root, unknown UUID, unsupported agent
+//!   - exit 2 (DataError): malformed events.jsonl with no session.start
+//!   - exit 3 (OutputError): `--output` to a path under a non-existent dir
 //! - md insta snapshot for cross-turn-tool locks ADR-0005 D-2 fix
 //!   visible in user-facing report
 
@@ -144,4 +146,71 @@ fn analyze_md_snapshot_cross_turn_tool() {
         .clone();
     let md = String::from_utf8(out).unwrap();
     insta::assert_snapshot!("analyze_md__cross_turn_tool", md);
+}
+
+#[test]
+fn analyze_unparseable_session_exits_with_data_error() {
+    // Write a malformed events.jsonl that has no session.start, so the
+    // adapter's load_session returns AdapterError::MissingSessionStart.
+    // run() maps this to ExitKind::DataError = 2.
+    //
+    // (The committed `corrupt` fixture has a valid session.start + one
+    // bad line, which the parser tolerates with a warning and still
+    // returns Ok — that's a different fixture for a different scenario.
+    // Here we need a fixture that fully fails to parse, so we synthesize
+    // one inline rather than committing another *.jsonl.)
+    let tmp = tempfile::TempDir::new().unwrap();
+    let session_dir = tmp.path().join("broken-session");
+    std::fs::create_dir(&session_dir).unwrap();
+    let events_path = session_dir.join("events.jsonl");
+    std::fs::write(
+        &events_path,
+        // No session.start; a single user.message-shaped line.
+        r#"{"type":"user.message","data":{"content":"hi","source":"cli","attachments":[],"interactionId":"x"},"id":"00000000-0000-0000-0000-000000000099","timestamp":"2026-05-29T00:00:00Z","parentId":null}
+"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("agentprof")
+        .unwrap()
+        .args(["analyze", "--session"])
+        .arg(&events_path)
+        .assert()
+        .failure()
+        .code(2)
+        .stderr(contains("data error"))
+        .stderr(contains("loading session"));
+}
+
+#[test]
+fn analyze_output_to_unwritable_path_exits_with_output_error() {
+    // --output to a path under a non-existent parent dir. std::fs::write
+    // fails with ENOENT; run() maps this to ExitKind::OutputError = 3.
+    let unwritable = PathBuf::from("/nonexistent/agentprof/output/report.md");
+    Command::cargo_bin("agentprof")
+        .unwrap()
+        .args(["analyze", "--session"])
+        .arg(cross_turn_path())
+        .args(["--export", "md", "--output"])
+        .arg(&unwritable)
+        .assert()
+        .failure()
+        .code(3)
+        .stderr(contains("output error"))
+        .stderr(contains("writing"));
+}
+
+#[test]
+fn analyze_unsupported_agent_exits_with_friendly_message() {
+    // --agent claude should produce a friendly "not yet implemented"
+    // message (not the previous cryptic "no adapter wired"). Regression
+    // guard for the audit-a3-claude-codex-unfriendly-error fix.
+    Command::cargo_bin("agentprof")
+        .unwrap()
+        .args(["analyze", "--agent", "claude"])
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(contains("not yet implemented"))
+        .stderr(contains("M1.4 ships copilot only"));
 }

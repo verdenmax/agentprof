@@ -25,7 +25,7 @@ use crate::adapter::AgentKind;
 /// assert_eq!(meta.agent, AgentKind::Copilot);
 /// assert_eq!(meta.id, "abc-123");
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct SessionMeta {
     /// Stable session ID (typically a UUID; for Copilot, the directory name).

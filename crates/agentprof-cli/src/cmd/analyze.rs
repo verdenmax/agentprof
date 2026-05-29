@@ -380,6 +380,44 @@ mod tests {
     }
 
     #[test]
+    fn exit_kind_downcast_survives_extra_context_layers() {
+        // anyhow walks the entire context chain when downcasting, so adding
+        // extra .context(...) on top of an ExitKind-tagged error must NOT
+        // hide the ExitKind from `classify_error` in main.rs. This is the
+        // defense against the M1.4 audit's "ExitKind downcast is a future
+        // footgun" warning (audit D5): if someone later writes
+        //   `cmd::analyze::run(cmd).context("processing analyze command")`
+        // in main.rs's dispatcher, exit codes must still resolve correctly.
+        //
+        // Note: anyhow::Error has an inherent `.context()` method, so no
+        // trait import is needed even though the Context trait exists.
+        let e = ExitKind::OutputError
+            .into_anyhow("disk full".to_string())
+            .context("writing report.md")
+            .context("processing analyze command");
+
+        // Full message chain should expose all layers.
+        let displayed = format!("{e:#}");
+        assert!(
+            displayed.contains("disk full"),
+            "lost innermost message: {displayed}"
+        );
+        assert!(
+            displayed.contains("writing report.md"),
+            "lost middle context: {displayed}"
+        );
+        assert!(
+            displayed.contains("processing analyze command"),
+            "lost outermost context: {displayed}"
+        );
+
+        // Critical assertion: ExitKind is still findable via downcast.
+        assert!(e.downcast_ref::<ExitKind>().is_some());
+        let kind = e.downcast_ref::<ExitKind>().copied().unwrap();
+        assert!(matches!(kind, ExitKind::OutputError));
+    }
+
+    #[test]
     fn looks_like_uuid_accepts_canonical_form() {
         assert!(looks_like_uuid("00000000-0000-0000-0000-000000000001"));
         assert!(looks_like_uuid("abcdef01-2345-6789-abcd-ef0123456789"));

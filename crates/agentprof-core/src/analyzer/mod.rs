@@ -53,7 +53,7 @@ use crate::model::SessionMeta;
 /// let report: AnalysisReport = analyze(&episodes, &meta);
 /// assert!(report.turn_summary.is_empty());
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct AnalysisReport {
     /// Source session metadata (cloned from input).
@@ -191,6 +191,7 @@ pub mod duration_ms_opt {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::adapter::AgentKind;
@@ -228,5 +229,35 @@ mod tests {
         assert!(r.tool_rank.is_empty());
         assert!(r.hook_rank.is_empty());
         assert!(r.warnings.is_empty());
+    }
+
+    #[test]
+    fn analysis_report_json_round_trip_is_lossless() {
+        // Build a non-trivial report exercising all rollup vec types +
+        // warnings + a non-empty meta. Round-trip through JSON and assert
+        // equality. Locks the wire-format contract for downstream
+        // consumers (SQLite storage, future HTTP API, …).
+        let mut ep = Episodes::new();
+        ep.warnings.push(DeriveWarning::AbortWithoutOpenElement {
+            reason: "round-trip user_cancel".into(),
+            at: chrono::TimeZone::with_ymd_and_hms(&Utc, 2026, 5, 29, 12, 0, 0)
+                .single()
+                .unwrap(),
+        });
+        let original = analyze(&ep, &meta());
+
+        // Serialize → Deserialize → equal.
+        let json = serde_json::to_string(&original).expect("serialize");
+        let recovered: AnalysisReport = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(original, recovered, "JSON round-trip must preserve report");
+
+        // Pretty form must also round-trip (used by --export json).
+        let pretty = serde_json::to_string_pretty(&original).expect("serialize pretty");
+        let recovered_pretty: AnalysisReport =
+            serde_json::from_str(&pretty).expect("deserialize pretty");
+        assert_eq!(
+            original, recovered_pretty,
+            "pretty JSON round-trip must preserve report"
+        );
     }
 }
