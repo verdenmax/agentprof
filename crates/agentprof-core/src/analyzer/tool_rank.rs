@@ -47,10 +47,12 @@ pub struct ToolRankRow {
     /// Sum of every call's `span.duration()`.
     #[serde(with = "duration_ms")]
     pub total_duration: Duration,
-    /// Median per-call duration.
+    /// Approximate median per-call duration (nearest-rank percentile,
+    /// not the averaged-when-even statistical median). For an even-sized
+    /// sample this rounds up to the upper midpoint — see [`percentile`].
     #[serde(with = "duration_ms")]
     pub p50_duration: Duration,
-    /// 95th-percentile per-call duration.
+    /// 95th-percentile per-call duration (nearest-rank). See [`percentile`].
     #[serde(with = "duration_ms")]
     pub p95_duration: Duration,
     /// Longest single call.
@@ -132,7 +134,16 @@ fn collect_sorted_durations(calls: &[ToolCall]) -> Vec<Duration> {
 
 /// Percentile by sort-and-index. `pct` is `0.0..=100.0`.
 ///
-/// Algorithm: nearest-rank — `slice[round((pct/100) * (len-1))]`.
+/// Algorithm: nearest-rank — `slice[round((pct/100) * (len-1))]` with
+/// `f64::round` (half-away-from-zero). This is NOT the averaged-when-even
+/// statistical median: for an even-sized sample, p50 rounds **up** to the
+/// upper midpoint (e.g. `[1s, 2s]` → `p50 = 2s`, not `1.5s`).
+///
+/// Trade-off: lossless on percentile-of-existing-element queries (a
+/// returned value is always a real observation, never an interpolated
+/// average), at the cost of slight upward bias on even samples. Fine for
+/// the small per-tool / per-hook samples M1.4 emits; consider linear
+/// interpolation if M1.5+ needs strict statistical medians.
 ///
 /// Edge cases:
 /// - Empty slice → `Duration::zero()`.
@@ -140,7 +151,9 @@ fn collect_sorted_durations(calls: &[ToolCall]) -> Vec<Duration> {
 /// - 2+ elements → indexed by rounded position.
 ///
 /// `sorted` MUST be ascending; this is enforced by the only call site
-/// (`collect_sorted_durations`) which uses `sort_unstable`.
+/// (`collect_sorted_durations`) which uses `sort_unstable`. Caller is
+/// responsible for clamping `pct` to `[0.0, 100.0]`; out-of-range values
+/// silently truncate at the slice bounds via `idx.min(last_idx)`.
 ///
 /// # Examples
 ///
@@ -156,6 +169,12 @@ fn collect_sorted_durations(calls: &[ToolCall]) -> Vec<Duration> {
 /// let durs = vec![Duration::seconds(1), Duration::seconds(2), Duration::seconds(10)];
 /// assert_eq!(percentile(&durs, 50.0), Duration::seconds(2));
 /// assert_eq!(percentile(&durs, 95.0), Duration::seconds(10));
+///
+/// // Even sample: p50 rounds up (nearest-rank), NOT 1.5s averaged.
+/// assert_eq!(
+///     percentile(&[Duration::seconds(1), Duration::seconds(2)], 50.0),
+///     Duration::seconds(2)
+/// );
 /// ```
 #[must_use]
 pub fn percentile(sorted: &[Duration], pct: f64) -> Duration {

@@ -41,10 +41,14 @@ pub struct HookRankRow {
     /// Sum of every call's `span.duration()`.
     #[serde(with = "duration_ms")]
     pub total_duration: Duration,
-    /// Median per-call duration.
+    /// Approximate median per-call duration (nearest-rank percentile,
+    /// not the averaged-when-even statistical median). For an even-sized
+    /// sample this rounds up to the upper midpoint — see
+    /// [`tool_rank::percentile`](crate::analyzer::tool_rank::percentile).
     #[serde(with = "duration_ms")]
     pub p50_duration: Duration,
-    /// 95th-percentile per-call duration.
+    /// 95th-percentile per-call duration (nearest-rank). See
+    /// [`tool_rank::percentile`](crate::analyzer::tool_rank::percentile).
     #[serde(with = "duration_ms")]
     pub p95_duration: Duration,
 }
