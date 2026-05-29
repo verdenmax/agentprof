@@ -13,6 +13,134 @@ prefix used in commit messages).
 
 ## [Unreleased]
 
+### Fixed
+
+#### M1.4 audit followups (`fix/m1.4-audit-followups`)
+
+Closes the actionable findings from the 4-part M1.4 audit. All 10 fixes
+land in 10 commits on a single branch.
+
+**core — data correctness:**
+- `derive_episodes` no longer emits per-event UUIDs as `ToolEpisode`
+  keys for orphan `tool.execution_complete` events (audit-a2-orphan-
+  tool-uuid-key). All orphan completes now aggregate under the new
+  `ORPHAN_TOOL_SENTINEL = "<orphan>"` constant (exported from
+  `agentprof_core::episode`). Per-call accountability preserved via
+  existing `DeriveWarning::SynthesizedStart` warnings carrying the
+  original event id. Before this fix, `tool_rank` output was polluted
+  with one fake "tool" per orphan event, each labeled with an opaque
+  UUID and call_count=1. Snapshot updates: `orphan-events` fixture
+  re-accepted in both episode + analyzer layers.
+
+**core — defensive instrumentation:**
+- New `DeriveWarning::PayloadNameMissing { kind, event_id }` variant
+  emitted whenever `Event::payload_name()` returns `None` for an
+  event whose kind indicates it SHOULD have a name (audit-a4-payload-
+  name-silent-failure / design D1). Closes the silent-failure risk
+  for upcoming Claude (Phase 2) and Codex (Phase 3) adapter authors:
+  if they forget to override `payload_name` for `ToolExecStart` /
+  `HookStart` / `HookEnd` / `SkillInvoked`, downstream consumers see
+  a warning instead of silently degrading to one episode per event.
+  Markdown renderer's `## Warnings` section gains a `PayloadNameMissing:
+  N` counter. `CopilotEvent` correctly overrides all 5 name-bearing
+  variants, so existing snapshots are unaffected.
+
+**core — round-trip contract:**
+- `SessionMeta` and `AnalysisReport` now derive `PartialEq`
+  (audit-a4-analysisreport-round-trip-test). New unit test
+  `analysis_report_json_round_trip_is_lossless` locks
+  `serde_json::to_string{,_pretty}` → `from_str` equality. Closes
+  spec FR-2.12 from "partial" to "fully covered".
+
+**cli — UX polish:**
+- `resolve_session_by_path` no longer double-appends `events.jsonl`
+  when given a non-existent `.jsonl`-named file. Error reads
+  `events.jsonl not found at /x/events.jsonl` (was
+  `events.jsonl not found at /x/events.jsonl/events.jsonl (and ...)`).
+  Closes `t10-path-error-msg`.
+- `looks_like_uuid` now validates ASCII hex digits + dash positions
+  (8/13/18/23), not just length + dash count (audit-a3-uuid-typo-
+  dumps-sessions). Previously a typo like `00000000-...-0g` passed
+  the heuristic, fell through to `discover_sessions`, and the error
+  dumped real session UUIDs to stderr — mild info-leak risk on
+  shared terminals / CI logs. +5 unit tests cover canonical
+  accept (lowercase/uppercase), wrong-length reject, dash-position
+  reject, non-hex reject, and integration via `SessionSelector::
+  from_str`.
+- `--agent claude` / `--agent codex` now returns
+  `Claude adapter not yet implemented (M1.4 ships copilot only;
+  claude and codex are on the M1.5+ roadmap — see docs/plan.md)`
+  instead of the cryptic `no adapter wired for agent Claude`
+  (audit-a3-claude-codex-unfriendly-error).
+- `--export json` output gains a trailing newline so shell prompts
+  don't stick to the closing `}` and file output is POSIX-compliant
+  (audit-a4-json-no-trailing-newline).
+
+**cli — markdown table safety:**
+- `md::render` now escapes `|` (→ `\|`) and newlines (→ `<br>`) in
+  all user-controlled cell content via new `md_cell_escape(s: &str)
+  -> Cow<str>` helper (audit-a3-md-pipe-escape). Affected cells:
+  `turn_id`, `model`, `cwd`, `branch`, tool/hook `name`, `source`
+  (via Debug-then-escape), `fmt_status(Aborted(reason))`, and
+  `fmt_mode(Mode::Unknown(s))`. Returns `Cow::Borrowed` for
+  safe inputs (no allocation in the common case). +6 unit tests
+  cover the escape behavior + boundary cases (mixed pipes &
+  newlines, `Aborted(user|cancel)`, `Mode::Unknown("pipe|in|mode")`).
+
+**cli — coverage gap closures:**
+- New integration test
+  `analyze_unparseable_session_exits_with_data_error` synthesizes
+  an inline tempfile events.jsonl with no `session.start`, asserts
+  exit 2 + `data error` in stderr. Closes spec FR-3.11 (audit-a4-
+  corrupt-exit-2-test-missing).
+- New integration test
+  `analyze_output_to_unwritable_path_exits_with_output_error` —
+  first E2E exit-3 test.
+- New integration test
+  `analyze_unsupported_agent_exits_with_friendly_message` — regression
+  guard for the `--agent claude` UX fix; will fail (intentionally)
+  when Claude adapter ships in Phase 2 as a "review me" signal.
+- New unit test `exit_kind_downcast_survives_extra_context_layers`
+  defends against the M1.4 audit design observation D5 (future
+  refactors adding `.context(...)` layers must not hide `ExitKind`
+  from `main::classify_error`).
+
+**docs:**
+- ADR-0005 D-1 table fixed: `ToolExecComplete` split onto its own
+  row with `None (stack pop preserves name)` rationale (was
+  incorrectly listed alongside `ToolExecStart` as
+  `payload.tool_name`). Also corrected `HookStart`/`HookEnd` →
+  `hook_type` (was `hook_name`) and `SkillInvoked` → `name` (was
+  `skill_name`) to match what `CopilotEvent::payload_name` actually
+  reads. Closes audit-a1-adr-0005-d1-table-stale.
+- ADR-0005 gains "Update §1: Orphan tool aggregation via sentinel"
+  and "Update §2: PayloadNameMissing warning addition" sections
+  documenting the M1.4 audit decisions (kept ADR Status as Accepted
+  since these are additive refinements, not reversals).
+- `analyzer/tool_rank::percentile` rustdoc clarifies the nearest-rank
+  algorithm + even-sample upper-midpoint behavior; `ToolRankRow.
+  p50_duration` / `HookRankRow.p50_duration` field docs changed from
+  "Median per-call duration" to "Approximate median (nearest-rank
+  percentile)" (audit-a2-percentile-doc-says-median).
+
+**chore:**
+- Removed unused `askama` dependency from `agentprof-cli` and the
+  workspace `[workspace.dependencies]` table (audit-a4-askama-
+  unused-dep). The markdown renderer is hand-written; carrying
+  the dep was supply-chain noise + a phantom signal that templates
+  were in use.
+
+**Tests:** 196 → 215 (+19 across all the new unit + integration
+tests). All gates clean (fmt / clippy `-D warnings` / full workspace
+tests / `cargo doc -Dwarnings`).
+
+**Out-of-scope (still tracked in m14_followups SQL table):**
+- `classifier-zip-fix` (xtask audit tool; P2-optional)
+- `negative-duration-span` (non-monotonic-timestamp edge; P2-optional)
+- `tooltelemetry-restricted-props-skip-if` (small serde polish;
+  P2-optional)
+- `skill-call-count-fixture` (fixture reshape, not a bug; P3-defer)
+
 ### Added
 
 #### M1.2 — Copilot CLI adapter (`feat/m1.2-copilot-adapter`)
