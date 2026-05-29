@@ -255,9 +255,9 @@ fn fmt_status(status: &TurnStatus) -> String {
 
 fn fmt_mode(mode: &Mode) -> String {
     match mode {
-        Mode::Ask => "ask".into(),
-        Mode::Auto => "auto".into(),
-        Mode::Expert => "expert".into(),
+        Mode::Interactive => "interactive".into(),
+        Mode::Plan => "plan".into(),
+        Mode::Autopilot => "autopilot".into(),
         Mode::Unknown(s) => md_cell_escape(s).into_owned(),
         // `Mode` is `#[non_exhaustive]`; same rationale as fmt_status.
         _ => "?".into(),
@@ -363,9 +363,9 @@ mod tests {
 
     #[test]
     fn fmt_mode_handles_each_variant() {
-        assert_eq!(fmt_mode(&Mode::Ask), "ask");
-        assert_eq!(fmt_mode(&Mode::Auto), "auto");
-        assert_eq!(fmt_mode(&Mode::Expert), "expert");
+        assert_eq!(fmt_mode(&Mode::Interactive), "interactive");
+        assert_eq!(fmt_mode(&Mode::Plan), "plan");
+        assert_eq!(fmt_mode(&Mode::Autopilot), "autopilot");
         assert_eq!(fmt_mode(&Mode::Unknown("yolo".into())), "yolo");
     }
 

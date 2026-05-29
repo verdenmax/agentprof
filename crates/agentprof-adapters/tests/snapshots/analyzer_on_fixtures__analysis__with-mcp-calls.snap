@@ -19,7 +19,7 @@ expression: report
       "duration": 6000,
       "status": "Completed",
       "model": "gpt-5-mini",
-      "mode": null,
+      "mode": "Interactive",
       "output_tokens": 30,
       "tool_call_count": 2,
       "hook_call_count": 0,

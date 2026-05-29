@@ -19,7 +19,7 @@ expression: report
       "duration": null,
       "status": "Open",
       "model": null,
-      "mode": null,
+      "mode": "Interactive",
       "output_tokens": null,
       "tool_call_count": 0,
       "hook_call_count": 0,

@@ -172,6 +172,29 @@ Discovered while validating the M1.4 audit fixes by running `agentprof analyze` 
 
 **Test count delta:** 214 → 230 (+16: 3 + 5 + 4 + 1 unit/integration + 3 doctests, plus snapshot diffs which don't change count).
 
+#### Mode vocabulary alignment (`fix/mode-vocabulary-alignment`)
+
+Discovered immediately after the turn-metadata-extraction merge by running `agentprof analyze --section turn-summary` against the live local Copilot session and noticing every turn still showed `Mode: —`. Investigation via `find ~/.copilot/session-state -name events.jsonl | xargs grep '"type":"session.mode_changed"'` revealed the real Copilot CLI 1.0.54 wire vocabulary is `interactive` / `plan` / `autopilot` (73 events across 190 sessions; 0 of `ask` / `auto` / `expert`). The previous `Mode::{Ask, Auto, Expert}` enum variants were a fabricated vocabulary — likely from an early documentation guess — that never matched any real wire data.
+
+**`agentprof-core/episode/mode_segment.rs`:**
+- `Mode` enum variants renamed to match real wire vocabulary: `{Ask, Auto, Expert}` → `{Interactive, Plan, Autopilot}`. Each variant now has a doc comment with frequency from the 73-event sample (Plan 60, Interactive 52, Autopilot 34) and semantic context.
+- `Mode::from_wire` rewired: `"interactive" → Interactive`, `"plan" → Plan`, `"autopilot" → Autopilot`, anything else → `Unknown(s)` for forward-compat.
+- Updated unit tests assert the new vocabulary; one test explicitly verifies the OLD `ask`/`auto`/`default` strings round-trip through `Unknown` (defense against accidental reintroduction).
+
+**`agentprof-core/episode/derive.rs`:**
+- `DeriveState::new` now seeds the initial `ModeSegment` with `Mode::Interactive` (replacing the M1.3 placeholder `Mode::Unknown("default")`) AND initializes `current_mode: Some(Mode::Interactive)` (was `None`). Rationale: data analysis showed every `previousMode → newMode` transition opens with `previousMode = 'interactive'`, confirming Interactive is Copilot CLI's implicit default; sessions without explicit `mode_changed` events run entirely in Interactive.
+- Updated `mode_change_attributes_to_next_turn_not_current` test to use real `interactive` / `autopilot` strings and assert against `Mode::Interactive` / `Mode::Autopilot`.
+
+**`agentprof-cli/cmd/format/md.rs`:**
+- `fmt_mode` now returns real strings: `interactive` / `plan` / `autopilot` (was `ask` / `auto` / `expert`).
+- Updated `fmt_mode_handles_each_variant` test.
+
+**User-visible impact**: every turn in every real Copilot session now shows the actual mode (typically `interactive` for the common case) instead of `—`. Sessions with mode transitions correctly show `plan` and `autopilot` at the right turn boundaries. This restores meaningful Mode column data.
+
+**Snapshots:** 21 re-accepted (10 episode_derive + 10 analyzer_on_fixtures + 1 CLI insta md snapshot). Mode values in turn rows changed from `{"Unknown": "plan"}` → `"Plan"` (and similar), AND from `null` → `"Interactive"` for fixtures without explicit mode events. Initial `mode_segments[0]` value changed from `{"Unknown": "default"}` → `"Interactive"` across all snapshots.
+
+**Test count delta:** 230 → 230 (renames + test rewires balance to net zero new tests, but +1 stronger assertion in `mode_from_wire_unknown_preserved` covering 3 invalid strings).
+
 ### Added
 
 #### M1.2 — Copilot CLI adapter (`feat/m1.2-copilot-adapter`)

@@ -115,11 +115,12 @@ struct DeriveState {
     hooks: BTreeMap<String, HookEpisode>,
     skills: BTreeMap<String, SkillEpisode>,
     mode_segments: Vec<ModeSegment>,
-    /// Active session mode tracked across the event stream. Updated by
-    /// [`Self::on_mode_event`] when it sees `ModeChanged` events with a
-    /// non-None [`Event::payload_mode`]. Captured at [`Self::on_turn_start`]
-    /// and written into the new `Turn.mode` field. `None` until the first
-    /// `mode_changed` event arrives.
+    /// Active session mode tracked across the event stream. Initialized
+    /// to `Some(Mode::Interactive)` (Copilot CLI's implicit default;
+    /// see `DeriveState::new`). Updated by [`Self::on_mode_event`] when
+    /// it sees `ModeChanged` events with a non-None [`Event::payload_mode`].
+    /// Captured at [`Self::on_turn_start`] and written into the new
+    /// `Turn.mode` field.
     current_mode: Option<Mode>,
     aborts: Vec<AbortInfo>,
     warnings: Vec<DeriveWarning>,
@@ -159,10 +160,18 @@ impl DeriveState {
             hooks: BTreeMap::new(),
             skills: BTreeMap::new(),
             mode_segments: vec![ModeSegment::new(
-                Mode::Unknown("default".into()),
+                // Copilot CLI's implicit default mode at session start.
+                // Verified against 73 real session.mode_changed events:
+                // every `previousMode → newMode` transition that opens
+                // the session uses 'interactive' as previousMode (sessions
+                // without any mode_changed events run entirely in
+                // interactive). Was Mode::Unknown("default") in M1.3
+                // before this vocabulary was discovered.
+                Mode::Interactive,
                 meta.started_at,
             )],
-            current_mode: None,
+            // Initial active mode matches the initial ModeSegment.
+            current_mode: Some(Mode::Interactive),
             aborts: Vec::new(),
             warnings: Vec::new(),
         }
@@ -1066,22 +1075,22 @@ mod tests {
 
     #[test]
     fn mode_change_attributes_to_next_turn_not_current() {
-        // Sequence: mode→ask, turn-A opens, mode→auto mid-turn, turn-A
-        // ends, turn-B opens, turn-B ends. Expected:
-        //   turn-A.mode = Some(Ask)   (captured at turn_start; not retroactively updated)
-        //   turn-B.mode = Some(Auto)  (captures the new current_mode)
+        // Sequence: mode→interactive, turn-A opens, mode→autopilot mid-turn,
+        // turn-A ends, turn-B opens, turn-B ends. Expected:
+        //   turn-A.mode = Some(Interactive)  (captured at turn_start; not retroactively updated)
+        //   turn-B.mode = Some(Autopilot)    (captures the new current_mode)
         let events = vec![
-            mode_change("ask", 1),
+            mode_change("interactive", 1),
             turn_start("t-A", 2),
-            mode_change("auto", 3),
+            mode_change("autopilot", 3),
             turn_end(4),
             turn_start("t-B", 5),
             turn_end(6),
         ];
         let ep = derive_episodes(&events, &meta());
         assert_eq!(ep.turns.len(), 2);
-        assert_eq!(ep.turns[0].mode, Some(Mode::Ask));
-        assert_eq!(ep.turns[1].mode, Some(Mode::Auto));
+        assert_eq!(ep.turns[0].mode, Some(Mode::Interactive));
+        assert_eq!(ep.turns[1].mode, Some(Mode::Autopilot));
     }
 
     #[test]

@@ -9,7 +9,7 @@ expression: episodes
       "started_at": "2026-05-26T14:00:03Z",
       "ended_at": "2026-05-26T14:00:25Z",
       "model": "gpt-5-mini",
-      "mode": null,
+      "mode": "Interactive",
       "output_tokens": 12,
       "status": "Completed",
       "tool_calls": [],
@@ -62,7 +62,7 @@ expression: episodes
       "started_at": "2026-05-26T14:00:26Z",
       "ended_at": "2026-05-26T14:00:48Z",
       "model": "gpt-5-mini",
-      "mode": null,
+      "mode": "Interactive",
       "output_tokens": 12,
       "status": "Completed",
       "tool_calls": [],
@@ -115,7 +115,7 @@ expression: episodes
       "started_at": "2026-05-26T14:00:49Z",
       "ended_at": "2026-05-26T14:01:11Z",
       "model": "gpt-5-mini",
-      "mode": null,
+      "mode": "Interactive",
       "output_tokens": 12,
       "status": "Completed",
       "tool_calls": [],
@@ -460,9 +460,7 @@ expression: episodes
   "skills": {},
   "mode_segments": [
     {
-      "mode": {
-        "Unknown": "default"
-      },
+      "mode": "Interactive",
       "started_at": "2026-05-26T14:00:00Z",
       "ended_at": "2026-05-26T14:01:12Z"
     }

@@ -19,7 +19,7 @@ expression: report
       "duration": 3000,
       "status": "Completed",
       "model": null,
-      "mode": null,
+      "mode": "Interactive",
       "output_tokens": null,
       "tool_call_count": 1,
       "hook_call_count": 1,
