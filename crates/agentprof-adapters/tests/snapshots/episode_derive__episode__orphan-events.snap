@@ -14,7 +14,7 @@ expression: episodes
       "status": "Completed",
       "tool_calls": [
         {
-          "name": "00000000-0000-0000-0000-000000000903",
+          "name": "<orphan>",
           "index": 0
         }
       ],
@@ -28,8 +28,8 @@ expression: episodes
     }
   ],
   "tools": {
-    "00000000-0000-0000-0000-000000000903": {
-      "name": "00000000-0000-0000-0000-000000000903",
+    "<orphan>": {
+      "name": "<orphan>",
       "source": {
         "kind": "builtin"
       },

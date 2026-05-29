@@ -25,6 +25,24 @@ use crate::model::{SessionMeta, ToolSource};
 /// See ADR-0004 NEG-003 + IMP-003 for rationale.
 const SKILL_TRIGGER_WINDOW: usize = 50;
 
+/// Sentinel `ToolEpisode` name used when `tool.execution_complete` arrives
+/// without a matching `tool.execution_start` (orphan-synthesized start).
+///
+/// The wire payload of `tool.execution_complete` ([`ToolResultData`]) carries
+/// only `tool_call_id`, not `tool_name`. With nothing meaningful to key on,
+/// `derive_episodes` aggregates all such orphan calls under this single
+/// sentinel name rather than emitting a separate `ToolEpisode` per opaque
+/// event id. The accompanying [`DeriveWarning::SynthesizedStart`] records
+/// the original event id for per-call accountability.
+///
+/// The angle-bracket form is deliberately not a valid tool name in any
+/// agent's wire format, so it cannot collide with a real tool. Downstream
+/// consumers (markdown / JSON renderers, future TUI) may special-case this
+/// key for display, e.g. "(synthesized: 3 orphan completes)".
+///
+/// [`ToolResultData`]: crate::episode::tool::ToolCall
+pub const ORPHAN_TOOL_SENTINEL: &str = "<orphan>";
+
 /// Derive episodes from a slice of events and session metadata.
 ///
 /// **Pure.** Same input → same output, byte-for-byte. Snapshot-stable.
@@ -216,10 +234,18 @@ impl DeriveState {
             self.commit_tool_call(&open.name, &open.source, call);
         } else {
             // Orphan complete → synthesize 0ms Start.
+            //
+            // ToolExecComplete's payload (ToolResultData) has no tool_name
+            // field, so payload_name() returns None for the only adapter
+            // wired today (CopilotEvent). Rather than fall back to ev.id()
+            // — a per-event UUID that would create a fresh ToolEpisode per
+            // orphan event and pollute tool_rank output with opaque keys —
+            // aggregate all orphan completes under a single sentinel name.
+            // The per-call SynthesizedStart warning below preserves the
+            // original event id for accountability. See ADR-0005 Update
+            // section (M1.4 audit followups) for the design rationale.
             let span = Span::instant(ts);
-            let name = ev
-                .payload_name()
-                .map_or_else(|| ev.id().to_string(), str::to_string);
+            let name = ORPHAN_TOOL_SENTINEL.to_string();
             let source = ToolSource::infer(&name);
             let call = ToolCall {
                 span,
@@ -702,5 +728,87 @@ mod tests {
             .next()
             .expect("exactly one tool episode expected");
         assert_eq!(tool_ep.calls[0].turn_id.as_deref(), Some("turn-A"));
+    }
+
+    #[test]
+    fn orphan_tool_complete_aggregates_under_sentinel_not_event_id() {
+        // Three orphan tool.execution_complete events with no matching
+        // tool.execution_start. Each has a distinct event id. They should
+        // ALL aggregate under ORPHAN_TOOL_SENTINEL ("<orphan>") and each
+        // emit a SynthesizedStart warning carrying the original id.
+        //
+        // Before the fix they each created a separate ToolEpisode keyed by
+        // the event UUID, polluting tool_rank with opaque entries.
+        let events = vec![
+            E {
+                id: "t1",
+                kind: EventKind::TurnStart,
+                ts: at(1),
+            },
+            E {
+                id: "orphan-A",
+                kind: EventKind::ToolExecComplete,
+                ts: at(2),
+            },
+            E {
+                id: "orphan-B",
+                kind: EventKind::ToolExecComplete,
+                ts: at(3),
+            },
+            E {
+                id: "orphan-C",
+                kind: EventKind::ToolExecComplete,
+                ts: at(4),
+            },
+            E {
+                id: "t1-end",
+                kind: EventKind::TurnEnd,
+                ts: at(5),
+            },
+        ];
+        let ep = derive_episodes(&events, &meta());
+
+        // Exactly ONE ToolEpisode keyed by the sentinel.
+        assert_eq!(
+            ep.tools.len(),
+            1,
+            "all orphans should aggregate to one episode"
+        );
+        assert!(
+            ep.tools.contains_key(ORPHAN_TOOL_SENTINEL),
+            "expected key '{ORPHAN_TOOL_SENTINEL}', got {:?}",
+            ep.tools.keys().collect::<Vec<_>>()
+        );
+
+        let orphan_ep = &ep.tools[ORPHAN_TOOL_SENTINEL];
+        assert_eq!(orphan_ep.name, ORPHAN_TOOL_SENTINEL);
+        assert_eq!(orphan_ep.calls.len(), 3, "3 orphan completes → 3 calls");
+        for call in &orphan_ep.calls {
+            assert!(matches!(
+                call.status,
+                ToolCallStatus::OrphanSynthesizedStart
+            ));
+            assert_eq!(call.turn_id.as_deref(), Some("t1"));
+        }
+
+        // Per-call accountability via warnings (carry original event ids).
+        let synth: Vec<&str> = ep
+            .warnings
+            .iter()
+            .filter_map(|w| match w {
+                DeriveWarning::SynthesizedStart {
+                    kind: EventKind::ToolExecStart,
+                    end_event_id,
+                } => Some(end_event_id.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(synth, ["orphan-A", "orphan-B", "orphan-C"]);
+
+        // Back-reference also lives on the turn.
+        assert_eq!(ep.turns[0].tool_calls.len(), 3);
+        for tref in &ep.turns[0].tool_calls {
+            assert_eq!(tref.name, ORPHAN_TOOL_SENTINEL);
+        }
     }
 }
