@@ -1,6 +1,6 @@
 ---
 title: "ADR-0005: Analyzer foundations — Event::payload_name() trait extension, start-time turn attribution, AnalysisReport in core"
-status: "Proposed"
+status: "Accepted"
 date: "2026-05-29"
 authors: "@verdenmax (project owner), AI assistant (Copilot CLI session 252068e5)"
 tags: ["architecture", "decision", "analyzer", "trait-extension", "agentprof-core", "agentprof-cli", "milestone-M1.4", "rollups"]
@@ -12,7 +12,7 @@ superseded_by: ""
 
 ## Status
 
-**Proposed**
+**Accepted**
 
 ## Context
 
