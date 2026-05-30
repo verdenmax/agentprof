@@ -128,30 +128,67 @@ fn write_turn_summary(out: &mut String, report: &AnalysisReport) {
 }
 
 fn write_tool_rank(out: &mut String, report: &AnalysisReport) {
+    // Partition rows: agent-/machine-time tools go in the main table;
+    // user-blocking tools (ask_user etc.) get their own section so their
+    // user-think-time wall-clock doesn't visually dominate the picture.
+    // Both partitions preserve the source order (already sorted by
+    // total_duration descending in tool_rank()).
+    let (user_blocking, work): (Vec<_>, Vec<_>) =
+        report.tool_rank.iter().partition(|r| r.is_user_blocking);
+
     let _ = writeln!(out, "## Tool Rank (by total duration)");
+    if work.is_empty() && user_blocking.is_empty() {
+        let _ = writeln!(out, "(no tool calls recorded)");
+        let _ = writeln!(out);
+        return;
+    }
     let _ = writeln!(
         out,
         "| Tool | Source | Calls | OK | Fail | Orphan | User-req | Total | p50 | p95 | Max |"
     );
     let _ = writeln!(out, "|---|---|---|---|---|---|---|---|---|---|---|");
-    for row in &report.tool_rank {
-        let _ = writeln!(
-            out,
-            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
-            md_cell_escape(&row.name),
-            md_cell_escape(&format!("{:?}", row.source)),
-            row.call_count,
-            row.success_count,
-            row.failure_count,
-            row.orphan_count,
-            row.user_requested_count,
-            fmt_duration(row.total_duration),
-            fmt_duration(row.p50_duration),
-            fmt_duration(row.p95_duration),
-            fmt_duration(row.max_duration),
-        );
+    for row in &work {
+        write_tool_row(out, row);
     }
     let _ = writeln!(out);
+
+    if !user_blocking.is_empty() {
+        let _ = writeln!(
+            out,
+            "## User-blocking tools (wall-clock includes user think time)"
+        );
+        let _ = writeln!(
+            out,
+            "These tools block on the human, not on agent or machine work; their `Total` reflects how long the user took to respond, not engineering cost."
+        );
+        let _ = writeln!(
+            out,
+            "| Tool | Source | Calls | OK | Fail | Orphan | User-req | Total | p50 | p95 | Max |"
+        );
+        let _ = writeln!(out, "|---|---|---|---|---|---|---|---|---|---|---|");
+        for row in &user_blocking {
+            write_tool_row(out, row);
+        }
+        let _ = writeln!(out);
+    }
+}
+
+fn write_tool_row(out: &mut String, row: &agentprof_core::analyzer::ToolRankRow) {
+    let _ = writeln!(
+        out,
+        "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
+        md_cell_escape(&row.name),
+        md_cell_escape(&format!("{:?}", row.source)),
+        row.call_count,
+        row.success_count,
+        row.failure_count,
+        row.orphan_count,
+        row.user_requested_count,
+        fmt_duration(row.total_duration),
+        fmt_duration(row.p50_duration),
+        fmt_duration(row.p95_duration),
+        fmt_duration(row.max_duration),
+    );
 }
 
 fn write_hook_rank(out: &mut String, report: &AnalysisReport) {

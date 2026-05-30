@@ -2,6 +2,19 @@
 //!
 //! One [`ToolRankRow`] per tool name, sorted by `total_duration` descending.
 //! Tools with zero recorded calls are filtered out.
+//!
+//! ## User-blocking tools
+//!
+//! Some tools (e.g. `ask_user`) block on **user think time** rather than
+//! agent / machine work. Their `total_duration` reflects how long the
+//! human took to respond, not engineering cost. Mixing them into the
+//! main Tool Rank skews the perceived "where time goes" picture: in a
+//! real 56 h session, `ask_user` alone was 90 % of total tool wall-clock.
+//!
+//! [`USER_BLOCKING_TOOLS`] lists these tools by exact name. The
+//! [`ToolRankRow::is_user_blocking`] field is set per row at analyzer
+//! time so downstream renderers (markdown, JSON, future TUI) can split
+//! them out without recomputing the membership rule themselves.
 
 use chrono::Duration;
 use serde::{Deserialize, Serialize};
@@ -9,6 +22,24 @@ use serde::{Deserialize, Serialize};
 use crate::analyzer::duration_ms;
 use crate::episode::{Episodes, ToolCall, ToolCallStatus};
 use crate::model::ToolSource;
+
+/// Tool names whose wall-clock duration is dominated by **user think time**,
+/// not by agent or machine work.
+///
+/// Currently exactly one entry: `ask_user`. The constant is `pub` so
+/// downstream renderers and tests can reference it directly (no string
+/// duplication). Extend with future user-blocking tool names as they
+/// appear in adapter vocabularies.
+///
+/// Used by [`tool_rank`] to populate [`ToolRankRow::is_user_blocking`].
+///
+/// # Examples
+///
+/// ```
+/// use agentprof_core::analyzer::tool_rank::USER_BLOCKING_TOOLS;
+/// assert!(USER_BLOCKING_TOOLS.contains(&"ask_user"));
+/// ```
+pub const USER_BLOCKING_TOOLS: &[&str] = &["ask_user"];
 
 /// Ranking row for one tool name.
 ///
@@ -58,6 +89,19 @@ pub struct ToolRankRow {
     /// Longest single call.
     #[serde(with = "duration_ms")]
     pub max_duration: Duration,
+    /// `true` if this tool blocks on **user think time** rather than agent
+    /// or machine work. Membership rule: name appears in
+    /// [`USER_BLOCKING_TOOLS`].
+    ///
+    /// Renderers should typically split user-blocking tools into a separate
+    /// section (or otherwise visually distinguish them) so they don't skew
+    /// the perceived "where time goes" picture in the main Tool Rank.
+    ///
+    /// Additive field: JSON consumers from before this field existed treat
+    /// it as default (`false`) via serde's `default` attribute, so older
+    /// stored reports remain deserializable.
+    #[serde(default)]
+    pub is_user_blocking: bool,
 }
 
 /// Compute per-tool rank rows, sorted by `total_duration` descending.
@@ -119,6 +163,7 @@ pub fn tool_rank(episodes: &Episodes) -> Vec<ToolRankRow> {
                 p50_duration,
                 p95_duration,
                 max_duration,
+                is_user_blocking: USER_BLOCKING_TOOLS.contains(&name.as_str()),
             }
         })
         .collect();
@@ -294,5 +339,37 @@ mod tests {
         assert_eq!(rows[0].failure_count, 1);
         assert_eq!(rows[0].orphan_count, 1);
         assert_eq!(rows[0].user_requested_count, 1);
+        assert!(
+            !rows[0].is_user_blocking,
+            "bash is not user-blocking by membership rule"
+        );
+    }
+
+    #[test]
+    fn ask_user_is_flagged_as_user_blocking() {
+        // Lock the membership rule contract: any tool name in
+        // USER_BLOCKING_TOOLS is flagged at analyzer time so renderers
+        // can split or otherwise visually distinguish it from work tools.
+        let mut ep = Episodes::new();
+        let mut tool = ToolEpisode::new("ask_user".into(), ToolSource::Builtin);
+        let mut call = ToolCall::new(Span::new(at(0), at(30)));
+        call.turn_id = Some("t1".into());
+        tool.calls.push(call);
+        tool.total_duration = Duration::seconds(30);
+        ep.tools.insert("ask_user".into(), tool);
+
+        let rows = tool_rank(&ep);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "ask_user");
+        assert!(
+            rows[0].is_user_blocking,
+            "ask_user must be flagged is_user_blocking"
+        );
+    }
+
+    #[test]
+    fn user_blocking_constant_contains_ask_user() {
+        // Membership-rule documentation guard.
+        assert!(USER_BLOCKING_TOOLS.contains(&"ask_user"));
     }
 }
