@@ -113,12 +113,22 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState<'_>) {
         .unwrap_or(1)
         .max(1);
 
-    let mut lines: Vec<Line<'_>> = Vec::with_capacity(turns.len());
-    for (i, row) in turns.iter().enumerate() {
+    // Viewport: keep state.flame_selected within the visible window.
+    // Bottom-anchor strategy: when selected falls below the bottom edge,
+    // shift viewport so selected lands at the bottom row. When selected is
+    // above the top edge, shift so selected lands at the top row. This is
+    // the canonical "scroll-to-follow" pattern.
+    let visible_rows = (inner.height as usize).max(1);
+    let viewport_top = (state.flame_selected + 1).saturating_sub(visible_rows);
+    let visible_end = (viewport_top + visible_rows).min(turns.len());
+
+    let mut lines: Vec<Line<'_>> = Vec::with_capacity(visible_end.saturating_sub(viewport_top));
+    for (offset, row) in turns[viewport_top..visible_end].iter().enumerate() {
+        let abs_idx = viewport_top + offset;
         let turn = state.episodes.turns.iter().find(|t| t.id == row.turn_id);
         let line = build_row(
-            i,
-            i == state.flame_selected,
+            abs_idx,
+            abs_idx == state.flame_selected,
             row.duration,
             max_dur,
             gantt_width,

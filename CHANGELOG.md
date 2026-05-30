@@ -13,6 +13,11 @@ prefix used in commit messages).
 
 ## [Unreleased]
 
+### Fixed
+
+- TUI key bindings: `1`/`2`/`3` now ALWAYS switch view; previously they re-sorted the table when active view was Roi (spec §7 conflict rule), which made it hard to escape RoiView without remembering Tab. Sort keys are now `t`/`c`/`s`/`p` (total / calls / success% / p50), only effective when view == Roi.
+- TUI viewport scroll: `↑` / `↓` in Flamegraph and Roi now auto-scroll the visible window to follow the selected row. Previously the selection could move out of the visible viewport with no visual feedback.
+
 ### Added
 
 - `agentprof-tui` crate: first interactive ratatui TUI shipped as M1.5 (`analyze --export tui`).

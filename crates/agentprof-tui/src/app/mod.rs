@@ -143,8 +143,8 @@ fn draw_help_overlay(frame: &mut Frame<'_>, full: Rect) {
         "q / Ctrl-C   Quit",
         "1 / 2 / 3    Switch view (Flamegraph / Roi / Aggregate)",
         "Tab / S-Tab  Cycle views forward / backward",
-        "↑ / ↓        Scroll / select",
-        "1-4 in Roi   Cycle sort key (total / calls / success% / p50)",
+        "↑ / ↓        Scroll / select (viewport follows cursor)",
+        "t/c/s/p (Roi)  Cycle sort key (Total / Calls / Success% / p50)",
         "?            This help",
     ]
     .join("\n");

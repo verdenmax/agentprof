@@ -2,7 +2,7 @@
 source: crates/agentprof-tui/tests/views.rs
 expression: text
 ---
-┌ RoiView (2/3) — Sort: [1]total  2=calls  3=success%  4=p50 ──────────────────────────────────────┐
+┌ RoiView (2/3) — Sort: [t]total  c=calls  s=success%  p=p50 ──────────────────────────────────────┐
 │#   Tool                               Source     Calls   OK      Fail    Total      p50          │
 │1   bash                               builtin    1       1       0       5.0s       5.0s         │
 │                                                                                                  │

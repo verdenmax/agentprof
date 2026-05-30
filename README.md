@@ -170,10 +170,10 @@ For repository structure and crate boundaries, see
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-**RoiView (`2`):** Interactive tool rank; press `1`/`2`/`3`/`4` to cycle sort key. User-blocking tools (e.g. `ask_user`) split into a separate sub-table so think time doesn't skew the headline rank.
+**RoiView (`2`):** Interactive tool rank; press `t`/`c`/`s`/`p` to cycle sort key. User-blocking tools (e.g. `ask_user`) split into a separate sub-table so think time doesn't skew the headline rank.
 
 ```
-┌─ RoiView (2/3) — Sort: [1]total  2=calls  3=success%  4=p50 ────┐
+┌─ RoiView (2/3) — Sort: [t]total  c=calls  s=success%  p=p50 ────┐
 │ #  Tool       Source   Calls  OK  Fail   Total    p50           │
 │ 1  bash       builtin   1641 1641   0    57.4m   12ms           │
 │ 2  task       builtin    137  137   0    4.90h   3.2s           │
@@ -186,7 +186,7 @@ For repository structure and crate boundaries, see
 
 **AggregateView (`3`):** Single-session breakdown — By Mode (interactive / plan / autopilot) + By Hook.
 
-Key bindings: `1`/`2`/`3` switch view, `Tab` cycles, `↑`/`↓` selects, `?` opens help, `q` / Ctrl-C quits.
+Key bindings: `1`/`2`/`3` switch view, `Tab` cycles, `↑`/`↓` selects (viewport follows), `t`/`c`/`s`/`p` cycles RoiView sort, `?` opens help, `q` / Ctrl-C quits.
 
 Requires a TTY on stdout; piping yields `OutputError` (exit 3) with a helpful message. See [`crates/agentprof-tui/README.md`](crates/agentprof-tui/README.md) and [ADR-0006](docs/internals/adr-0006-panic-safe-tui.md) for the panic-safe lifecycle.
 

@@ -19,7 +19,7 @@ use crate::views::View;
 
 /// Sort key for [`crate::views::roi`]'s tool table.
 ///
-/// Cycled by keys `1` / `2` / `3` / `4` when the active view is [`View::Roi`].
+/// Cycled by keys `t` / `c` / `s` / `p` when the active view is [`View::Roi`].
 /// Default is [`SortKey::TotalDur`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SortKey {
@@ -111,9 +111,15 @@ impl<'a> AppState<'a> {
 /// Returns [`Action::Quit`] when the user presses `q` / Ctrl-C. All other
 /// input mutates `state` in place.
 ///
-/// Conflict-resolution rule for `1`–`4` (spec §7): when [`View::Roi`] is
-/// active, number keys re-sort; otherwise `1`/`2`/`3` switch view and `4`
-/// is no-op.
+/// Key bindings (M1.5 post-shipping UX fix — supersedes spec §7's
+/// conflict-resolution rule):
+/// - `1`/`2`/`3` ALWAYS switch view (Flamegraph / Roi / Aggregate)
+/// - `t`/`c`/`s`/`p` cycle `RoiView` sort key (`TotalDur` / `Calls` / `SuccessRate` / `P50`);
+///   only meaningful when view == Roi, ignored elsewhere
+/// - `Tab` / `Shift-Tab` cycle views
+/// - `↑` / `↓` scroll/select
+/// - `q` / Ctrl-C quit
+/// - `?` toggle help overlay (any key closes)
 #[allow(clippy::needless_pass_by_value)]
 pub fn dispatch(state: &mut AppState<'_>, event: Event) -> Action {
     // Help overlay swallows everything; any key closes it.
@@ -139,26 +145,33 @@ pub fn dispatch(state: &mut AppState<'_>, event: Event) -> Action {
         return Action::Quit;
     }
 
-    // Number keys: re-sort in RoiView, view-switch elsewhere.
-    if let KeyCode::Char(c @ ('1' | '2' | '3' | '4')) = k.code {
-        if state.view == View::Roi {
+    // Number keys ALWAYS switch view (no Roi exception).
+    // (Previously 1-4 re-sorted in Roi per spec §7; user reported that as
+    // a discoverability bug. Sort keys are now t/c/s/p, see below.)
+    if let KeyCode::Char(c @ ('1' | '2' | '3')) = k.code {
+        state.view = match c {
+            '1' => View::Flamegraph,
+            '2' => View::Roi,
+            '3' => View::Aggregate,
+            _ => state.view, // unreachable; appeases match
+        };
+        return Action::None;
+    }
+
+    // Letter keys cycle RoiView sort (only meaningful when view == Roi;
+    // ignored elsewhere so they don't accidentally fire side-effects).
+    if state.view == View::Roi {
+        if let KeyCode::Char(c @ ('t' | 'c' | 's' | 'p')) = k.code {
             state.roi_sort = match c {
-                '1' => SortKey::TotalDur,
-                '2' => SortKey::Calls,
-                '3' => SortKey::SuccessRate,
-                '4' => SortKey::P50,
-                _ => state.roi_sort,
+                't' => SortKey::TotalDur,
+                'c' => SortKey::Calls,
+                's' => SortKey::SuccessRate,
+                'p' => SortKey::P50,
+                _ => state.roi_sort, // unreachable
             };
             state.roi_selected = 0;
-        } else {
-            state.view = match c {
-                '1' => View::Flamegraph,
-                '2' => View::Roi,
-                '3' => View::Aggregate,
-                _ => state.view, // '4' is no-op outside RoiView
-            };
+            return Action::None;
         }
-        return Action::None;
     }
 
     match k.code {
@@ -255,14 +268,13 @@ mod tests {
         assert_eq!(s.view, View::Flamegraph);
         dispatch(&mut s, key(KeyCode::Char('2')));
         assert_eq!(s.view, View::Roi);
-        // From Roi, '1' re-sorts (not switch) — that's the conflict-resolution rule.
-        // To verify view-switch, go back via tab first.
-        dispatch(&mut s, key(KeyCode::Tab));
-        assert_eq!(s.view, View::Aggregate);
+        // From Roi, '1' now switches view (no longer re-sorts).
         dispatch(&mut s, key(KeyCode::Char('1')));
         assert_eq!(s.view, View::Flamegraph);
         dispatch(&mut s, key(KeyCode::Char('3')));
         assert_eq!(s.view, View::Aggregate);
+        dispatch(&mut s, key(KeyCode::Char('2')));
+        assert_eq!(s.view, View::Roi);
     }
 
     #[test]
@@ -295,19 +307,19 @@ mod tests {
     }
 
     #[test]
-    fn roi_sort_key_cycle_1_to_4() {
+    fn roi_sort_key_cycle_letter_keys() {
         let r = empty_report();
         let e = Episodes::new();
         let mut s = AppState::new(&r, &e);
         s.view = View::Roi;
         assert_eq!(s.roi_sort, SortKey::TotalDur);
-        dispatch(&mut s, key(KeyCode::Char('2')));
+        dispatch(&mut s, key(KeyCode::Char('c')));
         assert_eq!(s.roi_sort, SortKey::Calls);
-        dispatch(&mut s, key(KeyCode::Char('3')));
+        dispatch(&mut s, key(KeyCode::Char('s')));
         assert_eq!(s.roi_sort, SortKey::SuccessRate);
-        dispatch(&mut s, key(KeyCode::Char('4')));
+        dispatch(&mut s, key(KeyCode::Char('p')));
         assert_eq!(s.roi_sort, SortKey::P50);
-        dispatch(&mut s, key(KeyCode::Char('1')));
+        dispatch(&mut s, key(KeyCode::Char('t')));
         assert_eq!(s.roi_sort, SortKey::TotalDur);
     }
 
@@ -382,14 +394,26 @@ mod tests {
     }
 
     #[test]
-    fn number_keys_1_to_4_in_roi_view_sort_not_switch() {
+    fn number_keys_in_roi_view_switch_not_sort() {
         let r = empty_report();
         let e = Episodes::new();
         let mut s = AppState::new(&r, &e);
         s.view = View::Roi;
+        // Number keys now ALWAYS switch view, even from Roi.
         dispatch(&mut s, key(KeyCode::Char('1')));
-        // View stayed on Roi (because '1' is interpreted as re-sort).
-        assert_eq!(s.view, View::Roi);
-        assert_eq!(s.roi_sort, SortKey::TotalDur);
+        assert_eq!(s.view, View::Flamegraph);
+        assert_eq!(s.roi_sort, SortKey::TotalDur); // sort unchanged
+    }
+
+    #[test]
+    fn letter_sort_keys_ignored_outside_roi() {
+        let r = empty_report();
+        let e = Episodes::new();
+        let mut s = AppState::new(&r, &e);
+        // Currently on Flamegraph (default). Press 't' — should NOT change sort.
+        assert_eq!(s.view, View::Flamegraph);
+        dispatch(&mut s, key(KeyCode::Char('t')));
+        assert_eq!(s.view, View::Flamegraph); // view unchanged
+        assert_eq!(s.roi_sort, SortKey::TotalDur); // sort unchanged (still default)
     }
 }

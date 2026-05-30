@@ -52,7 +52,8 @@ See [`docs/architecture.md`](../../docs/architecture.md) §3 (system layering) a
 | `1` / `2` / `3` | Switch view |
 | `Tab` / Shift-Tab | Cycle views |
 | `↑` / `↓` | Scroll / select |
-| `1`-`4` (in Roi) | Cycle sort key (total / calls / success% / p50) |
+| `t` / `c` / `s` / `p` (in Roi) | Cycle sort key (total / calls / success% / p50) |
+| Viewport | Auto-scrolls to keep selected row visible in Flamegraph and Roi |
 | `?` | Help overlay |
 
 ## Panic safety

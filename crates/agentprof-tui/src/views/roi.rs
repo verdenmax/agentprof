@@ -1,7 +1,7 @@
 //! `RoiView` — interactive tool-rank table.
 //!
 //! Top section: "work tools" (rows where `is_user_blocking == false`),
-//! sortable via 1/2/3/4 (cycle TotalDur/Calls/SuccessRate/P50). Bottom
+//! sortable via t/c/s/p (cycle TotalDur/Calls/SuccessRate/P50). Bottom
 //! section: user-blocking tools (e.g. `ask_user`), always sorted by total
 //! duration descending. Bottom-most strip shows recent 5 calls of the
 //! currently selected work tool.
@@ -11,7 +11,7 @@ use agentprof_core::episode::{Episodes, ToolCallStatus};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span as TextSpan};
-use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table};
+use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState};
 use ratatui::Frame;
 
 use crate::app::state::{AppState, SortKey};
@@ -137,10 +137,10 @@ fn render_work_table(
     let title = format!(
         " RoiView (2/3) — Sort: {} ",
         match state.roi_sort {
-            SortKey::TotalDur => "[1]total  2=calls  3=success%  4=p50",
-            SortKey::Calls => "1=total  [2]calls  3=success%  4=p50",
-            SortKey::SuccessRate => "1=total  2=calls  [3]success%  4=p50",
-            SortKey::P50 => "1=total  2=calls  3=success%  [4]p50",
+            SortKey::TotalDur => "[t]total  c=calls  s=success%  p=p50",
+            SortKey::Calls => "t=total  [c]calls  s=success%  p=p50",
+            SortKey::SuccessRate => "t=total  c=calls  [s]success%  p=p50",
+            SortKey::P50 => "t=total  c=calls  s=success%  [p]p50",
         }
     );
     let block = Block::default().borders(Borders::ALL).title(title);
@@ -194,7 +194,13 @@ fn render_work_table(
     )
     .header(header)
     .block(block);
-    frame.render_widget(table, area);
+    // Stateful render — TableState's selected() drives auto-scroll so the
+    // highlighted row always stays in the viewport even with long lists.
+    // (The REVERSED style on individual rows still works as the manual
+    // highlight; TableState.selected is used purely for the auto-scroll
+    // and ratatui's default selected-row style is left unset.)
+    let mut table_state = TableState::default().with_selected(Some(state.roi_selected));
+    frame.render_stateful_widget(table, area, &mut table_state);
 }
 
 fn render_blocking_table(frame: &mut Frame<'_>, area: Rect, rows: &[ToolRankRow]) {
