@@ -170,7 +170,7 @@ pub fn run(cmd: AnalyzeCmd) -> Result<()> {
     })?;
 
     let episodes = derive_episodes(&raw.events, &raw.meta);
-    let report = analyze(&episodes, &raw.meta);
+    let report = analyze(&episodes, &raw.meta, &raw.parse_warnings);
 
     let rendered = render_report(&report, &cmd)?;
     write_output(&rendered, cmd.output.as_deref())?;

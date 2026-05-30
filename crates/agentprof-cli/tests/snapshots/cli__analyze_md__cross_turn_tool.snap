@@ -13,6 +13,7 @@ expression: md
 - Tools tracked: 1
 - Hooks tracked: 0
 - Derive warnings: 0
+- Parse warnings: 0
 
 ## Turn Summary
 | # | Turn ID | Status | Duration | Model | Mode | Tools | Hooks | Skills | Out-Tokens |

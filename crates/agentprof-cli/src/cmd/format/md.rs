@@ -12,6 +12,7 @@ use chrono::Duration;
 
 use agentprof_core::analyzer::AnalysisReport;
 use agentprof_core::episode::{DeriveWarning, Mode, TurnStatus};
+use agentprof_core::error::ParseWarning;
 
 use crate::cmd::analyze::AnalysisSection;
 
@@ -93,6 +94,7 @@ fn write_header(out: &mut String, report: &AnalysisReport) {
     let _ = writeln!(out, "- Tools tracked: {}", report.tool_rank.len());
     let _ = writeln!(out, "- Hooks tracked: {}", report.hook_rank.len());
     let _ = writeln!(out, "- Derive warnings: {}", report.warnings.len());
+    let _ = writeln!(out, "- Parse warnings: {}", report.parse_warnings.len());
     let _ = writeln!(out);
 }
 
@@ -178,8 +180,40 @@ fn write_hook_rank(out: &mut String, report: &AnalysisReport) {
 
 fn write_warnings(out: &mut String, report: &AnalysisReport) {
     let _ = writeln!(out, "## Warnings");
-    if report.warnings.is_empty() {
+    if report.warnings.is_empty() && report.parse_warnings.is_empty() {
         let _ = writeln!(out, "(none)");
+        return;
+    }
+
+    // Parse-stage warnings (loader → events): surface FIRST so users
+    // see silent event drops before diving into per-derive anomalies.
+    if !report.parse_warnings.is_empty() {
+        let _ = writeln!(out, "Parse-stage warnings: {}", report.parse_warnings.len());
+        let mut json_err = 0_usize;
+        let mut io_err = 0_usize;
+        let mut out_of_order = 0_usize;
+        let mut other = 0_usize;
+        for w in &report.parse_warnings {
+            match w {
+                ParseWarning::Json { .. } => json_err += 1,
+                ParseWarning::Io { .. } => io_err += 1,
+                ParseWarning::OutOfOrder => out_of_order += 1,
+                _ => other += 1,
+            }
+        }
+        let _ = writeln!(out, "- Json (line failed to parse): {json_err}");
+        let _ = writeln!(out, "- Io (line read error): {io_err}");
+        let _ = writeln!(
+            out,
+            "- OutOfOrder (timestamps non-monotonic): {out_of_order}"
+        );
+        if other > 0 {
+            let _ = writeln!(out, "- Other: {other}");
+        }
+        let _ = writeln!(out);
+    }
+
+    if report.warnings.is_empty() {
         return;
     }
     let _ = writeln!(out, "Derive-stage warnings: {}", report.warnings.len());

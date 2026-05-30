@@ -31,6 +31,7 @@ pub use turn_summary::{turn_summary, TurnSummaryRow};
 use serde::{Deserialize, Serialize};
 
 use crate::episode::{DeriveWarning, Episodes};
+use crate::error::ParseWarning;
 use crate::model::SessionMeta;
 
 /// Bundled analyzer output for a single session.
@@ -50,8 +51,9 @@ use crate::model::SessionMeta;
 ///
 /// let episodes = Episodes::new();
 /// let meta = SessionMeta::new("s1".into(), AgentKind::Copilot, Utc::now(), false);
-/// let report: AnalysisReport = analyze(&episodes, &meta);
+/// let report: AnalysisReport = analyze(&episodes, &meta, &[]);
 /// assert!(report.turn_summary.is_empty());
+/// assert!(report.parse_warnings.is_empty());
 /// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -66,6 +68,19 @@ pub struct AnalysisReport {
     pub hook_rank: Vec<HookRankRow>,
     /// `DeriveWarning`s carried forward from `Episodes`.
     pub warnings: Vec<DeriveWarning>,
+    /// `ParseWarning`s carried forward from the raw session loader.
+    ///
+    /// Pre-fix, parse warnings were collected by `parse_events_jsonl` but
+    /// never surfaced in the report — users couldn't see that (e.g.) 17 %
+    /// of their session was silently dropping due to schema mismatches.
+    /// Carrying them through `AnalysisReport` lets every renderer (md / json
+    /// / future TUI) display a "Parse warnings: N" line and a per-error
+    /// breakdown in the Warnings section.
+    ///
+    /// Distinct from `warnings` ([`DeriveWarning`]) which are analyzer-time
+    /// data anomalies (e.g. orphan hook.end), not parser-time format errors.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parse_warnings: Vec<ParseWarning>,
 }
 
 impl AnalysisReport {
@@ -85,6 +100,7 @@ impl AnalysisReport {
     /// let meta = SessionMeta::new("s1".into(), AgentKind::Copilot, Utc::now(), false);
     /// let r = AnalysisReport::new(meta);
     /// assert!(r.turn_summary.is_empty());
+    /// assert!(r.parse_warnings.is_empty());
     /// ```
     #[must_use]
     pub const fn new(meta: SessionMeta) -> Self {
@@ -94,14 +110,19 @@ impl AnalysisReport {
             tool_rank: Vec::new(),
             hook_rank: Vec::new(),
             warnings: Vec::new(),
+            parse_warnings: Vec::new(),
         }
     }
 }
 
 /// Compute all 3 analyzer rollups for a session.
 ///
-/// Pure function: same `(&Episodes, &SessionMeta)` → byte-identical
-/// `AnalysisReport`. No I/O, no clock access.
+/// Pure function: same `(&Episodes, &SessionMeta, &[ParseWarning])` →
+/// byte-identical `AnalysisReport`. No I/O, no clock access.
+///
+/// `parse_warnings` is typically `raw.parse_warnings` from `parse_events_jsonl`;
+/// callers that have no parse warnings (e.g. unit tests building `Episodes`
+/// in memory) can pass `&[]`.
 ///
 /// # Examples
 ///
@@ -114,19 +135,25 @@ impl AnalysisReport {
 ///
 /// let episodes = Episodes::new();
 /// let meta = SessionMeta::new("s1".into(), AgentKind::Copilot, Utc::now(), false);
-/// let report = analyze(&episodes, &meta);
+/// let report = analyze(&episodes, &meta, &[]);
 /// assert_eq!(report.turn_summary.len(), 0);
 /// assert_eq!(report.tool_rank.len(), 0);
 /// assert_eq!(report.hook_rank.len(), 0);
+/// assert_eq!(report.parse_warnings.len(), 0);
 /// ```
 #[must_use]
-pub fn analyze(episodes: &Episodes, meta: &SessionMeta) -> AnalysisReport {
+pub fn analyze(
+    episodes: &Episodes,
+    meta: &SessionMeta,
+    parse_warnings: &[ParseWarning],
+) -> AnalysisReport {
     AnalysisReport {
         meta: meta.clone(),
         turn_summary: turn_summary(episodes),
         tool_rank: tool_rank(episodes),
         hook_rank: hook_rank(episodes),
         warnings: episodes.warnings.clone(),
+        parse_warnings: parse_warnings.to_vec(),
     }
 }
 
@@ -203,11 +230,12 @@ mod tests {
 
     #[test]
     fn analyze_empty_episodes_produces_empty_report_with_meta() {
-        let report = analyze(&Episodes::new(), &meta());
+        let report = analyze(&Episodes::new(), &meta(), &[]);
         assert!(report.turn_summary.is_empty());
         assert!(report.tool_rank.is_empty());
         assert!(report.hook_rank.is_empty());
         assert!(report.warnings.is_empty());
+        assert!(report.parse_warnings.is_empty());
         assert_eq!(report.meta.id, "s1");
     }
 
@@ -218,8 +246,30 @@ mod tests {
             reason: "test".into(),
             at: Utc::now(),
         });
-        let report = analyze(&ep, &meta());
+        let report = analyze(&ep, &meta(), &[]);
         assert_eq!(report.warnings.len(), 1);
+    }
+
+    #[test]
+    fn analyze_carries_parse_warnings_through() {
+        // Lock the contract that ParseWarnings emitted by the loader
+        // surface in the rendered report (md/json) so users can see
+        // silent event drops. Regression guard for post-output-audit P0 #2.
+        let pw = vec![
+            ParseWarning::Json {
+                line_no: 5,
+                error: "missing field `source`".into(),
+            },
+            ParseWarning::Json {
+                line_no: 934,
+                error: "missing field `turnId`".into(),
+            },
+            ParseWarning::OutOfOrder,
+        ];
+        let report = analyze(&Episodes::new(), &meta(), &pw);
+        assert_eq!(report.parse_warnings.len(), 3);
+        // Vec content preserved verbatim — same enum variants, same line_no.
+        assert_eq!(report.parse_warnings, pw);
     }
 
     #[test]
@@ -229,14 +279,15 @@ mod tests {
         assert!(r.tool_rank.is_empty());
         assert!(r.hook_rank.is_empty());
         assert!(r.warnings.is_empty());
+        assert!(r.parse_warnings.is_empty());
     }
 
     #[test]
     fn analysis_report_json_round_trip_is_lossless() {
         // Build a non-trivial report exercising all rollup vec types +
-        // warnings + a non-empty meta. Round-trip through JSON and assert
-        // equality. Locks the wire-format contract for downstream
-        // consumers (SQLite storage, future HTTP API, …).
+        // warnings + parse_warnings + a non-empty meta. Round-trip through
+        // JSON and assert equality. Locks the wire-format contract for
+        // downstream consumers (SQLite storage, future HTTP API, …).
         let mut ep = Episodes::new();
         ep.warnings.push(DeriveWarning::AbortWithoutOpenElement {
             reason: "round-trip user_cancel".into(),
@@ -244,7 +295,11 @@ mod tests {
                 .single()
                 .unwrap(),
         });
-        let original = analyze(&ep, &meta());
+        let pw = vec![ParseWarning::Json {
+            line_no: 5,
+            error: "round-trip parse failure".into(),
+        }];
+        let original = analyze(&ep, &meta(), &pw);
 
         // Serialize → Deserialize → equal.
         let json = serde_json::to_string(&original).expect("serialize");
