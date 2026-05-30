@@ -3,11 +3,13 @@
 > **本文件是项目总入口。** 如果你是第一次进入本仓库（或时隔一段时间回来），**先读这里**，再去任何其他文档。
 >
 > **文件名**：`tasks/ROADMAP.md`
-> **版本**：1.0
-> **最后更新**：2026-05-26
-> **当前 commit**：`ae2045a`（最新）
-> **当前阶段**：**Phase 0 + 1 (MVP)** — Milestone 1.1 ✅ 完成，M1.2–M1.7 待开始
-> **下一步入口**：`tasks/001-mvp-agent-token-profiler.md` §10，从 Milestone 1.2 走 Stage 1 brainstorming
+> **版本**：1.1
+> **最后更新**：2026-05-30
+> **当前 commit**：`9abd694`（最新；merge of `fix/post-output-audit`）
+> **当前阶段**：**Phase 0 + 1 (MVP)** — M1.1 / M1.2 / M1.3 / M1.4 ✅ 完成（含 4 轮 M1.4 followups），M1.5–M1.7 待开始
+> **下一步入口**：`tasks/001-mvp-agent-token-profiler.md` §10 Milestone 1.5（TUI 火焰图 + ROI 表），走 Stage 1 brainstorming
+>
+> **重大 pivot**（ADR-0001 events-first，详见 §4.1 / §4.2）：M1.2 不再做 ClaudeAdapter，改做 **CopilotAdapter**（real wire data 直接可得）；tokenizer / ROI / waste / aggregate 全部从 M1.3 推迟到 M1.5+。Claude / Codex / Gemini 适配器推迟到 Phase 2 / 3。
 
 ---
 
@@ -96,10 +98,10 @@ Phase 3   扩展适配：Codex CLI / Copilot CLI / Gemini / Cursor
 
 | 维度 | 当前状态 |
 |---|---|
-| **Git** | `main` 分支，commit `ae2045a`（6 个 commit 在历史中） |
-| **Crate** | 5 lib/bin + 1 xtask，全部空壳 `//!`，`cargo check --workspace --all-features` 通过 |
-| **Phase** | Phase 0 / Phase 1（MVP），M1.1 ✅ 项目骨架完成，M1.2–M1.7 ❌ 未开始 |
-| **测试** | 0（仅骨架，无业务代码） |
+| **Git** | `main` 分支，commit `9abd694`（含 4 个 已 merge feature branch：M1.4 audit followups + turn-metadata-extraction + mode-vocabulary-alignment + post-output-audit） |
+| **Crate** | 5 lib/bin + 1 xtask。`agentprof-core` / `agentprof-adapters` / `agentprof-cli` 已实现到 M1.4；`agentprof-tui` / `agentprof-storage` 仍是 `//!` 骨架（M1.5 / Phase 2） |
+| **Phase** | Phase 0 / Phase 1（MVP），**M1.1 / M1.2 / M1.3 / M1.4 ✅ 完成**，M1.5（TUI）/ M1.6（list+aggregate+export）/ M1.7（release）❌ 未开始 |
+| **测试** | ~230+ tests pass，含 ~70 个 insta 快照（episode_derive / analyzer_on_fixtures / CLI 集成 / 单元）+ 11 个 fixture（含 `with-post-tool-use-hooks` 锁定 Copilot CLI 1.0.x 三个 Optional schema 字段的 parser fix） |
 | **CI** | 已配（lint + test matrix + deny + docs + docs-sync + nightly-msrv + release skeleton），未在 GitHub 上运行（remote 未配） |
 | **远端** | 未推（本地 `main` only） |
 | **Release** | 未发，下次 release = v0.1.0（M1.7 出口） |
@@ -108,10 +110,12 @@ Phase 3   扩展适配：Codex CLI / Copilot CLI / Gemini / Cursor
 
 | Phase | 任务文件 | Milestone | 完成度 | Release | 状态 |
 |---|---|---|---|---|---|
-| **0+1 MVP** | 001 | M1.1–M1.7 | 1/7（M1.1 ✅）= **14%** | v0.1.0 | 🟡 In progress |
+| **0+1 MVP** | 001 | M1.1–M1.7 | 4/7（M1.1 / M1.2 / M1.3 / M1.4 ✅）= **57%** | v0.1.0 | 🟡 In progress |
 | **2** | 002 (TBD) | M2.1–M2.x | 0% | v0.2.0 | ⚪ Planned |
 | **3** | 003 (TBD) | M3.1–M3.x | 0% | v1.0.0 | ⚪ Planned |
 | **Beyond** | 004+ (TBD) | — | — | post-1.0 | 💭 Vision |
+
+> **注意 events-first pivot 的范围调整**（ADR-0001）：原 PRD 把 tokenizer / ROI 矩阵 / waste 估算 / 跨 session aggregate 全部塞进 M1.3；pivot 后这些**全部推迟到 M1.5+ 或 Phase 2**，M1.3 实际只做 schema-audit + Episode 聚合层。M1.4 实际交付的 `agentprof analyze` 输出是 turn / tool / hook 三表 + 14 类 warnings（parse-stage + derive-stage），不含 ROI / waste。
 
 ---
 
@@ -123,7 +127,7 @@ Phase 3   扩展适配：Codex CLI / Copilot CLI / Gemini / Cursor
 
 | # | 文件 | 范围 | 状态 | Milestone 完成度 | 计划 release |
 |---|---|---|---|---|---|
-| **001** | [`001-mvp-agent-token-profiler.md`](./001-mvp-agent-token-profiler.md) | **Phase 0 + 1 MVP**：Claude adapter + tokenizer + analyzer + CLI + TUI + 5 种导出 | 🟡 Planning | 1/7（M1.1 ✅） | **v0.1.0** |
+| **001** | [`001-mvp-agent-token-profiler.md`](./001-mvp-agent-token-profiler.md) | **Phase 0 + 1 MVP**：Copilot adapter（pivot from Claude）+ Episode aggregation + CLI `analyze` (md/json) + TUI flamegraph + list/aggregate/export | 🟡 In-Progress | 4/7（M1.1 / M1.2 / M1.3 / M1.4 ✅） | **v0.1.0** |
 
 ### 3.2 计划中的 task 文件（占位）
 
@@ -169,20 +173,24 @@ Phase 3   扩展适配：Codex CLI / Copilot CLI / Gemini / Cursor
                               │
                 ┌─────────────┼─────────────┐
                 ▼             ▼             ▼
-       ┌──────────────┐ ┌────────────┐ ┌────────────┐
-       │ M1.2 Claude  │ │ M1.3       │ │ M1.5 TUI   │
-       │  adapter     │ │ tokenizer  │ │  (depends  │
-       │  ❌          │ │ + analyzer │ │   on M1.3) │
-       │              │ │  ❌        │ │  ❌        │
-       └──────┬───────┘ └─────┬──────┘ └─────┬──────┘
-              │               │              │
-              └───────┬───────┘              │
-                      ▼                      │
-              ┌──────────────────┐           │
-              │ M1.4 CLI analyze │           │
-              │ + md/csv export  │ ◄─────────┘ (M1.5 内嵌进 analyze 的 TUI 分支)
-              │ ❌ [Phase 0 出口]│
-              └─────────┬────────┘
+       ┌──────────────┐ ┌──────────────┐ ┌────────────┐
+       │ M1.2 Copilot │ │ M1.3         │ │ M1.5 TUI   │
+       │  adapter ✅  │ │ schema-audit │ │  (depends  │
+       │ (pivot per   │ │ + Episode    │ │   on M1.3) │
+       │  ADR-0001)   │ │  aggregation │ │  ❌        │
+       │              │ │  ✅          │ │            │
+       └──────┬───────┘ └─────┬────────┘ └─────┬──────┘
+              │               │                │
+              └───────┬───────┘                │
+                      ▼                        │
+              ┌──────────────────────────┐     │
+              │ M1.4 CLI `analyze`       │     │
+              │ + md/json renderer ✅    │     │
+              │ + 4 轮 followups merged  │     │
+              │   (audit / turn-meta /   │     │
+              │    mode / post-output)   │     │
+              │ [Phase 0 出口] ✅        │ ◄───┘ (M1.5 内嵌进 analyze 的 TUI 分支)
+              └─────────┬────────────────┘
                         │
                         ▼
               ┌──────────────────────────────────────┐
@@ -204,22 +212,25 @@ Phase 3   扩展适配：Codex CLI / Copilot CLI / Gemini / Cursor
 task 001 (MVP)                                 task 002 (Phase 2)
 ─────────────────────                          ─────────────────────
 M1.1 ✅ skeleton                               M2.1 ❌ SQLite persistence
-M1.2 ❌ claude adapter        ┌───────────►   M2.2 ❌ OTLP receiver
-M1.3 ❌ tokenizer/analyzer    │                M2.3 ❌ watch 实时刷新
-M1.4 ❌ CLI analyze + md      │                M2.4 ❌ pricing 自动同步
-M1.5 ❌ TUI views             │                       │
-M1.6 ❌ list/agg/export       │                       │ release
-M1.7 ❌ v0.1.0 release ──────┘                       ▼
-                                                v0.2.0
-                                                       │
-                                                       ▼
+M1.2 ✅ copilot adapter      ┌───────────►    M2.2 ❌ OTLP receiver
+M1.3 ✅ episode aggregation  │                M2.3 ❌ watch 实时刷新
+M1.4 ✅ CLI analyze + md     │                M2.4 ❌ pricing 自动同步
+M1.5 ❌ TUI views            │                M2.5 ❌ tokenizer + ROI + waste (events-first pivot 推迟)
+M1.6 ❌ list/agg/export      │                       │
+M1.7 ❌ v0.1.0 release ──────┘                       │ release
+                                                     ▼
+                                              v0.2.0
+                                                     │
+                                                     ▼
                                               task 003 (Phase 3)
                                               ─────────────────────
-                                              M3.1 ❌ Codex adapter
-                                              M3.2 ❌ Copilot adapter
+                                              M3.1 ❌ Claude adapter
+                                              M3.2 ❌ Codex adapter
                                               M3.3 ❌ Gemini adapter (?)
                                               M3.4 ❌ v1.0.0 release
 ```
+
+> Copilot adapter 已在 M1.2 交付（ADR-0001 events-first pivot），不再列入 Phase 3。Phase 3 现在只剩 Claude / Codex / Gemini。
 
 ### 4.3 出口判据（每个 task 推进到下一个 task 的条件）
 

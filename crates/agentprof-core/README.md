@@ -19,23 +19,29 @@ diagram and §5 / §5.1 / §6 for the data model and adapter contract.
 
 | Module | Highlights |
 |---|---|
-| `adapter` | `Adapter` trait, `Event` trait (4 methods), `EventKind` (29 variants), `AgentKind`, `SessionRef`, `AdapterError` |
-| `model` | `RawSession<E>`, `SessionMeta`, `ToolSource` + `ToolSource::infer` |
-| `error` | `CoreError`, `ParseWarning` (7 variants: `Json`, `Io`, `OutOfOrder`, `UnclosedTurn`, `UnclosedToolCall`, `UnclosedHook`, `UnknownToolSourcePrefix`) |
-| `episode` | `derive_episodes<E>`, `Episodes`, `Turn`, `ToolEpisode`, `HookEpisode`, `SkillEpisode`, `ModeSegment`, `CallRef`, `DeriveWarning` |
-| `analyzer` | `analyze(&Episodes, &SessionMeta) → AnalysisReport`; `turn_summary` / `tool_rank` / `hook_rank` rollups; `percentile` helper; `duration_ms` / `duration_ms_opt` serde helpers |
+| `adapter` | `Adapter` trait, `Event` trait (7 methods: `kind` / `id` / `timestamp` / `parent_id` / `payload_name` / `payload_model` / `payload_output_tokens` / `payload_mode`), `EventKind` (29 variants), `AgentKind`, `SessionRef`, `AdapterError` |
+| `model` | `RawSession<E>` (含 `parse_warnings: Vec<ParseWarning>`), `SessionMeta`, `ToolSource` + `ToolSource::infer` |
+| `error` | `CoreError`, `ParseWarning` (7 variants: `Json` / `Io` / `OutOfOrder` / `UnclosedTurn` / `UnclosedToolCall` / `UnclosedHook` / `UnknownToolSourcePrefix`); derives `PartialEq + Eq` since M1.4 post-output-audit |
+| `episode` | `derive_episodes<E>`, `Episodes`, `Turn`, `ToolEpisode`, `HookEpisode`, `SkillEpisode`, `ModeSegment`, `CallRef`, `Mode` (`Interactive` / `Plan` / `Autopilot` / `Unknown(String)`，对齐真实 Copilot wire), `TurnStatus`, `ToolCallStatus`, `DeriveWarning` (5 variants 含 `SynthesizedStart` / `OpenAtEndOfSession` / `AbortWithoutOpenElement` / `NonMonotonicTimestamp` / `PayloadNameMissing`), `pub const ORPHAN_TOOL_SENTINEL = "<orphan>"` |
+| `analyzer` | **`analyze(&Episodes, &SessionMeta, &[ParseWarning]) → AnalysisReport`** (3-arg since M1.4 post-output-audit)；`AnalysisReport` 含 `parse_warnings: Vec<ParseWarning>` 字段；`turn_summary` / `tool_rank` / `hook_rank` rollups；`ToolRankRow.is_user_blocking: bool` + `pub const USER_BLOCKING_TOOLS: &[&str] = &["ask_user"]`；`percentile` helper；`duration_ms` / `duration_ms_opt` serde helpers |
 
 ## Quick start
 
 ```rust,ignore
 use agentprof_core::adapter::Adapter;
+use agentprof_core::analyzer::analyze;
 use agentprof_core::episode::derive_episodes;
 
 // Given an adapter implementation:
 //   let adapter = SomeAdapter;
 //   let session = adapter.load_session(&sref)?;
 //   let episodes = derive_episodes(&session.events, &session.meta);
-//   for warning in &episodes.warnings { /* surface */ }
+//   let report = analyze(&episodes, &session.meta, &session.parse_warnings);
+//   for w in &report.parse_warnings { /* parser drops, e.g. schema mismatch */ }
+//   for w in &report.warnings        { /* derive-time anomalies */ }
+//   for row in &report.tool_rank {
+//       if row.is_user_blocking { /* ask_user etc. — user think time, not work */ }
+//   }
 ```
 
 ## Stability promises
@@ -63,7 +69,7 @@ cargo clippy -p agentprof-core --all-features -- -D warnings
 | 0001 | Events-first product pivot |
 | 0002 | Copilot event schema (Updated 2026-05-27 for M1.3 Phase B) |
 | 0004 | Episode derivation algorithm |
-| 0005 | Analyzer foundations + payload_name trait extension + commit-call-turn-divergence fix |
+| 0005 | Analyzer foundations + payload-* trait extension + commit-call-turn-divergence fix; §6 (post-output-audit) documents the three Copilot CLI 1.0.x schema fixes + `parse_warnings` + `is_user_blocking` + `USER_BLOCKING_TOOLS` |
 
 ## Changelog
 

@@ -1,9 +1,12 @@
 # PRD: agentprof MVP —— AI Agent Token Profiler
 
 > **文件名**：`tasks/001-mvp-agent-token-profiler.md`
-> **版本**：1.0
-> **创建日期**：2026-05-25
-> **状态**：Planning — 项目骨架已完成（Commits `b47aeb5` workspace skeleton / `1a7a7f6` skills matrix / `dc838fc` 9-stage pipeline / `201ae46` skills relocate / `472ac31` pipeline cohesion），尚未开始业务实现
+> **版本**：1.1
+> **创建日期**：2026-05-25 · **最后更新**：2026-05-30
+> **状态**：**In-Progress — M1.1 / M1.2 / M1.3 / M1.4 ✅ 已交付**（4/7 = 57 %）；M1.5（TUI）/ M1.6（list+aggregate+export）/ M1.7（release）❌ 未开始
+> **当前 commit**：`9abd694`（main HEAD；含 post-output-audit + 之前 3 轮 M1.4 followups）
+>
+> **重大 pivot（ADR-0001 events-first）**：M1.2 不做 ClaudeAdapter，改做 **CopilotAdapter**（real wire data 直接可得）。Tokenizer / ROI / waste / aggregate 全部从 M1.3 推迟到 M1.5+ 或 Phase 2。FR-2（Tokenizer）/ FR-6（Speedscope/HTML/CSV）/ FR-7（Config + Storage）目前完成度 0%，**这是 pivot 的预期行为**，不是落后。
 >
 > **所属阶段**：MVP = `docs/plan.md` 的 Phase 0（验证可得性）+ Phase 1（CLI + TUI 火焰图 + ROI 表 + 跨 session 聚合）
 > **权威文档**：[`tasks/ROADMAP.md`](./ROADMAP.md)（项目总入口） / [`docs/architecture.md`](../docs/architecture.md) §3–§17（L1 架构定稿）/ [`docs/plan.md`](../docs/plan.md)（产品/路线图）/ [`.github/copilot-instructions.md`](../.github/copilot-instructions.md) §5 9 阶段 pipeline
@@ -169,17 +172,19 @@ agentprof-adapters             agentprof-tui                   agentprof-storage
 
 ## 4. Functional Requirements
 
-> **完成情况总览**（本文件创建时的基线）：
+> **完成情况总览**（更新于 2026-05-30；events-first pivot 已生效）：
 >
-> | 模块 | P0 需求 | P1 需求 | P2 需求 | 完成率 |
-> |------|---------|---------|---------|--------|
-> | FR-1 适配器 | 0/6 | 0/2 | — | **0%** |
-> | FR-2 Tokenizer | 0/5 | 0/1 | — | **0%** |
-> | FR-3 Analyzer | 0/6 | 0/1 | — | **0%** |
-> | FR-4 TUI | 0/5 | 0/2 | — | **0%** |
-> | FR-5 CLI | 0/7 | 0/1 | — | **0%** |
-> | FR-6 导出 | 0/4 | 0/1 | — | **0%** |
-> | FR-7 配置 + 存储 | 0/3 | 0/2 | 0/1 | **0%** |
+> | 模块 | P0 需求 | P1 需求 | P2 需求 | 完成率 | 备注 |
+> |------|---------|---------|---------|--------|------|
+> | FR-1 适配器 | 6/6 (Copilot) | 2/2 | — | **100%** (Copilot) | ClaudeAdapter pivot 到 Phase 2 / 3 |
+> | FR-2 Tokenizer | 0/5 | 0/1 | — | **0%** | events-first pivot → 推迟到 M1.5+ |
+> | FR-3 Analyzer | 部分（turn / tool / hook 三表 + warnings 已交付） | 部分 | — | **~50%** | ROI / utilization / waste 推迟到 M1.5+ |
+> | FR-4 TUI | 0/5 | 0/2 | — | **0%** | 计划 M1.5 |
+> | FR-5 CLI | 1/7 (`analyze` ✅) | 0/1 | — | **~14%** | `list`/`aggregate`/`export`/`config`/`tui` 计划 M1.6 |
+> | FR-6 导出 | 2/4 (md + json) | 0/1 | — | **50%** | speedscope / html / csv 计划 M1.6 |
+> | FR-7 配置 + 存储 | 0/3 | 0/2 | 0/1 | **0%** | 计划 Phase 2 (M2.1 SQLite) |
+
+> **FR-1 已交付清单（Copilot adapter）**：`Adapter` trait + `CopilotAdapter` + `agentprof_adapters::copilot::*`（28 named CopilotEvent variants + WithEnvelope + Unknown）+ 4 个 payload-* trait method（name / model / output_tokens / mode）+ 11 个 fixture + 60+ unit/round-trip/path tests。详见 `CHANGELOG.md [Unreleased]` 中各 sub-section（M1.2 / M1.3 / M1.4 / audit followups / turn-metadata / mode-vocab / post-output-audit）。
 
 ### FR-1：适配器（agentprof-adapters）
 
@@ -193,6 +198,8 @@ agentprof-adapters             agentprof-tui                   agentprof-storage
 | FR-1.6 | 解析 `usage` 字段（input/output/cache_creation/cache_read） | P0 |
 | FR-1.7 | 单文件解析失败不影响其他文件（`Vec<Result<…>>`） | P1 |
 | FR-1.8 | 注册表 `registry.rs`：`AgentKind → Box<dyn Adapter>` + `auto` 选择最近的 | P1 |
+
+> **Pivot 备注（FR-1）**：FR-1.2 的 `ClaudeAdapter` 被推迟到 Phase 2 / 3，M1.2 实际交付的是等价但更直接的 `CopilotAdapter`（read `~/.copilot/session-state/<uuid>/events.jsonl`，事件流直接含 tool/hook/turn 元数据，无需 tokenize tools_schema）。FR-1.4 / FR-1.5 在 events-first 模型下被分解为 `tool.execution_start` / `tool.execution_complete` 等具体事件解析。FR-1.6 推迟到 M1.5+ tokenizer 工作；M1.4 直接读 `assistant.message.outputTokens` 字段。
 
 **适配器扩展指南**：[`docs/adapters.md`](../docs/adapters.md)
 
@@ -548,12 +555,17 @@ M1.1 (skeleton, ✅ done) ──┬──→ M1.2 (claude adapter)
 
 ---
 
-### Milestone 1.2：`agentprof-adapters::claude` — Claude Code session 解析
+### Milestone 1.2：`agentprof-adapters::copilot` — Copilot CLI session 解析（pivot from Claude）
 
-> **状态**：❌ 未开始
+> **状态**：✅ **已完成**（merge commit `feat/m1.2-copilot-adapter`；详见 `CHANGELOG.md [Unreleased]` § "M1.2 — Copilot CLI adapter"）
 >
-> 实现 `Adapter` trait + ClaudeAdapter，读 `~/.claude/projects/**/*.jsonl`，输出统一 `RawSession`。
-> 关联 FR：FR-1.1 ~ FR-1.5 / FR-1.7 / FR-1.8 | 关联 US：US-1 / US-6
+> **Pivot 说明**（ADR-0001 events-first）：原计划做 ClaudeAdapter，因为 Claude 的 JSONL 是「最终对话日志」需要重做 tokenizer 才能算 token；Copilot CLI 的 `~/.copilot/session-state/<uuid>/events.jsonl` 是「事件流」，直接含 tool/hook/turn 元数据，能让 MVP 更快验证产品价值。**ClaudeAdapter 推迟到 Phase 2 / 3**。
+>
+> 实际交付：`Adapter` trait + `CopilotAdapter` + 28 named `CopilotEvent` variants (+ `Unknown`) + `discover_sessions` (mtime 排序) + `load_session` (含 live-mode 截断容忍 + parse_warnings 收集) + 9 fixture (synthetic only, ADR-0003) + 23 round-trip tests + 38 单元测试。
+>
+> 关联 FR：FR-1.1 / FR-1.3 / FR-1.7 / FR-1.8 + (FR-1.4 / FR-1.5 / FR-1.6 用 events 模型变形)| 关联 US：US-1 / US-6
+>
+> **后续 sub-task 段（Task 1.2.1 ~ 1.2.4）保留作历史记录**，但请注意它们针对 Claude，不反映已交付的 Copilot 实现细节。Copilot adapter 的实际细节见 `crates/agentprof-adapters/src/copilot/*.rs` + `docs/superpowers/specs/2026-05-26-copilot-adapter-event-first-design.md`。
 
 #### Task 1.2.1：调研真实 Claude session 格式
 
@@ -608,12 +620,18 @@ M1.1 (skeleton, ✅ done) ──┬──→ M1.2 (claude adapter)
 
 ---
 
-### Milestone 1.3：`agentprof-core::tokenizer` + `agentprof-core::analyzer`
+### Milestone 1.3：`agentprof-core::episode` — schema-audit + Episode aggregation（pivot from tokenizer/ROI）
 
-> **状态**：❌ 未开始
+> **状态**：✅ **已完成**（merge commit `feat/m1.3-episode-and-schema-fix`；详见 `CHANGELOG.md [Unreleased]` § "M1.3 Phase A+B" + "M1.3 Phase C"）
 >
-> 实现 tokenize（含缓存）+ schema_utilization + Tool ROI + waste_estimate + 跨 session aggregate 算法。
-> 关联 FR：FR-2.1 ~ FR-2.6 / FR-3.1 ~ FR-3.7 | 关联 US：US-1 / US-2 / US-4
+> **Pivot 说明**（events-first 续）：原计划做 tokenizer + Tool ROI + waste_estimate + cross-session aggregate，因为 Copilot wire data 直接含 `outputTokens` 字段，**tokenizer 推迟到 M1.5+ Phase 2**；ROI / waste / aggregate 也推迟到 M1.5+。M1.3 实际交付的是：
+>
+> 1. **`xtask schema-audit`** — 扫真实 Copilot session 跑 schema 体检，输出 MissingVariant / MissingField / BadType 等差异报告。Phase A 用它发现并补全 10 个新 `CopilotEvent` variant + 4 处 payload struct 字段调整。
+> 2. **`agentprof_core::episode` 模块** — `Episodes { turns, tools, hooks, skills, warnings }` + `derive_episodes(&[Event], &SessionMeta) -> Episodes` 算法。把 events 流聚合成 ToolEpisode / HookEpisode / Turn / SkillInvocation，含 orphan 处理、abort 处理、out-of-order 容忍。`DeriveWarning` 4 个 variant。
+>
+> 关联 FR：(FR-3.1 / FR-3.2 / FR-3.3 部分覆盖，作 "turn / tool / hook 聚合"；其余 FR-2.x / FR-3.4-3.7 ROI / waste 推迟) | 关联 US：US-1（部分）
+>
+> **下面 sub-task 段（Task 1.3.1 ~ 1.3.7）保留作历史记录**，但已不是当前实现轨迹。实际算法见 `crates/agentprof-core/src/episode/derive.rs` + `docs/superpowers/specs/2026-05-27-m1.3-episode-and-schema-fix-design.md`。
 
 #### Task 1.3.1：核心数据模型（agentprof-core/src/model）
 
@@ -692,10 +710,23 @@ M1.1 (skeleton, ✅ done) ──┬──→ M1.2 (claude adapter)
 
 ### Milestone 1.4：`agentprof-cli` `analyze` 子命令 + Markdown 导出
 
-> **状态**：❌ 未开始
+> **状态**：✅ **已完成**（最后 merge commit `9abd694`；含 4 轮 followups）
 >
-> 第一个端到端可用的命令。Phase 0 的"终点"：跑通 jsonl → tokenize → analyze → markdown 报告。
-> 关联 FR：FR-5.1 / FR-5.7 / FR-5.8 / FR-6.1 / FR-6.2 | 关联 US：US-1 / US-2 / US-7
+> 第一个端到端可用的命令。**Phase 0 的"终点"已达成**：跑通 events.jsonl → CopilotEvent parse → derive_episodes → analyze → md/json 报告。
+>
+> 关联 FR：FR-5.1（`analyze` ✅）/ FR-5.7（退出码 ✅）/ FR-5.8（output 路径 ✅）/ FR-6.1（md ✅）/ FR-6.2（json ✅）| 关联 US：US-1（部分）
+>
+> **实际交付的 4 个 merge**（按时间顺序）：
+>
+> | Merge | 内容 |
+> |---|---|
+> | `feat/m1.4-cli-and-analyzer` | M1.4 初版：`analyze` 子命令 + `AnalysisReport` + `turn_summary` / `tool_rank` / `hook_rank` + md 渲染器（手写非 askama）+ JSON 渲染器 + `--export` / `--section` / `--output` / `--session` / `--root` flag + 4 个 CLI 集成测试。Markdown 通过 `assert_cmd` + insta 锁定。 |
+> | `fix/m1.4-audit-followups` (`8399bdd`) | 10 个 audit findings：orphan tool sentinel (`<orphan>`) + `DeriveWarning::PayloadNameMissing` + UUID-typo error + Claude/Codex 不支持时的友好错误 + md cell escape + JSON trailing newline + path-error 不重复 `events.jsonl` + `looks_like_uuid` 严格校验 + `AnalysisReport` JSON round-trip test + ADR-0005 D-1 表修正。 |
+> | `feat/turn-metadata-extraction` (`010c9af`) | `Event` trait 加 3 个 method (`payload_model` / `payload_output_tokens` / `payload_mode`)；`Turn` 字段 `model` / `mode` / `output_tokens` 从 `None` 真正填上数据；`derive_episodes` 加 `DeriveState.current_mode` 状态机；14 个 snapshot 重接受 + 1 CLI E2E 测试锁定 `minimal` fixture output_tokens=10。 |
+> | `fix/mode-vocabulary-alignment` (`e0318ed`) | `Mode` 词汇对齐真实 Copilot wire：`Interactive / Plan / Autopilot / Unknown(String)`（替换旧的 `Ask / Auto / Expert`）。 |
+> | `fix/post-output-audit` (`9abd694`) | 3 个 schema-mismatch parser drops 修复（`HookInput.source` / `UserMessageData.source` / `AssistantMessageData.turn_id` 全部 → `Option<String>`；新增 `parent_tool_call_id`，real-session drop rate 17% → 0%）+ `AnalysisReport.parse_warnings` 让用户能看见 silent drops + `ToolRankRow.is_user_blocking` + md 拆分出 `## User-blocking tools` 区 + `docs/internals/privacy-considerations.md` 新文档（PII 分级表）+ ADR-0005 §6。 |
+>
+> **下面 sub-task 段（Task 1.4.1 ~ 1.4.5）保留作历史记录**。实际实现见 `crates/agentprof-cli/src/cmd/analyze.rs` + `crates/agentprof-cli/src/cmd/format/{md,json}.rs` + `docs/superpowers/specs/2026-05-29-m1.4-cli-and-analyzer-design.md` + 4 个 followup spec。
 
 #### Task 1.4.1：CLI 框架 + tracing 初始化
 
@@ -970,18 +1001,25 @@ M1.1 (skeleton, ✅ done) ──┬──→ M1.2 (claude adapter)
 - 订阅 `claude_code.token.usage` + `claude_code.tool_decision` 事件
 - 实时 push 到 SQLite + TUI (`watch` 模式直接连 OTLP socket)
 
-### Milestone 3.1：CodexAdapter（`agentprof-adapters::codex`）
+### Milestone 3.1：ClaudeAdapter（`agentprof-adapters::claude`）
+
+> 原 M1.2 的 ClaudeAdapter 工作。M1.2 events-first pivot 后推迟到 Phase 3。
+
+- 抓 `~/.claude/projects/**/*.jsonl` 真实样本（详见原 §1.2 Task 1.2.1 系列调研）
+- 实现 `ClaudeAdapter`：JSONL 是 "最终对话日志"，需要 tokenize tools_schema 才能算 token（依赖 M2.5 tokenizer）
+- 注意 schema 与 Copilot 不同：tool_use blocks 嵌在 assistant `content` array 内，`usage` 字段在 message envelope 上
+- 重复 M1.2 流程（discover / load / parse / ToolSource 推断）
+- 更新 `Registry::register_default_adapters` 加 Claude
+- `assert_cmd` 集成测试用 `--agent claude --path <fixture>`
+
+### Milestone 3.2：CodexAdapter（`agentprof-adapters::codex`）
 
 - 抓 `~/.codex/sessions/...` 真实样本
-- 重复 M1.2 流程（discover / load / parse / ToolSource 推断）
+- 重复 M3.1 流程（discover / load / parse / ToolSource 推断）
 - 更新 `Registry::register_default_adapters` 加 Codex
 - `assert_cmd` 集成测试用 `--agent codex --path <fixture>`
 
-### Milestone 3.2：CopilotAdapter（`agentprof-adapters::copilot`）
-
-- 抓 `~/.copilot/session-state/**/*` 真实样本（详见 OQ-1：本机已有 `~/.copilot/session-state/cf6a230d-...`）
-- 重复 M1.2 流程
-- 注意：Copilot CLI 的 plugin 加载也涉及 skill，需要识别 `.github/skills/` + `~/.copilot/skills/` 的 ToolSource
+> **Copilot adapter 已在 M1.2 交付（ADR-0001 events-first pivot），不再列入 Phase 3。**
 
 ### Milestone 3.3：定价表自动同步
 

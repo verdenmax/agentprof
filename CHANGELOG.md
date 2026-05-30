@@ -13,6 +13,58 @@ prefix used in commit messages).
 
 ## [Unreleased]
 
+### Docs
+
+#### Roadmap / progress sync (`docs(sync)` — 2026-05-30)
+
+After 4 merged M1.4 followups (audit / turn-metadata / mode-vocab /
+post-output-audit), several entry-point docs were misleading new readers —
+`tasks/ROADMAP.md` still said "M1.2–M1.7 ❌ 未开始" and
+`tasks/001-mvp-agent-token-profiler.md` had ❌ status lines for milestones
+that had already shipped. This commit synchronises the docs to reality.
+
+**docs touched** (no code change):
+
+- `tasks/ROADMAP.md` — header (current commit / phase status), §2.2 当前位置,
+  §2.3 仪表盘 (4/7 = 57%), §3.1 task table, §4.1 + §4.2 dependency graphs
+  (M1.2–M1.4 now ✅, Copilot adapter no longer in Phase 3).
+- `tasks/001-mvp-agent-token-profiler.md` — header status, §4 FR completion
+  table, **M1.2 / M1.3 / M1.4 状态行** rewritten with merge-commit citations
+  and pivot notes, §11 M3.2 CopilotAdapter entry removed (it was already
+  delivered in M1.2; Phase 3 now lists only Claude / Codex / Gemini).
+- `docs/plan.md` §6 + §8 — pivot note added explaining events-first
+  divergence from original Phase 0/1 plan; §8 next-step now points to
+  M1.5 (TUI) instead of "write Phase 0 prototype".
+- `docs/architecture.md` — `AnalysisReport` struct definition updated to
+  M1.4 shape (`parse_warnings`, `is_user_blocking`-bearing rollup rows),
+  `analyze()` signature corrected (`&[ParseWarning]` third arg),
+  `Mode` vocabulary updated (`Interactive / Plan / Autopilot / Unknown`),
+  `DeriveWarning` count updated (4 → 5), `USER_BLOCKING_TOOLS` const +
+  user-blocking split + post-output-audit referenced.
+- `crates/agentprof-core/README.md` — `Event` trait now 7 methods (not 4),
+  `analyze()` signature corrected, `ORPHAN_TOOL_SENTINEL` /
+  `USER_BLOCKING_TOOLS` / `is_user_blocking` / `parse_warnings` /
+  `parent_tool_call_id` / Mode vocabulary documented; quick-start sample
+  updated to demonstrate parse-warning + user-blocking inspection.
+- `crates/agentprof-adapters/README.md` — `CopilotEvent` notes 4
+  payload-* trait overrides; new section "Copilot CLI 1.0.x schema notes"
+  documents the three `Option<String>` parser-compat fields and the
+  fixture that locks them in. Phase classification corrected.
+- `crates/agentprof-cli/README.md` — M1.4 status section rewritten as a
+  5-row merge table; markdown output structure documented end-to-end
+  (Session block with Parse warnings line, User-blocking tools split,
+  Warnings two-stage breakdown); `askama` removed from dependency list
+  (renderer is hand-rolled string-building since M1.4 audit followups).
+- `README.md` (root) — sample markdown output updated: `Mode = auto` →
+  `interactive`; `- Parse warnings: N` line added to Session block;
+  `## User-blocking tools` section added with realistic `ask_user` row;
+  `PreToolUse` hook example renamed to `postToolUse` (real Copilot CLI
+  vocabulary).
+
+No CHANGELOG entry was created for ADR-0005 §6 itself — that was already
+shipped in the previous commit's CHANGELOG section under "Post-output
+audit fixes".
+
 ### Fixed
 
 #### Post-output audit fixes (`fix/post-output-audit`)

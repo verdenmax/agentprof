@@ -181,13 +181,16 @@ pub struct RoiRow {
 
 #[non_exhaustive]
 pub struct AnalysisReport {
-    pub session: SessionId,
-    pub buckets_per_turn: Vec<TokenBucket>,
-    pub roi_rows: Vec<RoiRow>,
-    pub schema_utilization: f32,      // 0.0..=1.0
-    pub estimated_waste_usd: f32,
+    pub meta: SessionMeta,
+    pub turn_summary: Vec<TurnSummaryRow>,
+    pub tool_rank: Vec<ToolRankRow>,                // 含 is_user_blocking: bool
+    pub hook_rank: Vec<HookRankRow>,
+    pub warnings: Vec<DeriveWarning>,
+    pub parse_warnings: Vec<ParseWarning>,          // M1.4 post-output-audit: 让用户看到 silent event drops
 }
 ```
+
+> **历史注**：上面 §5 列出的 `TokenBucket` / `RoiRow` / `schema_utilization` / `estimated_waste_usd` 是原 PRD 设计的 tokenizer/ROI/waste 输出形态。**events-first pivot 后这些被推迟到 M1.5+**；M1.4 实际交付的 `AnalysisReport` 是上面这个简化形态（三表 + 两类 warnings）。Pivot 详见 ADR-0001 + ADR-0005 §1–§6。
 
 ### 5.1 Episode aggregation (`agentprof-core::episode`)
 
@@ -201,9 +204,9 @@ aggregator (`derive_episodes`) that consumes a stream of `impl Event`.
 | `ToolEpisode` + `ToolCall` + `ToolCallStatus` | `episode::tool` | Tool-name-keyed call history with 4-status enum (`Success` / `Failure { message }` / `OrphanSynthesizedStart` / `OpenAtEndOfSession`) |
 | `HookEpisode` + `HookCall` | `episode::hook` | Hook-name-keyed call history with `synthesized_start` flag |
 | `SkillEpisode` + `SkillInvocation` | `episode::skill` | Skill invocations with a 50-event `triggered_tools` window |
-| `ModeSegment` + `Mode` | `episode::mode_segment` | Time-ranged `Ask` / `Auto` / `Expert` / `Unknown(String)` segments |
+| `ModeSegment` + `Mode` | `episode::mode_segment` | Time-ranged `Interactive` / `Plan` / `Autopilot` / `Unknown(String)` segments — 对齐真实 Copilot wire vocabulary（M1.4 `fix/mode-vocabulary-alignment`，替换旧的 `Ask` / `Auto` / `Expert`） |
 | `Episodes` | `episode::episodes` | Top-level container (7 fields); deterministic `BTreeMap` ordering for snapshot stability |
-| `DeriveWarning` | `episode::warning` | 4-variant data-quality enum (`SynthesizedStart`, `OpenAtEndOfSession`, `AbortWithoutOpenElement`, `NonMonotonicTimestamp`) |
+| `DeriveWarning` | `episode::warning` | 5-variant data-quality enum (`SynthesizedStart`, `OpenAtEndOfSession`, `AbortWithoutOpenElement`, `NonMonotonicTimestamp`, `PayloadNameMissing`) |
 
 ```rust
 pub fn derive_episodes<E: Event>(
@@ -304,9 +307,9 @@ M1.4 引入的纯函数 rollups，消费 `&Episodes` 产出 per-row 分析数据
 | 函数 | 输出 | 排序 |
 |---|---|---|
 | `turn_summary(&Episodes)` | `Vec<TurnSummaryRow>` | 时间顺序（保持 `Episodes.turns` 次序） |
-| `tool_rank(&Episodes)` | `Vec<ToolRankRow>` | `total_duration` 降序 |
+| `tool_rank(&Episodes)` | `Vec<ToolRankRow>` (每行含 `is_user_blocking: bool`) | `total_duration` 降序 |
 | `hook_rank(&Episodes)` | `Vec<HookRankRow>` | `total_duration` 降序 |
-| `analyze(&Episodes, &SessionMeta)` | `AnalysisReport` | 打包 meta + 上述 3 个 rollups + warnings |
+| `analyze(&Episodes, &SessionMeta, &[ParseWarning])` | `AnalysisReport` | 打包 meta + 上述 3 个 rollups + `warnings` + `parse_warnings` |
 
 `AnalysisReport` 是导出层（markdown / JSON 渲染器，未来 TUI / 存储层）共享的稳定结构。所有 `Duration` 字段通过 `duration_ms` / `duration_ms_opt` serde helper 序列化为整型毫秒（per ADR-0004 IMP-007，保证快照稳定）。
 
@@ -314,8 +317,11 @@ M1.4 引入的纯函数 rollups，消费 `&Episodes` 产出 per-row 分析数据
 - `tool_rank::percentile()` — 排序 + 索引 `round((pct/100) * (len-1))`。空切片 → `Duration::zero()`；单元素 → 返回该元素。
 - `hook_rank` 复用 `tool_rank::percentile`，无重复实现。
 - `commit_tool_call` / `commit_hook_call` 通过 `call.turn_id` + `rposition` 查找把 tool/hook back-reference 归到**开始时所在的 Turn**（不是结束时的 `open_turn_idx`）。修复 commit-call-turn-divergence，确保 cross-turn span 的归属正确。详见 ADR-0005 D-2。
+- `pub const USER_BLOCKING_TOOLS: &[&str] = &["ask_user"]` — 单一真理源，`tool_rank()` 在 row 上 set `is_user_blocking` 让 markdown 渲染器拆分出 `## User-blocking tools` 区（避免用户思考时间冲乱 Tool Rank）。M1.4 post-output-audit (ADR-0005 §6) 引入。
 
-详细决策（D-1 / D-2 / D-3 + 10 个 IMP）见 [`docs/internals/adr-0005-analyzer-and-payload-name.md`](internals/adr-0005-analyzer-and-payload-name.md)。
+详细决策（D-1 / D-2 / D-3 + Update §1–§6）见 [`docs/internals/adr-0005-analyzer-and-payload-name.md`](internals/adr-0005-analyzer-and-payload-name.md)。
+
+> M1.4 post-output-audit (ADR-0005 §6) 让 `AnalysisReport` 同时携带 parser-stage warnings (`parse_warnings`) 和 derive-stage warnings (`warnings`)；markdown 渲染器在 Warnings 区分两段输出。修了 3 个 Copilot CLI 1.0.x schema 错配字段 (`HookInput.source` / `UserMessageData.source` / `AssistantMessageData.turn_id` 全部 `Option<String>`)，real-session drop rate 17 % → 0 %。隐私考虑参考新增的 [`docs/internals/privacy-considerations.md`](internals/privacy-considerations.md)。
 
 ---
 
@@ -637,7 +643,7 @@ pub fn compute_roi(/* ... */) -> Result<Vec<RoiRow>, CoreError> {
 | 0002 | Copilot event schema | Accepted（Updated 2026-05-27 for M1.3 Phase B） | 2026-05-26 |
 | 0003 | Synthetic-only fixture strategy | Accepted | 2026-05-26 |
 | 0004 | Episode derivation — lenient single-pass algorithm | Accepted | 2026-05-27 |
-| 0005 | Analyzer foundations — payload_name + start-time turn attribution + AnalysisReport placement | Accepted | 2026-05-29 |
+| 0005 | Analyzer foundations — payload_name + start-time turn attribution + AnalysisReport placement (含 Update §1–§6：D-1 表修正 / percentile 精度 / turn metadata extraction / mode vocabulary alignment / post-output audit schema fixes) | Accepted | 2026-05-30 |
 
 ### 14.5 文档同步的 CI 强制
 

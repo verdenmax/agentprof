@@ -83,11 +83,14 @@ Sample output structure:
 - CWD: /path/to/cwd
 - Live: no
 - Turns: N
-...
+- Tools tracked: 5
+- Hooks tracked: 2
+- Derive warnings: 0
+- Parse warnings: 0
 
 ## Turn Summary
 | # | Turn ID | Status | Duration | Model | Mode | Tools | Hooks | Skills | Out-Tokens |
-| 1 | turn-a  | Completed | 2.34s | claude-opus-4.7 | auto | 3 | 1 | 0 | 412 |
+| 1 | turn-a  | Completed | 2.34s | claude-opus-4.7 | interactive | 3 | 1 | 0 | 412 |
 ...
 
 ## Tool Rank (by total duration)
@@ -95,9 +98,14 @@ Sample output structure:
 | bash | Builtin | 12 | 11 | 1 | 0 | 0 | 18.45s | 220ms | 4.20s | 8.10s |
 ...
 
+## User-blocking tools (wall-clock includes user think time)
+These tools block on the human, not on agent or machine work; their `Total` reflects how long the user took to respond, not engineering cost.
+| Tool | Source | Calls | OK | Fail | Orphan | User-req | Total | p50 | p95 | Max |
+| ask_user | Builtin | 6 | 6 | 0 | 0 | 0 | 14.2m | 1.4m | 5.1m | 5.1m |
+
 ## Hook Rank (by total duration)
 | Hook | Calls | OK | Fail | Synth | Total | p50 | p95 |
-| PreToolUse | 25 | 25 | 0 | 0 | 1.82s | 60ms | 180ms |
+| postToolUse | 25 | 25 | 0 | 0 | 1.82s | 60ms | 180ms |
 ...
 
 ## Warnings

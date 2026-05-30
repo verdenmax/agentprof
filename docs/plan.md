@@ -115,6 +115,16 @@ playwright.click   |   1240        |   0   |     ∞ (waste)   | ✗ kill
 
 ## 6. 实施路径
 
+> **进度同步（2026-05-30）**：MVP **4/7 milestone 完成**（M1.1 ✅ skeleton / M1.2 ✅ Copilot adapter / M1.3 ✅ Episode aggregation / M1.4 ✅ CLI `analyze` 含 4 轮 followups）。详见 [`tasks/ROADMAP.md`](../tasks/ROADMAP.md) 和 [`CHANGELOG.md`](../CHANGELOG.md)。
+>
+> **events-first pivot（ADR-0001）**：原 Phase 0 / 1 计划见下；实际路径有以下重大调整：
+>
+> - **M1.2 改做 Copilot adapter**（不是 Claude） — Copilot CLI 的 `events.jsonl` 是事件流，直接含 tool/hook/turn 元数据，比 Claude 的"最终对话日志 + 重做 tokenize"更适合 MVP 快速验证。Claude / Codex adapter 推迟到 Phase 3。
+> - **Tokenizer / ROI / waste / aggregate 全部从 Phase 1 推迟到 M1.5+ 或 Phase 2** — events 模型下 `outputTokens` 字段已经能算总账，先把可视化跑通再补 ROI 评分。
+> - **TUI 当前仅骨架**（M1.5 待开始）；M1.4 ship 的是 markdown / JSON 报告（CLI `analyze` 子命令）。
+>
+> 下面的清单**保留原始 Phase 0–3 设计**作为产品愿景；具体里程碑实际进度参见 ROADMAP。
+
 ### Phase 0：Prototype（1 个下午）
 - [ ] 100 行 Python 脚本
 - [ ] 解析 `~/.claude/projects/**/*.jsonl`
@@ -122,12 +132,13 @@ playwright.click   |   1240        |   0   |     ∞ (waste)   | ✗ kill
 - [ ] 差集 = 浪费的 tools
 - [ ] 输出 Markdown / TSV 报告
 - **目的**：验证数据可得性 + 看自己真实的利用率
+- **实际**：跳过 Python prototype，直接 Rust workspace；用 Copilot CLI 的 events.jsonl 而非 Claude 的对话日志。
 
 ### Phase 1：MVP（1–2 周，单人）
-- [ ] CLI 工具 `agentprof analyze <session-id>`
-- [ ] 单 session 火焰图（terminal 用 textual TUI，或 HTML 输出）
-- [ ] Tool ROI 表
-- [ ] 跨 session 聚合视图
+- [x] CLI 工具 `agentprof analyze <session-id>` ✅ M1.4
+- [ ] 单 session 火焰图（terminal 用 textual TUI，或 HTML 输出）— 计划 M1.5
+- [ ] Tool ROI 表 — pivot 推迟到 M1.5+
+- [ ] 跨 session 聚合视图 — 计划 M1.6
 
 ### Phase 2：工程化（再 1 周）
 - [ ] 接入 OTLP（订阅 Claude Code 的 telemetry endpoint）
@@ -135,8 +146,9 @@ playwright.click   |   1240        |   0   |     ∞ (waste)   | ✗ kill
 - [ ] Web dashboard（可选）
 
 ### Phase 3：扩展适配（每个 +3 天）
-- [ ] Codex CLI 日志解析
-- [ ] Copilot CLI 日志解析
+- [ ] Claude CLI 日志解析（原 M1.2，pivot 推后；M3.1）
+- [ ] Codex CLI 日志解析（M3.2）
+- [x] Copilot CLI 日志解析 ✅ **已在 M1.2 交付，从 Phase 3 提前**
 - [ ] 通用 OpenAI-compatible 代理拦截模式
 
 ---
@@ -153,9 +165,15 @@ playwright.click   |   1240        |   0   |     ∞ (waste)   | ✗ kill
 
 ## 8. 下一步行动
 
-**立即可做**：写 Phase 0 的 prototype，用自己机器上的真实 session 数据验证：
-1. JSONL 格式是否稳定可解析
-2. tool schema 文本是否容易拿到
-3. 自己的 schema 利用率到底是多少（如果 >80%，问题不大；<30% 就是强信号）
+> **2026-05-30 更新**：Phase 0 验证已完成（M1.2 + M1.3）。当前最优先 = M1.5 TUI 火焰图。
 
-跑通后再决定是否进入 Phase 1。
+**当前位置**：M1.4 ✅ 已 ship → 下一个 milestone 是 **M1.5 TUI 火焰图 + ROI 表**。
+
+**M1.5 入口**：走 9 阶段 pipeline 的 Stage 1（brainstorming）。先在 `docs/superpowers/specs/` 写 `2026-XX-XX-m1.5-tui-design.md`，决定：
+
+1. ratatui 的火焰图组件用哪个 crate（`ratatui` builtin 还是 third-party）
+2. ROI 评分公式（pivot 后没 tokenizer，能用 `output_tokens × call_count` 做近似 ROI 吗？）
+3. 数据源：复用 `analyze` 命令的 `AnalysisReport`，还是单独 derive
+4. 交互：keyboard navigation / 排序 / drill-down 到具体 turn
+
+**历史背景（原 §8 文字保留作记录）**：当时的"立即可做"是写 Phase 0 prototype 验证 JSONL 可解析性 + tool schema 提取 + 自身利用率基线。这三个问题已被 M1.2 + M1.3 完整回答（Copilot CLI events.jsonl 100 % 可解析；events 模型下 tool 调用直接可读，无需 schema 提取）。

@@ -17,9 +17,9 @@ for the M1.2 design.
 ## Public interface
 
 - [`copilot::CopilotAdapter`] — GitHub Copilot CLI adapter
-- [`copilot::CopilotEvent`] — 28-variant event enum (+ `Unknown` fallthrough)
-- [`copilot::parser::parse_events_jsonl`] — JSONL → `RawSession<CopilotEvent>`
-- [`copilot::paths::discover_sessions`] — walk session-state directory
+- [`copilot::CopilotEvent`] — 28-variant event enum (+ `Unknown` fallthrough)；`impl Event` 提供 4 个 payload-* method (`payload_name` / `payload_model` / `payload_output_tokens` / `payload_mode`) 让 `derive_episodes` / `analyze` 直接读 turn metadata 而无需 downcast
+- [`copilot::parser::parse_events_jsonl`] — JSONL → `RawSession<CopilotEvent>`（含 `parse_warnings` 收集 + live-mode 末行截断容忍）
+- [`copilot::paths::discover_sessions`] — walk session-state directory，按 mtime 倒序
 - [`registry::adapter_for`] — `AgentKind → Option<Adapter>` resolver
 - [`registry::supported_agents`] — static list of supported agents
 
@@ -27,7 +27,7 @@ for the M1.2 design.
 
 | Module | Responsibility |
 |---|---|
-| `copilot::event` | `CopilotEvent` enum + all payload structs + `impl Event` |
+| `copilot::event` | `CopilotEvent` enum + all payload structs + `impl Event` (含 4 个 payload-* override) |
 | `copilot::parser` | line-by-line JSONL parser + `MetaBuilder` |
 | `copilot::paths` | filesystem discovery + `inuse.<pid>.lock` detection |
 | `copilot::adapter` | `impl Adapter for CopilotAdapter` |
@@ -37,9 +37,30 @@ for the M1.2 design.
 
 | Agent | Module | Data source | Status |
 |---|---|---|---|
-| GitHub Copilot CLI | `copilot` | `~/.copilot/session-state/<uuid>/events.jsonl` | ✅ MVP |
-| Anthropic Claude Code | (planned) | `~/.claude/projects/**/*.jsonl` | ⏳ Phase 2 |
-| OpenAI Codex CLI | (planned) | (decided at Phase 3) | ⏳ Phase 3 |
+| GitHub Copilot CLI | `copilot` | `~/.copilot/session-state/<uuid>/events.jsonl` | ✅ M1.2 + multiple iterations |
+| Anthropic Claude Code | (planned) | `~/.claude/projects/**/*.jsonl` | ⏳ Phase 3 (M3.1) |
+| OpenAI Codex CLI | (planned) | (decided at Phase 3) | ⏳ Phase 3 (M3.2) |
+
+## Copilot CLI 1.0.x schema notes
+
+Three payload fields are intentionally `Option<String>` (not `String`)
+because real Copilot CLI 1.0.54 emits multiple wire shapes for the same
+event type; making any of these required caused ~17 % of events to
+silently drop with serde `"missing field X"` warnings. See
+[ADR-0005 §6](../../docs/internals/adr-0005-analyzer-and-payload-name.md#update-6-post-output-audit-fixes-parse-warning-visibility-schema-mismatches-user-blocking-split):
+
+- `HookInput.source: Option<String>` — `postToolUse` hooks have no `source`
+  field (only `sessionStart` does).
+- `UserMessageData.source: Option<String>` — many CLI-typed prompts omit it.
+- `AssistantMessageData.turn_id: Option<String>` — subagent-spawned
+  messages (via `subagent.started`) carry `parentToolCallId` instead of
+  `turnId`. The new `AssistantMessageData.parent_tool_call_id:
+  Option<String>` field captures the alternate shape for subagent
+  visibility.
+
+Real-session drop rate after the fix: ~17 % → 0 % (verified on an 11 806-line
+live session). Locked in by fixture
+`tests/fixtures/copilot/with-post-tool-use-hooks/`.
 
 ## Local commands
 

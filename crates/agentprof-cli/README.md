@@ -8,12 +8,51 @@ This is the **assembly** crate: it depends on every other workspace crate, but *
 
 ## M1.4 status
 
-`agentprof analyze` is **shipped** as of M1.4 (commit on `feat/m1.4-cli-and-analyzer`). It covers:
+`agentprof analyze` is **shipped** as of M1.4, with **4 follow-up iterations merged on top**:
 
-- Subcommand wiring: `--agent` (default `copilot`), `--session` (`latest` / `previous` / `<uuid>` / `<path>`), `--root`, `--export md|json`, `--output <file>`, `--section turn-summary,tool-rank,hook-rank`.
-- Renderers: markdown (Session header + Turn Summary + Tool Rank + Hook Rank + Warnings; human-friendly durations) and JSON (`serde_json::to_string_pretty(&AnalysisReport)`, stable integer-ms `Duration`).
-- Structured exit codes via `ExitKind` (UserError=1, DataError=2, OutputError=3) carried through `anyhow::Error::msg().context()` + `classify_error` downcast in `main.rs`.
-- ADR-0005 D-2 commit-call-turn-divergence fix verified at four independent layers (derive unit / episode snapshot / analyzer snapshot / CLI snapshot + JSON assertion).
+| Merge | Highlights |
+|---|---|
+| `feat/m1.4-cli-and-analyzer` | Initial ship: subcommand wiring, md + JSON renderer, exit-code taxonomy. |
+| `fix/m1.4-audit-followups` (`8399bdd`) | 10 audit findings: orphan tool sentinel + `PayloadNameMissing` warning + `looks_like_uuid` strict + Claude/Codex friendly errors + md cell escape + JSON trailing newline. Removed `askama` from this crate (renderer is hand-rolled). |
+| `feat/turn-metadata-extraction` (`010c9af`) | `Event` trait gains 3 payload-* methods; `Turn.model` / `mode` / `output_tokens` actually populated. |
+| `fix/mode-vocabulary-alignment` (`e0318ed`) | `Mode` enum aligned to real Copilot wire: `Interactive` / `Plan` / `Autopilot` / `Unknown(String)`. |
+| `fix/post-output-audit` (`9abd694`) | Three Copilot CLI 1.0.x schema fixes (drop rate 17 % → 0 %) + Session header gains `- Parse warnings: N` line + new `## User-blocking tools` section splits `ask_user` out of the headline Tool Rank + `docs/internals/privacy-considerations.md` ships. |
+
+Subcommand wiring (current):
+
+- `--agent` (default `copilot`; `claude` / `codex` reserved with friendly errors)
+- `--session` (`latest` / `previous` / `<uuid>` / `<path>`)
+- `--root <DIR>` (override default `~/.copilot/session-state/`)
+- `--export md|json` (default `md`)
+- `--output <FILE>` (default stdout)
+- `--section turn-summary,tool-rank,hook-rank` (md only; Session header + Warnings always included)
+
+Markdown structure (after all M1.4 iterations):
+
+```
+# agentprof analyze — <session-id>
+## Session
+- Agent / Started / CWD / Branch / Live / Turns / Tools tracked / Hooks tracked
+- Derive warnings: N
+- Parse warnings: N          ← post-output-audit
+## Turn Summary
+| # | Turn ID | Status | Duration | Model | Mode | Tools | Hooks | Skills | Out-Tokens |
+## Tool Rank (by total duration)
+| Tool | Source | Calls | OK | Fail | Orphan | User-req | Total | p50 | p95 | Max |
+## User-blocking tools (wall-clock includes user think time)   ← post-output-audit
+| Tool | Source | Calls | OK | Fail | Orphan | User-req | Total | p50 | p95 | Max |
+| ask_user | ... |
+## Hook Rank (by total duration)
+| Hook | Calls | OK | Fail | Synth | Total | p50 | p95 |
+## Warnings
+Parse-stage warnings: N
+- Json (line failed to parse): n
+- Io (line read error): n
+- OutOfOrder (timestamps non-monotonic): n
+Derive-stage warnings: M
+- SynthesizedStart / OpenAtEndOfSession / AbortWithoutOpenElement /
+  NonMonotonicTimestamp / PayloadNameMissing
+```
 
 All other subcommands (`list` / `aggregate` / `watch` / `ingest-otlp` / `export` / `config`) remain **planned** for M1.5+.
 
@@ -84,7 +123,7 @@ To build a minimal binary: `cargo build -p agentprof-cli --no-default-features`.
 ## Dependencies
 
 - Workspace internal: every other `agentprof-*` crate
-- External: `clap`, `anyhow`, `tracing`, `tracing-subscriber`, `serde`, `serde_json`, `chrono`, `directories`, `askama`
+- External: `clap`, `anyhow`, `tracing`, `tracing-subscriber`, `serde`, `serde_json`, `chrono`, `directories` (`askama` removed in M1.4 audit followups — md renderer is now hand-rolled string-building)
 
 ## Local commands
 
