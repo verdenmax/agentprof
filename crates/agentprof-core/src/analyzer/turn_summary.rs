@@ -61,6 +61,53 @@ pub struct TurnSummaryRow {
     pub skill_call_count: usize,
 }
 
+impl TurnSummaryRow {
+    /// Explicit constructor for cross-crate test code. See
+    /// [`crate::analyzer::ToolRankRow::new`] rationale.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::analyzer::TurnSummaryRow;
+    /// use agentprof_core::episode::TurnStatus;
+    /// use chrono::Utc;
+    ///
+    /// let row = TurnSummaryRow::new(
+    ///     "t1".into(), Utc::now(), None, TurnStatus::Open,
+    ///     None, None, None, 0, 0, 0,
+    /// );
+    /// assert_eq!(row.turn_id, "t1");
+    /// ```
+    #[doc(hidden)]
+    #[must_use]
+    #[allow(clippy::too_many_arguments)]
+    pub const fn new(
+        turn_id: String,
+        started_at: chrono::DateTime<chrono::Utc>,
+        duration: Option<chrono::Duration>,
+        status: crate::episode::TurnStatus,
+        model: Option<String>,
+        mode: Option<crate::episode::Mode>,
+        output_tokens: Option<u32>,
+        tool_call_count: usize,
+        hook_call_count: usize,
+        skill_call_count: usize,
+    ) -> Self {
+        Self {
+            turn_id,
+            started_at,
+            duration,
+            status,
+            model,
+            mode,
+            output_tokens,
+            tool_call_count,
+            hook_call_count,
+            skill_call_count,
+        }
+    }
+}
+
 /// Compute one [`TurnSummaryRow`] per turn in `episodes.turns` order.
 ///
 /// Pure: no I/O, no clock access. Deterministic for fixed input.

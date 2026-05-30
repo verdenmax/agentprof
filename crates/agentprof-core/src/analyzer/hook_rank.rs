@@ -53,6 +53,50 @@ pub struct HookRankRow {
     pub p95_duration: Duration,
 }
 
+impl HookRankRow {
+    /// Explicit constructor for cross-crate test code. See
+    /// [`crate::analyzer::ToolRankRow::new`] rationale.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::analyzer::HookRankRow;
+    /// use chrono::Duration;
+    ///
+    /// let row = HookRankRow::new(
+    ///     "PreToolUse".into(), 1, 1, 0, 0,
+    ///     Duration::milliseconds(5),
+    ///     Duration::milliseconds(5),
+    ///     Duration::milliseconds(5),
+    /// );
+    /// assert_eq!(row.name, "PreToolUse");
+    /// ```
+    #[doc(hidden)]
+    #[must_use]
+    #[allow(clippy::too_many_arguments)]
+    pub const fn new(
+        name: String,
+        call_count: usize,
+        success_count: usize,
+        failure_count: usize,
+        synthesized_start_count: usize,
+        total_duration: Duration,
+        p50_duration: Duration,
+        p95_duration: Duration,
+    ) -> Self {
+        Self {
+            name,
+            call_count,
+            success_count,
+            failure_count,
+            synthesized_start_count,
+            total_duration,
+            p50_duration,
+            p95_duration,
+        }
+    }
+}
+
 /// Compute per-hook rank rows, sorted by `total_duration` descending.
 ///
 /// Hooks with zero calls are omitted. Reuses the percentile helper from
