@@ -110,7 +110,7 @@ Phase 3   扩展适配：Codex CLI / Copilot CLI / Gemini / Cursor
 |---|---|
 | **Git** | `main` 分支（运行 `git log -1 --oneline` 查看 HEAD）；最近 4 个 milestone merges：M1.4 audit followups + turn-metadata-extraction + mode-vocabulary-alignment + post-output-audit |
 | **Crate** | 5 lib/bin + 1 xtask。`agentprof-core` / `agentprof-adapters` / `agentprof-cli` 已实现到 M1.4；**`agentprof-tui` ✅ M1.5 已交付**（3 视图 + panic-safe lifecycle + 3 insta snapshots，详见 [ADR-0006](../docs/internals/adr-0006-panic-safe-tui.md)）；`agentprof-storage` 仍是 `//!` 骨架（Phase 2） |
-| **Phase** | Phase 0 / Phase 1（MVP），**M1.1 / M1.2 / M1.3 / M1.4 / M1.5 ✅ 完成**，M1.6（list+aggregate+export）/ M1.7（release）❌ 未开始 |
+| **Phase** | Phase 0 / Phase 1（MVP），**M1.1 / M1.2 / M1.3 / M1.4 / M1.5 ✅ 完成 + M1.6.1 ✅ 完成**，M1.6.2 (`aggregate`) / M1.6.3 (`watch`) / M1.6.4 (Speedscope+HTML) / M1.7 (release) ❌ 未开始；`export` 子命令已取消 |
 | **测试** | ~230+ tests pass，含 ~70 个 insta 快照（episode_derive / analyzer_on_fixtures / CLI 集成 / 单元）+ **12** 个 fixture（含 `with-post-tool-use-hooks` 锁定 Copilot CLI 1.0.x 三个 Optional schema 字段的 parser fix） |
 | **CI** | 已配（lint + test matrix + deny + docs + docs-sync + nightly-msrv + release skeleton），未在 GitHub 上运行（remote 未配） |
 | **远端** | 未推（本地 `main` only） |
@@ -225,8 +225,11 @@ M1.1 ✅ skeleton                               M2.1 ❌ SQLite persistence
 M1.2 ✅ copilot adapter      ┌───────────►    M2.2 ❌ OTLP receiver
 M1.3 ✅ episode aggregation  │                M2.3 ❌ watch 实时刷新
 M1.4 ✅ CLI analyze + md     │                M2.4 ❌ pricing 自动同步
-M1.5 ❌ TUI views            │                M2.5 ❌ tokenizer + ROI + waste (events-first pivot 推迟)
-M1.6 ❌ list/agg/export      │                       │
+M1.5 ✅ TUI views            │                M2.5 ❌ tokenizer + ROI + waste (events-first pivot 推迟)
+M1.6.1 ✅ list 子命令         │                       │
+M1.6.2 ❌ aggregate 子命令    │
+M1.6.3 ❌ watch 子命令        │
+M1.6.4 ❌ Speedscope + HTML 导出
 M1.7 ❌ v0.1.0 release ──────┘                       │ release
                                                      ▼
                                               v0.2.0
