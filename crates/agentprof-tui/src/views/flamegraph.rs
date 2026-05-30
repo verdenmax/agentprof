@@ -25,7 +25,9 @@ use crate::app::state::AppState;
 /// `(cell_start, cell_len, segment_index)` for each call clipped to the row.
 ///
 /// Cells outside the row width are clipped. Zero-duration turns (e.g. open
-/// turns with no `ended_at`) produce an empty `Vec`.
+/// turns with no `ended_at`) produce an empty `Vec`. Zero-length calls
+/// (`call_start == call_end`) within a non-zero turn render as a 1-cell
+/// segment so they remain visible.
 ///
 /// # Examples
 ///
@@ -84,7 +86,8 @@ pub fn segment_layout(
 /// Render the `FlamegraphView` into the given area.
 ///
 /// Layout: vertical list of rows; each row has an 18-cell prefix
-/// (`T<N>  <duration>  `) and the rest is the gantt strip. The selected turn
+/// (5-char turn label like `T1234` + 1 space + 10-char duration like `12.4h` + 2 trailing
+/// spaces) followed by the gantt strip. The selected turn
 /// (`state.flame_selected`) is highlighted with reverse-video.
 pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState<'_>) {
     let chunks = Layout::default()
@@ -117,7 +120,6 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState<'_>) {
             i == state.flame_selected,
             row.duration,
             max_dur,
-            prefix_width,
             gantt_width,
             turn,
             state.episodes,
@@ -161,13 +163,12 @@ fn build_row<'a>(
     selected: bool,
     duration: Option<Duration>,
     max_dur_ms: i64,
-    prefix_width: u16,
     gantt_width: u16,
     turn: Option<&'a Turn>,
     episodes: &'a Episodes,
 ) -> Line<'a> {
     let dur_str = duration.map_or_else(|| "—".to_string(), human_short);
-    let prefix = format!("{:>4} {:>7}  ", format!("T{}", idx + 1), dur_str);
+    let prefix = format!("{:>5} {:>10}  ", format!("T{}", idx + 1), dur_str);
     let mut spans: Vec<TextSpan<'_>> = Vec::new();
     let prefix_style = if selected {
         Style::default().add_modifier(Modifier::REVERSED)
@@ -175,12 +176,12 @@ fn build_row<'a>(
         Style::default()
     };
     spans.push(TextSpan::styled(prefix, prefix_style));
-    let _ = prefix_width; // documented in spec; not used arithmetically after formatting
 
     let gantt_w = gantt_width;
     let mut cells: Vec<TextSpan<'_>> = vec![TextSpan::raw(" ".repeat(gantt_w as usize))];
     if let Some(t) = turn {
-        if let (started, Some(ended)) = (t.started_at, t.ended_at) {
+        if let Some(ended) = t.ended_at {
+            let started = t.started_at;
             // Scale this turn's gantt width relative to the longest turn.
             let dur_ms = duration.map_or(0, |d| d.num_milliseconds()).max(0);
             let scaled = u16::try_from(dur_ms * i64::from(gantt_w) / max_dur_ms).unwrap_or(gantt_w);
