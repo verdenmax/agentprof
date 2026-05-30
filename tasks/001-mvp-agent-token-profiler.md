@@ -3,7 +3,7 @@
 > **文件名**：`tasks/001-mvp-agent-token-profiler.md`
 > **版本**：1.2
 > **创建日期**：2026-05-25 · **最后更新**：2026-05-30
-> **状态**：**In-Progress — M1.1 / M1.2 / M1.3 / M1.4 / M1.5 ✅ 已交付**（5/7 = 71 %）；M1.6（list+aggregate+export）/ M1.7（release）❌ 未开始
+> **状态**：**In-Progress — M1.1 / M1.2 / M1.3 / M1.4 / M1.5 ✅ + M1.6.1 ✅ 已交付**（5+/7 ≈ 75 %）；M1.6.2 / M1.6.3 / M1.6.4 / M1.7 ❌ 未开始
 > **当前 commit**：`main` HEAD（`git log -1 --oneline`）；最近一个重大 milestone merge = `9abd694` (post-output-audit)
 >
 > **重大 pivot（ADR-0001 events-first）**：M1.2 不做 ClaudeAdapter，改做 **CopilotAdapter**（real wire data 直接可得）。Tokenizer / ROI / waste / aggregate 全部从 M1.3 推迟到 M1.5+ 或 Phase 2。FR-2（Tokenizer）/ FR-6（Speedscope/HTML/CSV）/ FR-7（Config + Storage）目前完成度 0%，**这是 pivot 的预期行为**，不是落后。
