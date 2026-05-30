@@ -18,7 +18,9 @@ pub enum Event {
     Key(KeyEvent),
     /// Terminal resized to (columns, rows).
     Resize(u16, u16),
-    /// Periodic tick. Reserved; unused in M1.5.
+    /// Periodic tick. Reserved for M2.x `watch` mode periodic refresh;
+    /// no producer in M1.5/M1.6.
+    #[allow(dead_code)]
     Tick,
 }
 
@@ -37,7 +39,14 @@ impl Event {
     #[allow(clippy::needless_pass_by_value)]
     pub fn from_crossterm(ev: CtEvent) -> Option<Self> {
         match ev {
-            CtEvent::Key(k) => Some(Self::Key(k)),
+            // Polish #3: filter Release/Repeat key events — on Windows kitty
+            // protocol / enhanced input mode, key release fires a second
+            // KeyEvent that would double-toggle help_open etc. Press is
+            // the only kind we want to act on for M1.5/M1.6.
+            CtEvent::Key(k) if k.kind == crossterm::event::KeyEventKind::Press => {
+                Some(Self::Key(k))
+            }
+            CtEvent::Key(_) => None,
             CtEvent::Resize(c, r) => Some(Self::Resize(c, r)),
             CtEvent::Mouse(_) | CtEvent::FocusGained | CtEvent::FocusLost | CtEvent::Paste(_) => {
                 None
@@ -101,5 +110,24 @@ mod tests {
             Event::from_crossterm(CtEvent::Resize(120, 40)),
             Some(Event::Resize(120, 40))
         );
+    }
+
+    #[test]
+    fn from_crossterm_drops_key_release() {
+        use crossterm::event::KeyEventKind;
+        let k = KeyEvent::new_with_kind(
+            KeyCode::Char('a'),
+            KeyModifiers::NONE,
+            KeyEventKind::Release,
+        );
+        assert!(Event::from_crossterm(CtEvent::Key(k)).is_none());
+    }
+
+    #[test]
+    fn from_crossterm_drops_key_repeat() {
+        use crossterm::event::KeyEventKind;
+        let k =
+            KeyEvent::new_with_kind(KeyCode::Char('a'), KeyModifiers::NONE, KeyEventKind::Repeat);
+        assert!(Event::from_crossterm(CtEvent::Key(k)).is_none());
     }
 }

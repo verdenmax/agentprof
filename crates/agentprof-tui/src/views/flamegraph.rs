@@ -120,6 +120,15 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState<'_>) {
         .unwrap_or(1)
         .max(1);
 
+    // Polish #1: build turn-by-id lookup once per render (was O(N×M) per-
+    // row iter().find(); now O(N) build + O(M) lookups).
+    let turn_by_id: std::collections::HashMap<&str, &agentprof_core::episode::Turn> = state
+        .episodes
+        .turns
+        .iter()
+        .map(|t| (t.id.as_str(), t))
+        .collect();
+
     // Edge-triggered viewport: only scroll when selected leaves the window.
     // Persisted via Cell on AppState so the cursor can move freely within
     // the viewport (instead of being glued to the bottom edge every frame).
@@ -141,7 +150,7 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState<'_>) {
     let mut lines: Vec<Line<'_>> = Vec::with_capacity(visible_end.saturating_sub(viewport_top));
     for (offset, row) in turns[viewport_top..visible_end].iter().enumerate() {
         let abs_idx = viewport_top + offset;
-        let turn = state.episodes.turns.iter().find(|t| t.id == row.turn_id);
+        let turn = turn_by_id.get(row.turn_id.as_str()).copied();
         let line = build_row(
             abs_idx,
             abs_idx == state.flame_selected,

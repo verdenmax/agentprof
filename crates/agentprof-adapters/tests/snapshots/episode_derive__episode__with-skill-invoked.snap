@@ -20,6 +20,23 @@ expression: episodes
       ],
       "hook_calls": [],
       "skill_calls": []
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000060",
+      "started_at": "2026-05-26T13:00:08Z",
+      "ended_at": "2026-05-26T13:00:12Z",
+      "model": "gpt-5-mini",
+      "mode": "Interactive",
+      "output_tokens": 10,
+      "status": "Completed",
+      "tool_calls": [
+        {
+          "name": "skill__synthetic__example",
+          "index": 0
+        }
+      ],
+      "hook_calls": [],
+      "skill_calls": []
     }
   ],
   "tools": {
@@ -44,6 +61,29 @@ expression: episodes
         0
       ],
       "fail_count": 0
+    },
+    "skill__synthetic__example": {
+      "name": "skill__synthetic__example",
+      "source": {
+        "kind": "skill",
+        "name": "synthetic"
+      },
+      "calls": [
+        {
+          "span": {
+            "started_at": "2026-05-26T13:00:10Z",
+            "ended_at": "2026-05-26T13:00:11Z"
+          },
+          "turn_id": "00000000-0000-0000-0000-000000000060",
+          "status": "Success",
+          "user_requested": false
+        }
+      ],
+      "total_duration": [
+        1,
+        0
+      ],
+      "fail_count": 0
     }
   },
   "hooks": {},
@@ -58,18 +98,22 @@ expression: episodes
             {
               "name": "bash",
               "index": 0
+            },
+            {
+              "name": "skill__synthetic__example",
+              "index": 0
             }
           ]
         }
       ],
-      "subsequent_tool_calls": 1
+      "subsequent_tool_calls": 2
     }
   },
   "mode_segments": [
     {
       "mode": "Interactive",
       "started_at": "2026-05-26T13:00:00Z",
-      "ended_at": "2026-05-26T13:00:08Z"
+      "ended_at": "2026-05-26T13:00:13Z"
     }
   ],
   "aborts": [],
