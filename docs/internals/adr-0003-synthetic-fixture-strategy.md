@@ -222,3 +222,17 @@ During Stage 1 brainstorming, four candidate strategies were enumerated and one 
 - **REF-008**: `.github/copilot-instructions.md` §5 Stage 4 — TDD requirement; fixture authorship is part of the test-first discipline
 - **REF-009**: `xtask/README.md` — confirms scope: **no** `anonymize` subcommand; xtask stays minimal for MVP
 - **REF-010**: `insta` crate documentation — snapshot testing tool used for `expected.json` comparison
+
+---
+
+## Update §2026-05-30: fixture count + variant count
+
+This ADR's §NEG-003 referenced a 17-variant `CopilotEvent` and 9 committed fixtures (the M1.2 baseline). After M1.3 + M1.4 + 4 followups, the variant count is **28 named + `Unknown` = 29** (see ADR-0002 Update) and the fixture count is **12** (`crates/agentprof-adapters/tests/fixtures/copilot/`):
+
+| Added after M1.2 | Purpose |
+|---|---|
+| `orphan-events/` | M1.3 — `derive_episodes` orphan / abort path |
+| `cross-turn-tool/` | M1.4 — ADR-0005 D-2 commit-call-turn-divergence fix |
+| `with-post-tool-use-hooks/` | M1.4 post-output-audit — three `Option<String>` schema fixes (HookInput.source / UserMessageData.source / AssistantMessageData.turn_id) |
+
+The synthetic-only premise of this ADR is unchanged; xtask anonymize still does not exist and remains "by-convention only" (see [`docs/features/privacy.md`](../features/privacy.md) §5).

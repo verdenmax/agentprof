@@ -3,9 +3,9 @@
 > **本文件是项目总入口。** 如果你是第一次进入本仓库（或时隔一段时间回来），**先读这里**，再去任何其他文档。
 >
 > **文件名**：`tasks/ROADMAP.md`
-> **版本**：1.1
+> **版本**：1.2
 > **最后更新**：2026-05-30
-> **当前 commit**：`9abd694`（最新；merge of `fix/post-output-audit`）
+> **当前 commit**：`main` HEAD（运行 `git log -1 --oneline` 查看最新）；最近一个重大 milestone merge = `9abd694` (post-output-audit)
 > **当前阶段**：**Phase 0 + 1 (MVP)** — M1.1 / M1.2 / M1.3 / M1.4 ✅ 完成（含 4 轮 M1.4 followups），M1.5–M1.7 待开始
 > **下一步入口**：`tasks/001-mvp-agent-token-profiler.md` §10 Milestone 1.5（TUI 火焰图 + ROI 表），走 Stage 1 brainstorming
 >
@@ -108,10 +108,10 @@ Phase 3   扩展适配：Codex CLI / Copilot CLI / Gemini / Cursor
 
 | 维度 | 当前状态 |
 |---|---|
-| **Git** | `main` 分支，commit `9abd694`（含 4 个 已 merge feature branch：M1.4 audit followups + turn-metadata-extraction + mode-vocabulary-alignment + post-output-audit） |
+| **Git** | `main` 分支（运行 `git log -1 --oneline` 查看 HEAD）；最近 4 个 milestone merges：M1.4 audit followups + turn-metadata-extraction + mode-vocabulary-alignment + post-output-audit |
 | **Crate** | 5 lib/bin + 1 xtask。`agentprof-core` / `agentprof-adapters` / `agentprof-cli` 已实现到 M1.4；`agentprof-tui` / `agentprof-storage` 仍是 `//!` 骨架（M1.5 / Phase 2） |
 | **Phase** | Phase 0 / Phase 1（MVP），**M1.1 / M1.2 / M1.3 / M1.4 ✅ 完成**，M1.5（TUI）/ M1.6（list+aggregate+export）/ M1.7（release）❌ 未开始 |
-| **测试** | ~230+ tests pass，含 ~70 个 insta 快照（episode_derive / analyzer_on_fixtures / CLI 集成 / 单元）+ 11 个 fixture（含 `with-post-tool-use-hooks` 锁定 Copilot CLI 1.0.x 三个 Optional schema 字段的 parser fix） |
+| **测试** | ~230+ tests pass，含 ~70 个 insta 快照（episode_derive / analyzer_on_fixtures / CLI 集成 / 单元）+ **12** 个 fixture（含 `with-post-tool-use-hooks` 锁定 Copilot CLI 1.0.x 三个 Optional schema 字段的 parser fix） |
 | **CI** | 已配（lint + test matrix + deny + docs + docs-sync + nightly-msrv + release skeleton），未在 GitHub 上运行（remote 未配） |
 | **远端** | 未推（本地 `main` only） |
 | **Release** | 未发，下次 release = v0.1.0（M1.7 出口） |
@@ -433,19 +433,29 @@ Pre-1.0（即 `0.X.Y`）期间，允许 minor bump 包含 breaking change（但�
 
 ---
 
-## 10. 附录：当前 Git 历史（前 10 个 commit）
+## 10. 附录：当前 Git 历史
+
+获取最新 commit 列表（任何时候都准确）：
+
+```bash
+git log main --oneline -20
+```
+
+最近的 milestone merges（不会变；写死作为锚点）：
 
 ```
-6c26972  docs(sync): align L1/L2 docs with M1.4 + 4 followups reality
 9abd694  Merge fix/post-output-audit: close 3 audit findings + privacy doc
-db24607  fix(post-output-audit): code-review followups (F1, F2, F3 nits)
-20e020c  docs(post-output-audit): privacy doc + ADR-0005 §6 + CHANGELOG + spec
-0c63304  feat(analyzer): split user-blocking tools from main Tool Rank
-6ee35d4  feat(analyzer): surface ParseWarnings in AnalysisReport + markdown renderer
-1153f04  fix(adapters): three Copilot CLI 1.0.x schema-mismatch parser drops
-... (省略 80+ 之前 commit，含 M1.1 / M1.2 / M1.3 / M1.4 / 4 轮 followups)
+e0318ed  fix(mode-vocabulary): align Mode enum to real Copilot wire
+010c9af  feat(turn-metadata): populate Turn.model / .mode / .output_tokens
+8399bdd  fix(m1.4-audit-followups): 10 findings closed
+(M1.4 initial: feat/m1.4-cli-and-analyzer)
+(M1.3 final:  feat/m1.3-episode-and-schema-fix)
+(M1.2 final:  feat/m1.2-copilot-adapter)
+(M1.1 skeleton: chore: initial workspace skeleton + skills matrix + pipeline)
 ```
+
+实时 doc-sync commits（每隔几个 milestone 同步一次）紧跟在最新 milestone 之后。
 
 ---
 
-> **更新本文件的纪律**：任何改动 §2.2 当前位置 / §3 task 索引 / §5 release 状态 → **同 commit 更新**本文件 + 在 §8 记一行。这是 `docs/architecture.md` §14 "文档同步" 规则在本文件上的具体体现。
+> **更新本文件的纪律**：任何改动 §2.2 当前位置 / §3 task 索引 / §5 release 状态 → **同 commit 更新**本文件 + 在 §9 记一行。这是 `docs/architecture.md` §14 "文档同步" 规则在本文件上的具体体现。

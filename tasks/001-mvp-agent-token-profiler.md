@@ -4,7 +4,7 @@
 > **版本**：1.1
 > **创建日期**：2026-05-25 · **最后更新**：2026-05-30
 > **状态**：**In-Progress — M1.1 / M1.2 / M1.3 / M1.4 ✅ 已交付**（4/7 = 57 %）；M1.5（TUI）/ M1.6（list+aggregate+export）/ M1.7（release）❌ 未开始
-> **当前 commit**：`9abd694`（main HEAD；含 post-output-audit + 之前 3 轮 M1.4 followups）
+> **当前 commit**：`main` HEAD（`git log -1 --oneline`）；最近一个重大 milestone merge = `9abd694` (post-output-audit)
 >
 > **重大 pivot（ADR-0001 events-first）**：M1.2 不做 ClaudeAdapter，改做 **CopilotAdapter**（real wire data 直接可得）。Tokenizer / ROI / waste / aggregate 全部从 M1.3 推迟到 M1.5+ 或 Phase 2。FR-2（Tokenizer）/ FR-6（Speedscope/HTML/CSV）/ FR-7（Config + Storage）目前完成度 0%，**这是 pivot 的预期行为**，不是落后。
 >
@@ -561,7 +561,7 @@ M1.1 (skeleton, ✅ done) ──┬──→ M1.2 (claude adapter)
 >
 > **Pivot 说明**（ADR-0001 events-first）：原计划做 ClaudeAdapter，因为 Claude 的 JSONL 是「最终对话日志」需要重做 tokenizer 才能算 token；Copilot CLI 的 `~/.copilot/session-state/<uuid>/events.jsonl` 是「事件流」，直接含 tool/hook/turn 元数据，能让 MVP 更快验证产品价值。**ClaudeAdapter 推迟到 Phase 2 / 3**。
 >
-> 实际交付：`Adapter` trait + `CopilotAdapter` + 28 named `CopilotEvent` variants (+ `Unknown`) + `discover_sessions` (mtime 排序) + `load_session` (含 live-mode 截断容忍 + parse_warnings 收集) + 9 fixture (synthetic only, ADR-0003) + 23 round-trip tests + 38 单元测试。
+> 实际交付：`Adapter` trait + `CopilotAdapter` + 28 named `CopilotEvent` variants (+ `Unknown`) + `discover_sessions` (mtime 排序) + `load_session` (含 live-mode 截断容忍 + parse_warnings 收集) + **9 fixture** (synthetic only, ADR-0003；M1.3 / M1.4 后续增长到 **12**) + 23 round-trip tests + 38 单元测试。
 >
 > 关联 FR：FR-1.1 / FR-1.3 / FR-1.7 / FR-1.8 + (FR-1.4 / FR-1.5 / FR-1.6 用 events 模型变形)| 关联 US：US-1 / US-6
 >

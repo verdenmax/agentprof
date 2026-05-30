@@ -849,18 +849,21 @@ todo        = "warn"
 
 本架构一次性覆盖了 plan.md 中的 Phase 1 + 2 + 3。**实际实施顺序**仍按 plan.md 的 Phase 推进，每个 Phase 启动前在 `docs/superpowers/specs/` 写一份 spec：
 
-| Phase | 启用的 crate / feature | 里程碑 |
-|---|---|---|
-| **Phase 0** prototype | `agentprof-core` + `agentprof-adapters::claude` + `agentprof-cli`（只 `analyze --export md`） | 跑出"自己的 schema 利用率"数字 |
-| **Phase 1** MVP | + `agentprof-tui`（火焰图 + ROI 表）+ `analyze --export tui` + `aggregate` | TUI 可交互 |
-| **Phase 2** 工程化 | + `agentprof-storage`（SQLite + 持久化）+ `ingest-otlp` 子命令（启用 `otlp` feature） | 跨 session 数据库 + 实时 OTLP |
-| **Phase 3** 多 agent | + `agentprof-adapters::codex` + `agentprof-adapters::copilot` | 三 agent 全支持 |
+| Phase | 启用的 crate / feature | 里程碑 | 状态 |
+|---|---|---|---|
+| **Phase 0** prototype | `agentprof-core` + `agentprof-adapters::copilot` + `agentprof-cli`（只 `analyze --export md\|json`） | events.jsonl → markdown 报告跑通 | ✅ M1.1–M1.4 已交付 |
+| **Phase 1** MVP | + `agentprof-tui`（火焰图 + ROI 表）+ `analyze --export tui` + `list` / `aggregate` 子命令 | TUI 可交互 + 跨 session 聚合 | 🟡 M1.5–M1.7 进行中 |
+| **Phase 2** 工程化 | + `agentprof-storage`（SQLite + 持久化）+ `ingest-otlp` 子命令（启用 `otlp` feature）+ tokenizer + ROI + waste estimation | 跨 session 数据库 + 实时 OTLP + 精确 token 成本 | ❌ 未开始 |
+| **Phase 3** 多 agent | + `agentprof-adapters::claude` + `agentprof-adapters::codex` (+ 可选 Gemini) | 三 agent 全支持 | ❌ 未开始 |
+
+> **Adapter 顺序的 events-first pivot**（ADR-0001）：原 Phase 0 计划用 `agentprof-adapters::claude`（因为 Claude session 最常见）；实际 M1.2 改做 Copilot 因为 Copilot CLI 的 events.jsonl 是事件流，比 Claude 的"最终对话日志 + 重做 tokenize"更适合 MVP 快速验证。Claude / Codex adapter 推迟到 Phase 3。
 
 ---
 
 ## 18. 待回答 / 后续 spec 化的问题
 
-- [ ] Copilot CLI 日志的真实 schema（需要先抓一份 `~/.copilot/session-state/**/*` 看格式）
+> Phase 0 已回答的问题（M1.2 + M1.3 闭环）：~~Copilot CLI 日志真实 schema~~（见 ADR-0002 Update）；剩下的是 Phase 2/3 的问题。
+
 - [ ] Speedscope JSON 用 "evented" 还是 "sampled" 格式（取决于 turn-level 还是 token-level 粒度）
 - [ ] HTML 报告是否走 single-file（base64 内嵌 d3.js）还是多文件
 - [ ] OTLP receiver 是否对外暴露作为独立 binary（如 `agentprof-otlp-collector`）

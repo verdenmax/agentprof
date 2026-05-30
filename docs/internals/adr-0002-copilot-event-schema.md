@@ -334,3 +334,11 @@ samples. The `ParseWarning::Json` count is unaffected.
 ### Next calibration
 
 Re-run `cargo xtask schema-audit` after the next Copilot CLI major upgrade.
+
+---
+
+## Update §2026-05-30: variant count
+
+This ADR originally locked **17 variants** based on the M1.2 design-time sample. The M1.3 Phase A schema-audit (run via `cargo xtask schema-audit` against real local sessions) discovered 10 additional event types in production wire data: `SessionWarning`, `SessionResume`, `SessionCompactionStart`, `SessionCompactionComplete`, `SystemNotification`, `PermissionRequested`, `PermissionCompleted`, `SubagentStarted`, `SubagentCompleted`, `SessionContextChanged`. One Phase B rename (`Abort` → `SessionAbort`) kept the type-tag distinct. Final count: **28 named + `Unknown` = 29**. See `crates/agentprof-core/src/adapter.rs` (`EventKind` enum) for the canonical list and `crates/agentprof-adapters/src/copilot/event.rs` (`CopilotEvent` enum) for the payloads.
+
+Per-payload schema refinements landed in the same milestone (4 `pub` field-shape adjustments: 3 `String → Option<String>` to handle real wire variability + 1 new `Option<String>` for sub-agent traceability — all four documented in [ADR-0005 §6](./adr-0005-analyzer-and-payload-name.md#update-6-post-output-audit-fixes-parse-warning-visibility-schema-mismatches-user-blocking-split)).

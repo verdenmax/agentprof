@@ -182,3 +182,9 @@ the index encoding is fixed.
 - **REF-006**: Real-data finding from M1.2 finishing — `Unknown=69`, `ParseWarning=1325`, `HookStart=1 / HookEnd=210`, `ToolExecStart=755 / ToolExecComplete=209` over 1796 events in the developer's current session; the empirical evidence that motivates D-1 / D-2
 - **REF-007**: `.github/copilot-instructions.md` §3 — workspace dependency-graph constraint (agentprof-core is leaf) that motivates the `E: Event` polymorphism
 - **REF-008**: `agentprof_core::adapter::Event` trait (defined M1.2 / commit `1331bef`) — the trait the algorithm is polymorphic over
+
+---
+
+## Update §2026-05-30: 5th DeriveWarning variant
+
+This ADR's "`DeriveWarning` taxonomy (4 variants)" section locked `SynthesizedStart` / `OpenAtEndOfSession` / `AbortWithoutOpenElement` / `NonMonotonicTimestamp` at M1.3 ship time. The `feat/turn-metadata-extraction` merge added a **5th variant `PayloadNameMissing { kind, event_id }`** (emitted whenever `Event::payload_name()` returns `None` for an event whose `EventKind` indicates it SHOULD have a name; closes the silent-failure risk for upcoming Claude/Codex adapter authors). See `crates/agentprof-core/src/episode/warning.rs:13-71` for the canonical 5-variant definition and [ADR-0005 §3 D-1](./adr-0005-analyzer-and-payload-name.md) for the rationale.

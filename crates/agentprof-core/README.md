@@ -19,7 +19,7 @@ diagram and §5 / §5.1 / §6 for the data model and adapter contract.
 
 | Module | Highlights |
 |---|---|
-| `adapter` | `Adapter` trait, `Event` trait (7 methods: `kind` / `id` / `timestamp` / `parent_id` / `payload_name` / `payload_model` / `payload_output_tokens` / `payload_mode`), `EventKind` (29 variants), `AgentKind`, `SessionRef`, `AdapterError` |
+| `adapter` | `Adapter` trait, `Event` trait (8 methods: 4 required — `kind` / `id` / `timestamp` / `parent_id` — and 4 default-`None` payload-* overrides — `payload_name` / `payload_model` / `payload_output_tokens` / `payload_mode`), `EventKind` (29 variants), `AgentKind`, `SessionRef`, `AdapterError` |
 | `model` | `RawSession<E>` (含 `parse_warnings: Vec<ParseWarning>`), `SessionMeta`, `ToolSource` + `ToolSource::infer` |
 | `error` | `CoreError`, `ParseWarning` (7 variants: `Json` / `Io` / `OutOfOrder` / `UnclosedTurn` / `UnclosedToolCall` / `UnclosedHook` / `UnknownToolSourcePrefix`); derives `PartialEq + Eq` since M1.4 post-output-audit |
 | `episode` | `derive_episodes<E>`, `Episodes`, `Turn`, `ToolEpisode`, `HookEpisode`, `SkillEpisode`, `ModeSegment`, `CallRef`, `Mode` (`Interactive` / `Plan` / `Autopilot` / `Unknown(String)`，对齐真实 Copilot wire), `TurnStatus`, `ToolCallStatus`, `DeriveWarning` (5 variants 含 `SynthesizedStart` / `OpenAtEndOfSession` / `AbortWithoutOpenElement` / `NonMonotonicTimestamp` / `PayloadNameMissing`), `pub const ORPHAN_TOOL_SENTINEL = "<orphan>"` |

@@ -41,7 +41,7 @@ that had already shipped. This commit synchronises the docs to reality.
   `Mode` vocabulary updated (`Interactive / Plan / Autopilot / Unknown`),
   `DeriveWarning` count updated (4 → 5), `USER_BLOCKING_TOOLS` const +
   user-blocking split + post-output-audit referenced.
-- `crates/agentprof-core/README.md` — `Event` trait now 7 methods (not 4),
+- `crates/agentprof-core/README.md` — `Event` trait now 8 methods (4 required + 4 default payload-*; was 4 required-only),
   `analyze()` signature corrected, `ORPHAN_TOOL_SENTINEL` /
   `USER_BLOCKING_TOOLS` / `is_user_blocking` / `parse_warnings` /
   `parent_tool_call_id` / Mode vocabulary documented; quick-start sample

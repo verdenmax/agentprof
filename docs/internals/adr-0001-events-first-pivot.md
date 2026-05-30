@@ -136,3 +136,9 @@ The full architectural elaboration lives in `docs/superpowers/specs/2026-05-26-c
 - **REF-008**: `ryoppippi/ccusage` repo (`rust/crates/ccusage/src/adapter/`) — competitor architecture reviewed during brainstorming; structural template (per-agent adapter dirs) inspired our layout but not the data model
 - **REF-009**: GitHub Copilot CLI `copilot help monitoring` — Copilot's official OTel exporter spec; deferred to Phase 2
 - **REF-010**: `/usr/lib/node_modules/@github/copilot/copilot-sdk/LICENSE.md` §3 — clean-room boundary; we observe our own data, never translate SDK types
+
+---
+
+## Update §2026-05-30: schema growth post-M1.3
+
+This ADR's §3 referenced a **17-variant** `CopilotEvent` enum (the count at write time). After the M1.3 Phase A/B schema-audit work (`feat/m1.3-episode-and-schema-fix`) added 10 new variants observed in real Copilot CLI sessions and 1 was renamed during balance, the canonical count is now **28 named variants + `Unknown` = 29 total** (mirrored by `EventKind`). The events-first product premise of this ADR is unchanged; only the enum width grew. See ADR-0002 Update for per-variant detail.
