@@ -177,6 +177,15 @@ pub fn run(cmd: AnalyzeCmd) -> Result<()> {
     let report = analyze(&episodes, &raw.meta, &raw.parse_warnings);
 
     if cmd.export == ExportFormat::Tui {
+        // Polish #4: warn (don't error) if user passed flags that the TUI
+        // dispatch ignores. Documented in ExportFormat::Tui doc-comment
+        // but worth surfacing at runtime so silent ignore doesn't confuse.
+        if cmd.output.is_some() {
+            eprintln!("agentprof: warning: --output is ignored with --export tui");
+        }
+        if cmd.section != AnalysisSection::all_vec() {
+            eprintln!("agentprof: warning: --section is ignored with --export tui");
+        }
         return run_tui(&report, &episodes);
     }
 
@@ -188,10 +197,10 @@ pub fn run(cmd: AnalyzeCmd) -> Result<()> {
 fn run_tui(report: &AnalysisReport, episodes: &agentprof_core::episode::Episodes) -> Result<()> {
     use std::io::IsTerminal as _;
 
-    if !std::io::stdout().is_terminal() {
+    if !std::io::stdout().is_terminal() || !std::io::stdin().is_terminal() {
         return Err(ExitKind::OutputError.into_anyhow(
-            "--export tui requires a TTY on stdout; pipe md or json for headless use \
-             (e.g. `agentprof analyze --export md > report.md`)"
+            "--export tui requires both stdin and stdout to be TTYs; pipe md or json for \
+             headless use (e.g. `agentprof analyze --export md > report.md`)"
                 .to_string(),
         ));
     }

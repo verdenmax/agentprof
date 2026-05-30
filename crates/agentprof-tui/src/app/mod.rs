@@ -85,11 +85,13 @@ impl<'a> AppRunner<'a> {
     /// through the dispatch state machine. Production callers should not
     /// reach for it — use the key bindings in [`crate::app::state::dispatch`]
     /// instead.
+    #[doc(hidden)]
     pub fn set_view(&mut self, view: View) {
         self.state.view = view;
     }
 
     /// Borrow the state (for inspection in tests).
+    #[doc(hidden)]
     #[must_use]
     pub const fn state(&self) -> &AppState<'a> {
         &self.state

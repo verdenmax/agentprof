@@ -13,13 +13,9 @@ prefix used in commit messages).
 
 ## [Unreleased]
 
-### Fixed
-
-- TUI key bindings: `1`/`2`/`3` now ALWAYS switch view; previously they re-sorted the table when active view was Roi (spec §7 conflict rule), which made it hard to escape RoiView without remembering Tab. Sort keys are now `t`/`c`/`s`/`p` (total / calls / success% / p50), only effective when view == Roi.
-- TUI viewport scroll: `↑` / `↓` in Flamegraph and Roi now auto-scroll the visible window to follow the selected row. Previously the selection could move out of the visible viewport with no visual feedback.
-
 ### Added
 
+- `agentprof list` subcommand (M1.6.1) — cheap session discovery + 7-column plain text table (`ID / Started / Model / Turns / Out-tokens / Duration / Size`). Defaults `--since 7d --limit 20`. Per-session parse failures degrade gracefully (skipped + summarized to stderr). See [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) `## agentprof list` section.
 - `agentprof-tui` crate: first interactive ratatui TUI shipped as M1.5 (`analyze --export tui`).
   - **FlamegraphView**: per-turn horizontal gantt; segments are tool calls; whitespace = LLM thinking time.
   - **RoiView**: interactive tool rank with sort cycling (`t`/`c`/`s`/`p` = total / calls / success% / p50); recent-calls detail strip; user-blocking tools (`ask_user`) split into separate sub-table per M1.4 post-output-audit.
@@ -27,6 +23,17 @@ prefix used in commit messages).
   - **Panic-safe terminal lifecycle**: `install_panic_hook` (Once-guarded) → `enter` → `run` → best-effort `leave`. See [ADR-0006](docs/internals/adr-0006-panic-safe-tui.md).
   - **TTY required**: piping yields `OutputError` (exit 3) with a helpful message; use `--export md` or `--export json` for headless.
   - References: spec [`2026-05-30-m1.5-tui-design.md`](docs/superpowers/specs/2026-05-30-m1.5-tui-design.md), plan [`2026-05-30-m1.5-tui.md`](docs/superpowers/plans/2026-05-30-m1.5-tui.md).
+
+### Fixed
+
+- TUI key bindings: `1`/`2`/`3` now ALWAYS switch view; previously they re-sorted the table when active view was Roi (spec §7 conflict rule), which made it hard to escape RoiView without remembering Tab. Sort keys are now `t`/`c`/`s`/`p` (total / calls / success% / p50), only effective when view == Roi.
+- TUI viewport scroll: `↑` / `↓` in Flamegraph and Roi now auto-scroll the visible window to follow the selected row. Previously the selection could move out of the visible viewport with no visual feedback.
+- TUI Flamegraph: O(N×M) per-frame turn lookup replaced with HashMap (perf, M1.5 audit #1).
+- TUI: `AppRunner::set_view` and `state()` tightened to `#[doc(hidden)] pub` — discourages bypassing dispatch while remaining reachable from integration tests (M1.5 audit #2).
+- TUI Event: `from_crossterm` filters `KeyEventKind::Press`; previously Windows kitty / enhanced input mode would double-toggle `?` overlay on key release/repeat (M1.5 audit #3).
+- CLI `analyze --export tui`: warns instead of silently ignoring `--output` / `--section` flags (M1.5 audit #4).
+- CLI `analyze --export tui`: now checks BOTH stdin and stdout for TTY; previously `< /dev/null` caused `crossterm::event::read` to block forever (M1.5 audit #5).
+- `with-skill-invoked` fixture: added a `skill__<name>__<tool>` execution so the `ToolSource::Skill` source-label rendering branch is actually exercised by snapshot tests; Source column now shows `skill/synthetic` (M1.5 audit #7).
 
 ### Docs
 

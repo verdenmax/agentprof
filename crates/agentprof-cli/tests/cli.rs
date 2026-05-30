@@ -265,7 +265,7 @@ fn analyze_export_tui_flag_parses_and_short_circuits_under_non_tty() {
         .assert()
         .failure()
         .code(3)
-        .stderr(contains("requires a TTY"));
+        .stderr(contains("requires both stdin and stdout to be TTYs"));
 }
 
 #[test]
@@ -284,4 +284,21 @@ fn analyze_export_value_help_lists_tui() {
         s.contains("tui"),
         "expected --help to list 'tui' as --export value, got:\n{s}"
     );
+}
+
+#[test]
+fn analyze_export_tui_with_output_flag_warns() {
+    // Polish #4: --export tui with --output should warn on stderr that
+    // --output is ignored (still exits with the stdin/stdout TTY error
+    // because assert_cmd pipes them).
+    Command::cargo_bin("agentprof")
+        .unwrap()
+        .args(["analyze", "--session"])
+        .arg(cross_turn_path())
+        .args(["--export", "tui", "--output", "/tmp/should-be-ignored.txt"])
+        .assert()
+        .failure()
+        .code(3)
+        .stderr(contains("--output is ignored with --export tui"))
+        .stderr(contains("requires both stdin and stdout to be TTYs"));
 }

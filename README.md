@@ -117,6 +117,13 @@ full CLI documentation.
 
 ---
 
+## CLI Subcommands
+
+- `agentprof analyze` — analyze a single session (md / json / tui exports). See [`docs/architecture.md`](docs/architecture.md) §8.
+- `agentprof list` (M1.6.1) — discover recent sessions in a compact 7-column table. `--since 7d --limit 20` defaults keep the command snappy; per-session parse failures degrade gracefully. See [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) `## agentprof list`.
+
+---
+
 ## Quick usage (future CLI surface)
 
 ```sh
