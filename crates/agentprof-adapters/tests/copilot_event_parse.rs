@@ -116,7 +116,8 @@ fn assistant_message_parses_with_tool_requests() {
             assert_eq!(env.data.tool_requests.len(), 1);
             assert_eq!(env.data.tool_requests[0].name, "bash");
             assert_eq!(env.data.output_tokens, 42);
-            assert_eq!(env.data.turn_id, "0");
+            assert_eq!(env.data.turn_id.as_deref(), Some("0"));
+            assert!(env.data.parent_tool_call_id.is_none());
         }
         other => panic!("expected AssistantMessage, got {other:?}"),
     }

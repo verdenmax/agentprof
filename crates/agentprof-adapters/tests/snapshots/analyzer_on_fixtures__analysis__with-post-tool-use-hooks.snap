@@ -4,25 +4,25 @@ expression: report
 ---
 {
   "meta": {
-    "id": "00000000-0000-0000-0000-000000000005",
+    "id": "00000000-0000-0000-0000-000000002000",
     "agent": "copilot",
     "producer": "copilot-agent",
-    "agent_version": "1.0.54",
-    "started_at": "2026-05-26T13:00:00Z",
-    "cwd": "/tmp/agentprof-fixture/with-skill-invoked",
+    "agent_version": "1.0.99-test",
+    "started_at": "2026-05-29T02:00:00Z",
+    "cwd": "/tmp/agentprof-fixture/with-post-tool-use-hooks",
     "is_live": false
   },
   "turn_summary": [
     {
-      "turn_id": "00000000-0000-0000-0000-000000000053",
-      "started_at": "2026-05-26T13:00:03Z",
-      "duration": 4000,
+      "turn_id": "00000000-0000-0000-0000-000000002003",
+      "started_at": "2026-05-29T02:00:01Z",
+      "duration": 3000,
       "status": "Completed",
-      "model": "gpt-5-mini",
+      "model": "claude-test",
       "mode": "Interactive",
-      "output_tokens": 15,
+      "output_tokens": 19,
       "tool_call_count": 1,
-      "hook_call_count": 0,
+      "hook_call_count": 1,
       "skill_call_count": 0
     }
   ],
@@ -44,6 +44,17 @@ expression: report
       "is_user_blocking": false
     }
   ],
-  "hook_rank": [],
+  "hook_rank": [
+    {
+      "name": "postToolUse",
+      "call_count": 1,
+      "success_count": 1,
+      "failure_count": 0,
+      "synthesized_start_count": 0,
+      "total_duration": 200,
+      "p50_duration": 200,
+      "p95_duration": 200
+    }
+  ],
   "warnings": []
 }

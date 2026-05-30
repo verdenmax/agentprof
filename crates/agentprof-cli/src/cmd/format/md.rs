@@ -12,6 +12,7 @@ use chrono::Duration;
 
 use agentprof_core::analyzer::AnalysisReport;
 use agentprof_core::episode::{DeriveWarning, Mode, TurnStatus};
+use agentprof_core::error::ParseWarning;
 
 use crate::cmd::analyze::AnalysisSection;
 
@@ -93,6 +94,7 @@ fn write_header(out: &mut String, report: &AnalysisReport) {
     let _ = writeln!(out, "- Tools tracked: {}", report.tool_rank.len());
     let _ = writeln!(out, "- Hooks tracked: {}", report.hook_rank.len());
     let _ = writeln!(out, "- Derive warnings: {}", report.warnings.len());
+    let _ = writeln!(out, "- Parse warnings: {}", report.parse_warnings.len());
     let _ = writeln!(out);
 }
 
@@ -126,30 +128,76 @@ fn write_turn_summary(out: &mut String, report: &AnalysisReport) {
 }
 
 fn write_tool_rank(out: &mut String, report: &AnalysisReport) {
+    // Partition rows: agent-/machine-time tools go in the main table;
+    // user-blocking tools (ask_user etc.) get their own section so their
+    // user-think-time wall-clock doesn't visually dominate the picture.
+    // Both partitions preserve the source order (already sorted by
+    // total_duration descending in tool_rank()).
+    let (user_blocking, work): (Vec<_>, Vec<_>) =
+        report.tool_rank.iter().partition(|r| r.is_user_blocking);
+
     let _ = writeln!(out, "## Tool Rank (by total duration)");
-    let _ = writeln!(
-        out,
-        "| Tool | Source | Calls | OK | Fail | Orphan | User-req | Total | p50 | p95 | Max |"
-    );
-    let _ = writeln!(out, "|---|---|---|---|---|---|---|---|---|---|---|");
-    for row in &report.tool_rank {
+    if work.is_empty() && user_blocking.is_empty() {
+        let _ = writeln!(out, "(no tool calls recorded)");
+        let _ = writeln!(out);
+        return;
+    }
+    if work.is_empty() {
+        // Defensive corner case: only user-blocking tools were used. Avoid
+        // rendering an empty work-tools table under the headline section.
         let _ = writeln!(
             out,
-            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
-            md_cell_escape(&row.name),
-            md_cell_escape(&format!("{:?}", row.source)),
-            row.call_count,
-            row.success_count,
-            row.failure_count,
-            row.orphan_count,
-            row.user_requested_count,
-            fmt_duration(row.total_duration),
-            fmt_duration(row.p50_duration),
-            fmt_duration(row.p95_duration),
-            fmt_duration(row.max_duration),
+            "_(no agent / machine-time tools recorded — see User-blocking tools below)_"
         );
+    } else {
+        let _ = writeln!(
+            out,
+            "| Tool | Source | Calls | OK | Fail | Orphan | User-req | Total | p50 | p95 | Max |"
+        );
+        let _ = writeln!(out, "|---|---|---|---|---|---|---|---|---|---|---|");
+        for row in &work {
+            write_tool_row(out, row);
+        }
     }
     let _ = writeln!(out);
+
+    if !user_blocking.is_empty() {
+        let _ = writeln!(
+            out,
+            "## User-blocking tools (wall-clock includes user think time)"
+        );
+        let _ = writeln!(
+            out,
+            "These tools block on the human, not on agent or machine work; their `Total` reflects how long the user took to respond, not engineering cost."
+        );
+        let _ = writeln!(
+            out,
+            "| Tool | Source | Calls | OK | Fail | Orphan | User-req | Total | p50 | p95 | Max |"
+        );
+        let _ = writeln!(out, "|---|---|---|---|---|---|---|---|---|---|---|");
+        for row in &user_blocking {
+            write_tool_row(out, row);
+        }
+        let _ = writeln!(out);
+    }
+}
+
+fn write_tool_row(out: &mut String, row: &agentprof_core::analyzer::ToolRankRow) {
+    let _ = writeln!(
+        out,
+        "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
+        md_cell_escape(&row.name),
+        md_cell_escape(&format!("{:?}", row.source)),
+        row.call_count,
+        row.success_count,
+        row.failure_count,
+        row.orphan_count,
+        row.user_requested_count,
+        fmt_duration(row.total_duration),
+        fmt_duration(row.p50_duration),
+        fmt_duration(row.p95_duration),
+        fmt_duration(row.max_duration),
+    );
 }
 
 fn write_hook_rank(out: &mut String, report: &AnalysisReport) {
@@ -178,8 +226,40 @@ fn write_hook_rank(out: &mut String, report: &AnalysisReport) {
 
 fn write_warnings(out: &mut String, report: &AnalysisReport) {
     let _ = writeln!(out, "## Warnings");
-    if report.warnings.is_empty() {
+    if report.warnings.is_empty() && report.parse_warnings.is_empty() {
         let _ = writeln!(out, "(none)");
+        return;
+    }
+
+    // Parse-stage warnings (loader → events): surface FIRST so users
+    // see silent event drops before diving into per-derive anomalies.
+    if !report.parse_warnings.is_empty() {
+        let _ = writeln!(out, "Parse-stage warnings: {}", report.parse_warnings.len());
+        let mut json_err = 0_usize;
+        let mut io_err = 0_usize;
+        let mut out_of_order = 0_usize;
+        let mut other = 0_usize;
+        for w in &report.parse_warnings {
+            match w {
+                ParseWarning::Json { .. } => json_err += 1,
+                ParseWarning::Io { .. } => io_err += 1,
+                ParseWarning::OutOfOrder => out_of_order += 1,
+                _ => other += 1,
+            }
+        }
+        let _ = writeln!(out, "- Json (line failed to parse): {json_err}");
+        let _ = writeln!(out, "- Io (line read error): {io_err}");
+        let _ = writeln!(
+            out,
+            "- OutOfOrder (timestamps non-monotonic): {out_of_order}"
+        );
+        if other > 0 {
+            let _ = writeln!(out, "- Other: {other}");
+        }
+        let _ = writeln!(out);
+    }
+
+    if report.warnings.is_empty() {
         return;
     }
     let _ = writeln!(out, "Derive-stage warnings: {}", report.warnings.len());

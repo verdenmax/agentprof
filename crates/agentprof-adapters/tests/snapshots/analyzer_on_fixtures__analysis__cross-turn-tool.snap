@@ -52,7 +52,8 @@ expression: report
       "total_duration": 5000,
       "p50_duration": 5000,
       "p95_duration": 5000,
-      "max_duration": 5000
+      "max_duration": 5000,
+      "is_user_blocking": false
     }
   ],
   "hook_rank": [],

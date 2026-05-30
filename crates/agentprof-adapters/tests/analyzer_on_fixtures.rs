@@ -32,7 +32,7 @@ fn load_and_analyze(slug: &str) -> agentprof_core::analyzer::AnalysisReport {
         .unwrap_or_else(|| panic!("fixture {slug} not discovered"));
     let raw = adapter.load_session(&sref).expect("load_session");
     let episodes = derive_episodes(&raw.events, &raw.meta);
-    analyze(&episodes, &raw.meta)
+    analyze(&episodes, &raw.meta, &raw.parse_warnings)
 }
 
 macro_rules! analyzer_test {
@@ -55,3 +55,7 @@ analyzer_test!(analysis_with_mode_transitions, "with-mode-transitions");
 analyzer_test!(analysis_live_truncated, "live-truncated");
 analyzer_test!(analysis_orphan_events, "orphan-events");
 analyzer_test!(analysis_cross_turn_tool, "cross-turn-tool");
+analyzer_test!(
+    analysis_with_post_tool_use_hooks,
+    "with-post-tool-use-hooks"
+);

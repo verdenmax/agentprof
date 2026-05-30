@@ -40,7 +40,8 @@ expression: report
       "total_duration": 0,
       "p50_duration": 0,
       "p95_duration": 0,
-      "max_duration": 0
+      "max_duration": 0,
+      "is_user_blocking": false
     }
   ],
   "hook_rank": [
