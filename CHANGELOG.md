@@ -15,6 +15,73 @@ prefix used in commit messages).
 
 ### Fixed
 
+#### Post-output audit fixes (`fix/post-output-audit`)
+
+Closes the actionable findings from the 2026-05-29 audit of `agentprof analyze`
+output against a real live Copilot CLI 1.0.54 session (11 806 lines). Three
+classes of fix; one branch; documented in
+[ADR-0005 §6](docs/internals/adr-0005-analyzer-and-payload-name.md#update-6-post-output-audit-fixes-parse-warning-visibility-schema-mismatches-user-blocking-split).
+
+**adapters — schema-mismatch parser drops (~17 % event loss):**
+- Real Copilot CLI 1.0.x emits multiple wire shapes for some events. Three
+  payload structs required string fields that aren't actually universally
+  present, causing serde to silently drop matching events with
+  `"missing field X"` warnings.
+  - `HookInput.source: String → Option<String>` — `postToolUse` hooks
+    carry no `source` (100 % of postToolUse hooks were dropping; symptom
+    was `synthesized = 100 %, total = 0ms` for the entire hook in Tool
+    Rank).
+  - `UserMessageData.source: String → Option<String>` — many CLI-typed
+    prompts omit `source` (46 % of user.message events were dropping).
+  - `AssistantMessageData.turn_id: String → Option<String>` — subagent-
+    spawned messages (via `subagent.started`) carry `parentToolCallId`
+    instead of `turnId` (71 % of assistant.message events were dropping,
+    losing all subagent token usage).
+- `AssistantMessageData` also gains a new `parent_tool_call_id:
+  Option<String>` field for subagent visibility.
+- New fixture `crates/agentprof-adapters/tests/fixtures/copilot/with-post-tool-use-hooks/`
+  (10 events) locks all three schema variants in episode + analyzer
+  snapshots. Real-session drop rate verified to go from 17 % → 0 %.
+
+**core — parse warnings now user-visible:**
+- `AnalysisReport` gains `parse_warnings: Vec<ParseWarning>` field
+  (additive, `#[serde(default, skip_serializing_if = "Vec::is_empty")]`
+  keeps old empty reports byte-identical and old JSON deserializable).
+- `analyze()` signature widens to `analyze(&Episodes, &SessionMeta,
+  &[ParseWarning]) -> AnalysisReport`. Callers pass `raw.parse_warnings`;
+  pure unit tests pass `&[]`. **BREAKING for any external code calling
+  `analyze()` directly** (no such callers exist outside the workspace yet).
+- `ParseWarning` gains `PartialEq + Eq` (needed for round-trip + test
+  assertions; was an earlier oversight).
+- Locked by new `analyzer::tests::analyze_carries_parse_warnings_through`
+  and extended `analysis_report_json_round_trip_is_lossless`.
+
+**cli — markdown renderer surfaces parse warnings + splits user-blocking tools:**
+- Session header gains `- Parse warnings: N` line beside `- Derive warnings: N`.
+- Warnings section adds a parse-stage breakdown (Json / Io / OutOfOrder
+  counts) before the existing derive-stage breakdown.
+- `ToolRankRow` gains `is_user_blocking: bool` (additive,
+  `#[serde(default)]`). New `pub const USER_BLOCKING_TOOLS: &[&str] =
+  &["ask_user"]` in `agentprof_core::analyzer::tool_rank` is the single
+  source of truth.
+- Markdown renderer's `write_tool_rank` now partitions rows: work tools
+  render in `## Tool Rank (by total duration)` as before; user-blocking
+  tools render in a new `## User-blocking tools (wall-clock includes
+  user think time)` section. JSON contract is additive (still a flat
+  `tool_rank` vec; each row carries the new bool).
+- Real-session effect: `task` (4.85h, 136 calls) and `bash` (57m,
+  1641 calls) now headline the work-tool ranking; `ask_user` (63h,
+  61 calls, mostly user think time) gets its own visually-distinct
+  section instead of dominating the chart.
+
+**docs — privacy considerations (documentation-only):**
+- New `docs/internals/privacy-considerations.md` documents the PII /
+  SII fields in `AnalysisReport` (Unix `cwd`, `branch`, model internal
+  names, ~800 turn UUIDs per session) with a tier table + manual
+  `sed`/`jq` redaction cheat sheets for both markdown and JSON outputs.
+  Planned `--redact` / `--anonymize` CLI flags are scoped for M1.5+; no
+  code change in this branch.
+
 #### M1.4 audit followups (`fix/m1.4-audit-followups`)
 
 Closes the actionable findings from the 4-part M1.4 audit. All 10 fixes

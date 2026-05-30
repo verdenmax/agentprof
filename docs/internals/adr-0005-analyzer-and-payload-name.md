@@ -277,3 +277,30 @@ fn payload_mode(&self) -> Option<&str> { None }
 **Tests.** 3 trait-default unit tests (`adapter.rs`), 5 CopilotEvent override tests (`event.rs`), 4 `derive.rs` integration tests covering sum / last-wins / mode-mid-turn / defensive-no-message scenarios, snapshot re-acceptance for 14 affected `.snap` files (7 episode + 7 analyzer layers), 1 CLI end-to-end regression test asserting `minimal` fixture's `turn_summary[0].output_tokens == 10`.
 
 **Status.** Spec `docs/superpowers/specs/2026-05-29-turn-metadata-extraction-design.md` (Approved). This Update is the architectural record; the spec is the implementation contract.
+
+### Update §6: Post-output audit fixes (parse-warning visibility, schema mismatches, user-blocking split)
+
+**Context.** A 2026-05-29 audit of `agentprof analyze` against a real live Copilot CLI 1.0.54 session (11 806 lines) found three classes of issue that this Update closes:
+
+1. **24 % of events were silently dropping at the parser layer.** Real Copilot CLI 1.0.x emits multiple wire shapes for some event types:
+   - `hook.start` for `postToolUse` hooks has no `source` field (only `sessionStart`-style hooks do); the `HookInput.source: String` required field caused 779 / 779 (100 %) of `postToolUse` hooks to drop, surfacing as `synthesized_start = true, total_duration = 0ms` for the entire hook category in the Tool Rank.
+   - `user.message` emitted by some CLI-typed prompts has no `source` field (46 % drop rate).
+   - `assistant.message` emitted by **subagents** (spawned via `subagent.started` events) carry `parentToolCallId` instead of `turnId`; the `AssistantMessageData.turn_id: String` required field caused 1 995 / 2 789 (71 %) of assistant messages to drop, with all subagent token usage invisible.
+
+2. **`ParseWarning`s were collected by the loader but never surfaced in the report.** Users had no way to know their session had 17 % of events dropping — the report just showed missing hooks / under-counted tokens. This breaks the FR-1.8 contract (parse warnings must be user-visible).
+
+3. **`ask_user` dominated the Tool Rank's top.** In a 56 h session, `ask_user` alone consumed ~90 % of total tool wall-clock (63 h) — but this is **user think time**, not agent / machine work. Mixing it into the headline Tool Rank made the chart unreadable for its primary "where is the agent burning time?" purpose.
+
+**Decision.**
+
+For (1): all three required `String` fields become `Option<String>` with `#[serde(default, skip_serializing_if = "Option::is_none")]`. The new `AssistantMessageData.parent_tool_call_id: Option<String>` field is added for subagent visibility. A new fixture `with-post-tool-use-hooks/` locks the regression (10 events covering all three schema variants + an in-turn-message regression case). This is a **conservative widening** — downstream `derive_episodes` never reads these fields (it uses session-level `open_turn_idx` for attribution), so episode / analyzer output is unchanged for events that did parse before, and now also includes the previously-dropped ones.
+
+For (2): `AnalysisReport` gains a `parse_warnings: Vec<ParseWarning>` field; `analyze()` signature becomes `analyze(&Episodes, &SessionMeta, &[ParseWarning]) -> AnalysisReport`. The markdown renderer's `Session` block gains a `- Parse warnings: N` line, and the `Warnings` section adds a parse-stage breakdown (Json / Io / OutOfOrder counts) *before* the existing derive-stage breakdown. JSON contract is additive: `#[serde(default, skip_serializing_if = "Vec::is_empty")]` keeps old empty reports byte-identical and old JSON deserializable. `ParseWarning` also gains `PartialEq + Eq` (needed for round-trip + test assertions, was previously omitted by oversight).
+
+For (3): `ToolRankRow` gains `is_user_blocking: bool`. A new `pub const USER_BLOCKING_TOOLS: &[&str] = &["ask_user"]` in `agentprof_core::analyzer::tool_rank` is the single source of truth for the membership rule; `tool_rank()` populates the flag at analyzer time. The markdown renderer's `write_tool_rank` partitions rows: work tools render in `## Tool Rank` as before; user-blocking tools render in a separate `## User-blocking tools (wall-clock includes user think time)` section with an explanatory caption. JSON contract is additive: rendered flat as before, but each row now carries `is_user_blocking` (defaulting to `false` for older JSON via `#[serde(default)]`).
+
+**Privacy.** The audit also surfaced that several fields in `meta` and `turn_summary` leak PII (Unix `cwd`, `branch`, model internal-name `claude-opus-4.7-1m-internal`, ~800 turn UUIDs per session). This Update **documents** the leak in the new `docs/internals/privacy-considerations.md` (PII tier table + manual `sed`/`jq` redaction cheat sheet + planned `--redact` / `--anonymize` flags). It does **not** implement redaction; that's deferred to M1.5+ where it lands as opt-in CLI flags alongside the `aggregate` subcommand.
+
+**Tests.** New `with-post-tool-use-hooks/` fixture + episode + analyzer + raw-load registrations (3 places). New unit tests: `analyzer::tests::analyze_carries_parse_warnings_through`, `analyzer::tool_rank::tests::ask_user_is_flagged_as_user_blocking` + `user_blocking_constant_contains_ask_user`. Extended `analysis_report_json_round_trip_is_lossless` to exercise `parse_warnings`. Extended `failure_and_orphan_counts` to assert `bash !is_user_blocking`. Snapshot re-acceptance for 8 affected `.snap` files (7 analyzer_on_fixtures + 1 CLI integration).
+
+**Status.** Spec `docs/superpowers/specs/2026-05-29-post-output-audit-design.md` (Approved). This Update is the architectural record; the spec + commits on `fix/post-output-audit` are the implementation contract.
