@@ -22,7 +22,7 @@ prefix used in commit messages).
 
 - `agentprof-tui` crate: first interactive ratatui TUI shipped as M1.5 (`analyze --export tui`).
   - **FlamegraphView**: per-turn horizontal gantt; segments are tool calls; whitespace = LLM thinking time.
-  - **RoiView**: interactive tool rank with sort cycling (`1`/`2`/`3`/`4` = total / calls / success% / p50); recent-calls detail strip; user-blocking tools (`ask_user`) split into separate sub-table per M1.4 post-output-audit.
+  - **RoiView**: interactive tool rank with sort cycling (`t`/`c`/`s`/`p` = total / calls / success% / p50); recent-calls detail strip; user-blocking tools (`ask_user`) split into separate sub-table per M1.4 post-output-audit.
   - **AggregateView**: single-session By-Mode + By-Hook tables.
   - **Panic-safe terminal lifecycle**: `install_panic_hook` (Once-guarded) → `enter` → `run` → best-effort `leave`. See [ADR-0006](docs/internals/adr-0006-panic-safe-tui.md).
   - **TTY required**: piping yields `OutputError` (exit 3) with a helpful message; use `--export md` or `--export json` for headless.

@@ -21,35 +21,41 @@ use agentprof_tui::AppRunner;
 use ratatui::backend::TestBackend;
 use ratatui::Terminal;
 
-fn fixture_path() -> PathBuf {
+fn fixture_path(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
-        .join("agentprof-adapters/tests/fixtures/copilot/cross-turn-tool/events.jsonl")
+        .join(format!(
+            "agentprof-adapters/tests/fixtures/copilot/{name}/events.jsonl"
+        ))
 }
 
-fn load_fixture() -> (
+fn load_fixture(
+    name: &str,
+) -> (
     agentprof_core::analyzer::AnalysisReport,
     agentprof_core::episode::Episodes,
 ) {
-    let path = fixture_path();
+    let path = fixture_path(name);
     let adapter = CopilotAdapter;
     let sref = SessionRef::new(
-        "cross-turn-tool".into(),
+        name.to_string(),
         adapter.agent_kind(),
         path,
         std::time::SystemTime::UNIX_EPOCH,
         0,
         false,
     );
-    let raw = adapter.load_session(&sref).expect("fixture loads");
+    let raw = adapter
+        .load_session(&sref)
+        .unwrap_or_else(|e| panic!("fixture {name} loads: {e}"));
     let episodes = derive_episodes(&raw.events, &raw.meta);
     let report = analyze(&episodes, &raw.meta, &raw.parse_warnings);
     (report, episodes)
 }
 
-fn snapshot_view(view: View, name: &str) {
-    let (report, episodes) = load_fixture();
+fn snapshot_view(fixture: &str, view: View, snap_name: &str) {
+    let (report, episodes) = load_fixture(fixture);
     let mut runner = AppRunner::new(&report, &episodes);
     runner.set_view(view);
     let backend = TestBackend::new(100, 30);
@@ -64,20 +70,71 @@ fn snapshot_view(view: View, name: &str) {
         }
         text.push_str(cell.symbol());
     }
-    insta::assert_snapshot!(name, text);
+    insta::assert_snapshot!(snap_name, text);
 }
+
+// --- baseline: cross-turn-tool × 3 views ---
 
 #[test]
 fn snapshot_flamegraph_cross_turn_tool() {
-    snapshot_view(View::Flamegraph, "flamegraph__cross_turn_tool");
+    snapshot_view(
+        "cross-turn-tool",
+        View::Flamegraph,
+        "flamegraph__cross_turn_tool",
+    );
 }
 
 #[test]
 fn snapshot_roi_cross_turn_tool() {
-    snapshot_view(View::Roi, "roi__cross_turn_tool");
+    snapshot_view("cross-turn-tool", View::Roi, "roi__cross_turn_tool");
 }
 
 #[test]
 fn snapshot_aggregate_cross_turn_tool() {
-    snapshot_view(View::Aggregate, "aggregate__cross_turn_tool");
+    snapshot_view(
+        "cross-turn-tool",
+        View::Aggregate,
+        "aggregate__cross_turn_tool",
+    );
+}
+
+// --- view-specific code path coverage (5 new snapshots) ---
+
+/// `with-aborts` → Flamegraph: exercises `Modifier::UNDERLINED` on aborted
+/// turns (per `build_row`'s `TurnStatus::Aborted(_)` branch).
+#[test]
+fn snapshot_flamegraph_with_aborts() {
+    snapshot_view("with-aborts", View::Flamegraph, "flamegraph__with_aborts");
+}
+
+/// `orphan-events` → Roi: exercises `ToolCallStatus::OrphanSynthesizedStart`
+/// glyph `○` in `recent_calls`.
+#[test]
+fn snapshot_roi_orphan_events() {
+    snapshot_view("orphan-events", View::Roi, "roi__orphan_events");
+}
+
+/// `with-mcp-calls` → Roi: exercises `source_label`'s `Mcp { server }`
+/// branch → `"mcp/<server>"`.
+#[test]
+fn snapshot_roi_with_mcp_calls() {
+    snapshot_view("with-mcp-calls", View::Roi, "roi__with_mcp_calls");
+}
+
+/// `with-skill-invoked` → Roi: exercises `source_label`'s `Skill { name }`
+/// branch → `"skill/<name>"`.
+#[test]
+fn snapshot_roi_with_skill_invoked() {
+    snapshot_view("with-skill-invoked", View::Roi, "roi__with_skill_invoked");
+}
+
+/// `with-mode-transitions` → Aggregate: exercises `group_by_mode` with
+/// multiple Mode variants in one session.
+#[test]
+fn snapshot_aggregate_with_mode_transitions() {
+    snapshot_view(
+        "with-mode-transitions",
+        View::Aggregate,
+        "aggregate__with_mode_transitions",
+    );
 }

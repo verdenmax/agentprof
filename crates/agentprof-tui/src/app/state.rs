@@ -55,6 +55,12 @@ pub struct AppState<'a> {
     /// Currently active view.
     pub view: View,
     /// Per-view (vertical, horizontal) scroll offset.
+    ///
+    /// **Reserved for M1.6.** Currently unused — Flamegraph and Roi use
+    /// dedicated `flame_viewport_top` / `roi_viewport_top` Cell fields,
+    /// and Aggregate has no scrollable content. Kept on the struct for
+    /// forward-compat (additive future views may need general-purpose
+    /// scroll state).
     pub scroll: HashMap<View, (u16, u16)>,
     /// Active sort key for `RoiView`.
     pub roi_sort: SortKey,
@@ -200,8 +206,10 @@ fn scroll_up(state: &mut AppState<'_>) {
         View::Roi => state.roi_selected = state.roi_selected.saturating_sub(1),
         View::Flamegraph => state.flame_selected = state.flame_selected.saturating_sub(1),
         View::Aggregate => {
-            let (v, _) = state.scroll.entry(View::Aggregate).or_insert((0, 0));
-            *v = v.saturating_sub(1);
+            // M1.5 Aggregate is a fixed 50/50 By-Mode + By-Hook split with
+            // no scrollable element; ↑/↓ are intentionally no-ops here.
+            // M1.6 may add a focused-pane concept allowing scroll within
+            // the (potentially long) hook table.
         }
     }
 }
@@ -209,7 +217,19 @@ fn scroll_up(state: &mut AppState<'_>) {
 fn scroll_down(state: &mut AppState<'_>) {
     match state.view {
         View::Roi => {
-            let max = state.report.tool_rank.len().saturating_sub(1);
+            // Bound against the WORK partition only — the user-blocking
+            // tools render in a separate fixed sub-table that is not
+            // selectable. Mirroring roi::render's `r.is_user_blocking ==
+            // false` partition keeps `roi_selected` aligned with the
+            // visible work-tools table; otherwise the selection can fall
+            // off the bottom into a phantom region.
+            let work_count = state
+                .report
+                .tool_rank
+                .iter()
+                .filter(|r| !r.is_user_blocking)
+                .count();
+            let max = work_count.saturating_sub(1);
             if state.roi_selected < max {
                 state.roi_selected += 1;
             }
@@ -221,8 +241,10 @@ fn scroll_down(state: &mut AppState<'_>) {
             }
         }
         View::Aggregate => {
-            let (v, _) = state.scroll.entry(View::Aggregate).or_insert((0, 0));
-            *v = v.saturating_add(1);
+            // M1.5 Aggregate is a fixed 50/50 By-Mode + By-Hook split with
+            // no scrollable element; ↑/↓ are intentionally no-ops here.
+            // M1.6 may add a focused-pane concept allowing scroll within
+            // the (potentially long) hook table.
         }
     }
 }
@@ -445,5 +467,93 @@ mod tests {
         s_ref.roi_viewport_top.set(7);
         assert_eq!(s.flame_viewport_top.get(), 42);
         assert_eq!(s.roi_viewport_top.get(), 7);
+    }
+
+    #[test]
+    fn roi_selected_does_not_overshoot_work_partition() {
+        // Build a report with 2 work tools + 1 user-blocking tool. The
+        // work table renders 2 rows; selection should clamp to index 1
+        // (not 2), because the user-blocking tool is in a separate
+        // non-selectable sub-table.
+        let mut r = empty_report();
+        r.tool_rank.push(ToolRankRow::new(
+            "ask_user".into(), // is_user_blocking via USER_BLOCKING_TOOLS
+            ToolSource::Builtin,
+            1,
+            1,
+            0,
+            0,
+            0,
+            chrono::Duration::milliseconds(1),
+            chrono::Duration::milliseconds(1),
+            chrono::Duration::milliseconds(1),
+            chrono::Duration::milliseconds(1),
+        ));
+        r.tool_rank.push(ToolRankRow::new(
+            "bash".into(),
+            ToolSource::Builtin,
+            1,
+            1,
+            0,
+            0,
+            0,
+            chrono::Duration::milliseconds(1),
+            chrono::Duration::milliseconds(1),
+            chrono::Duration::milliseconds(1),
+            chrono::Duration::milliseconds(1),
+        ));
+        r.tool_rank.push(ToolRankRow::new(
+            "view".into(),
+            ToolSource::Builtin,
+            1,
+            1,
+            0,
+            0,
+            0,
+            chrono::Duration::milliseconds(1),
+            chrono::Duration::milliseconds(1),
+            chrono::Duration::milliseconds(1),
+            chrono::Duration::milliseconds(1),
+        ));
+        // Sanity: ask_user is partitioned out.
+        assert_eq!(r.tool_rank.iter().filter(|t| t.is_user_blocking).count(), 1);
+        assert_eq!(
+            r.tool_rank.iter().filter(|t| !t.is_user_blocking).count(),
+            2
+        );
+        let e = Episodes::new();
+        let mut s = AppState::new(&r, &e);
+        s.view = View::Roi;
+        // Down × 5 — should clamp at index 1 (work_count - 1), not 2.
+        for _ in 0..5 {
+            dispatch(&mut s, key(KeyCode::Down));
+        }
+        assert_eq!(
+            s.roi_selected, 1,
+            "selection should clamp to work-partition len-1, not full tool_rank len-1"
+        );
+    }
+
+    #[test]
+    fn aggregate_scroll_keys_are_noop() {
+        let r = empty_report();
+        let e = Episodes::new();
+        let mut s = AppState::new(&r, &e);
+        s.view = View::Aggregate;
+        // Down × 5: should NOT mutate any scroll state visible elsewhere.
+        // flame_viewport_top / roi_viewport_top must stay at default 0.
+        for _ in 0..5 {
+            dispatch(&mut s, key(KeyCode::Down));
+        }
+        assert_eq!(s.flame_viewport_top.get(), 0);
+        assert_eq!(s.roi_viewport_top.get(), 0);
+        assert_eq!(s.flame_selected, 0);
+        assert_eq!(s.roi_selected, 0);
+        // Up × 5: same.
+        for _ in 0..5 {
+            dispatch(&mut s, key(KeyCode::Up));
+        }
+        assert_eq!(s.flame_viewport_top.get(), 0);
+        assert_eq!(s.roi_viewport_top.get(), 0);
     }
 }
