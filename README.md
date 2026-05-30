@@ -186,7 +186,7 @@ For repository structure and crate boundaries, see
 
 **AggregateView (`3`):** Single-session breakdown — By Mode (interactive / plan / autopilot) + By Hook.
 
-Key bindings: `1`/`2`/`3` switch view, `Tab` cycles, `↑`/`↓` selects, `?` opens help, `q` quits.
+Key bindings: `1`/`2`/`3` switch view, `Tab` cycles, `↑`/`↓` selects, `?` opens help, `q` / Ctrl-C quits.
 
 Requires a TTY on stdout; piping yields `OutputError` (exit 3) with a helpful message. See [`crates/agentprof-tui/README.md`](crates/agentprof-tui/README.md) and [ADR-0006](docs/internals/adr-0006-panic-safe-tui.md) for the panic-safe lifecycle.
 

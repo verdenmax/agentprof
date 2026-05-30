@@ -91,7 +91,7 @@ agentprof-cli  ──▶  agentprof-tui
 | `agentprof-core` | lib | `model`, `tokenizer`, `analyzer`, `export`, `error` | `serde`, `serde_json`, `tiktoken-rs`, `chrono`, `thiserror`, `reqwest`(opt, feature `anthropic-api`) |
 | `agentprof-adapters` | lib | `claude`, `codex`, `copilot`, `registry`, `discovery` | `serde_json`, `walkdir`, `globset` |
 | `agentprof-storage` | lib | `sqlite::{schema, migrations, queries}`, `otlp`(feature) | `rusqlite`(bundled), `opentelemetry-otlp`(opt), `tonic`(opt) |
-| `agentprof-tui` | lib | `app::{terminal,event,state,mod}`, `views::{flamegraph, roi, aggregate, format}`, `theme`, `error` — **shipped M1.5** ([`README`](../crates/agentprof-tui/README.md), [ADR-0006](internals/adr-0006-panic-safe-tui.md)) | `ratatui 0.29`, `crossterm 0.28` |
+| `agentprof-tui` | lib | `app` (with AppRunner) + `app::{terminal,event,state}`, `views::{flamegraph, roi, aggregate, format}`, `theme`, `error` — **shipped M1.5** ([`README`](../crates/agentprof-tui/README.md), [ADR-0006](internals/adr-0006-panic-safe-tui.md)) | `ratatui 0.29`, `crossterm 0.28` |
 | `agentprof-cli` | bin (`agentprof`) | `cmd::{analyze, list, aggregate, watch, ingest_otlp, export, config}`, `config`, `main` | `clap`, `tracing`, `tracing-subscriber`, `anyhow`, `directories`, `askama` |
 | `xtask` | bin | `anonymize`, `dist-check`, `release-notes` | `xshell` |
 
