@@ -865,6 +865,15 @@ M1.1 (skeleton, ✅ done) ──┬──→ M1.2 (claude adapter)
 
 ### Milestone 1.6：`list` / `aggregate` / `export` 子命令 + Speedscope/HTML 导出
 
+> **Status (decomposed 2026-05-30):** Original 8-task M1.6 split into smaller milestones:
+> - **M1.6.1 ✅ shipped 2026-05-30**: `list` subcommand + 8 M1.5 audit polish items. See [`docs/superpowers/specs/2026-05-30-m1.6.1-list-and-polish-design.md`](../docs/superpowers/specs/2026-05-30-m1.6.1-list-and-polish-design.md).
+> - **M1.6.2** (future): `aggregate` subcommand (needs `AggregateReport` type design).
+> - **M1.6.3** (future): `watch` subcommand (needs `notify` + concurrency design).
+> - **M1.6.4** (future): Speedscope JSON + HTML report exporters (need pivot-adapted units + HTML asset-bundling decision).
+> - **`export` subcommand** (cancelled): 100% redundant with `analyze --export`; surface removed.
+>
+> Original sub-task tree preserved below for historical context; task 1.6.1 (list) ✅; tasks 1.6.2 / 1.6.4 / 1.6.5 / 1.6.6 / 1.6.7 in future milestones; task 1.6.3 (export) cancelled.
+
 > **状态**：❌ 未开始
 >
 > Phase 1 收口：把跨 session 聚合、单独导出命令、Speedscope + HTML 输出全部补齐。

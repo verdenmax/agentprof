@@ -72,6 +72,30 @@ agentprof analyze --section turn-summary,tool-rank
 
 Set `AGENTPROF_LOG=debug` to enable `tracing` output on stderr.
 
+## `agentprof list`
+
+Discover recent agent sessions in a compact 7-column plain-text table.
+
+```sh
+agentprof list                              # default: --since 7d --limit 20 --agent copilot
+agentprof list --since 30d --limit 50
+agentprof list --since all --root /custom/session-state-dir
+agentprof list --since 24h --limit 5
+```
+
+**Columns:** `ID` / `Started (UTC)` / `Model` / `Turns` / `Out-tokens` / `Duration` / `Size`
+
+**Flags:**
+
+| Flag | Default | Description |
+|---|---|---|
+| `--agent` | `copilot` | Agent whose sessions to list (M1.6.1 supports `copilot` only) |
+| `--root` | adapter default | Override default session-state root |
+| `--since` | `7d` | Filter by mtime; accepts `<N>d/h/m/s` or `all` |
+| `--limit` | `20` | Max sessions shown; `0` = unlimited |
+
+**Error handling:** per-session parse failures degrade gracefully — successful rows still printed; failures summarized to stderr at end. All-failure case exits `DataError` (2).
+
 ## Public interface
 
 This crate produces a binary, not a library. The user-facing protocol is the CLI itself:
@@ -79,12 +103,12 @@ This crate produces a binary, not a library. The user-facing protocol is the CLI
 ```text
 agentprof analyze    [--agent copilot] [--session ...] [--root ...]
                      [--export md|json] [--output ...] [--section ...]    # ✓ shipped (M1.4)
-agentprof list       [--agent ...] [--since 7d]                            # planned (M1.5+)
-agentprof aggregate  [--by tool|mcp-server|day|model] [--since 30d]        # planned (M1.5+)
-agentprof watch      [--agent ...]                                         # planned (M1.5+)
-agentprof ingest-otlp [--listen 0.0.0.0:4317]   # feature: otlp            # planned (M1.5+)
-agentprof export <session> --format ...                                    # planned (M1.5+)
-agentprof config     [show | edit | path]                                  # planned (M1.5+)
+agentprof list       [--agent copilot] [--root ...]
+                     [--since <N>d|h|m|s|all] [--limit N]                 # ✓ shipped (M1.6.1)
+agentprof aggregate  [--by tool|mcp-server|day|model] [--since 30d]        # planned (M1.6.2)
+agentprof watch      [--agent ...]                                         # planned (M1.6.3)
+agentprof ingest-otlp [--listen 0.0.0.0:4317]   # feature: otlp            # planned (Phase 2)
+agentprof config     [show | edit | path]                                  # planned (Phase 2)
 ```
 
 See [`docs/architecture.md`](../../docs/architecture.md) §8 for the canonical specification and exit codes.
