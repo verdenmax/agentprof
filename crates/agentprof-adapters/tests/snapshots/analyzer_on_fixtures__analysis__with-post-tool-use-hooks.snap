@@ -1,0 +1,59 @@
+---
+source: crates/agentprof-adapters/tests/analyzer_on_fixtures.rs
+expression: report
+---
+{
+  "meta": {
+    "id": "00000000-0000-0000-0000-000000002000",
+    "agent": "copilot",
+    "producer": "copilot-agent",
+    "agent_version": "1.0.99-test",
+    "started_at": "2026-05-29T02:00:00Z",
+    "cwd": "/tmp/agentprof-fixture/with-post-tool-use-hooks",
+    "is_live": false
+  },
+  "turn_summary": [
+    {
+      "turn_id": "00000000-0000-0000-0000-000000002003",
+      "started_at": "2026-05-29T02:00:01Z",
+      "duration": 3000,
+      "status": "Completed",
+      "model": "claude-test",
+      "mode": "Interactive",
+      "output_tokens": 19,
+      "tool_call_count": 1,
+      "hook_call_count": 1,
+      "skill_call_count": 0
+    }
+  ],
+  "tool_rank": [
+    {
+      "name": "bash",
+      "source": {
+        "kind": "builtin"
+      },
+      "call_count": 1,
+      "success_count": 1,
+      "failure_count": 0,
+      "orphan_count": 0,
+      "user_requested_count": 0,
+      "total_duration": 1000,
+      "p50_duration": 1000,
+      "p95_duration": 1000,
+      "max_duration": 1000
+    }
+  ],
+  "hook_rank": [
+    {
+      "name": "postToolUse",
+      "call_count": 1,
+      "success_count": 1,
+      "failure_count": 0,
+      "synthesized_start_count": 0,
+      "total_duration": 200,
+      "p50_duration": 200,
+      "p95_duration": 200
+    }
+  ],
+  "warnings": []
+}

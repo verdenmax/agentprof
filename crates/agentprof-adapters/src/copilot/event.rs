@@ -302,6 +302,15 @@ pub struct CodeChanges {
 // -- user / assistant / turn / system payloads --
 
 /// Payload for `user.message`.
+///
+/// **Schema reality (Copilot CLI 1.0.x):** the wire `source` field is _not_
+/// universally present. Real local sessions emit ~50 % of `user.message`
+/// events with no `source` key (e.g. on CLI-typed prompts the field is
+/// simply omitted). Making this `Option<String>` prevents serde from
+/// silently dropping the event with `"missing field source"`.
+///
+/// Locked in by the `with-post-tool-use-hooks` fixture's analogous case for
+/// hooks (same parser-compat bug family).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct UserMessageData {
@@ -314,8 +323,10 @@ pub struct UserMessageData {
         skip_serializing_if = "Option::is_none"
     )]
     pub transformed_content: Option<String>,
-    /// Where the message came from (e.g. `"cli"`, `"sdk"`).
-    pub source: String,
+    /// Where the message came from (e.g. `"cli"`, `"sdk"`). Optional because
+    /// real Copilot CLI 1.0.x omits this on many CLI-typed prompts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
     /// File attachments accompanying the message.
     #[serde(default)]
     pub attachments: Vec<serde_json::Value>,
@@ -381,8 +392,31 @@ pub struct AssistantMessageData {
     #[serde(rename = "interactionId")]
     pub interaction_id: String,
     /// Turn ID this message belongs to.
-    #[serde(rename = "turnId")]
-    pub turn_id: String,
+    ///
+    /// **Schema reality (Copilot CLI 1.0.x):** assistant messages emitted
+    /// _inside_ an `assistant.turn_start/turn_end` block carry `turnId`;
+    /// messages emitted by **subagents** (spawned via `subagent.started`)
+    /// instead carry `parentToolCallId` and have **no `turnId` field**.
+    ///
+    /// In real local sessions ~70 % of assistant messages are subagent
+    /// messages (2 K out of 2.8 K in one inspected session). Making this
+    /// `Option<String>` prevents serde from silently dropping the event
+    /// with `"missing field turnId"`. Downstream `derive_episodes` tracks
+    /// the open Turn via session-level `open_turn_idx`, so this field is
+    /// informational only — its absence doesn't affect attribution.
+    #[serde(rename = "turnId", default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    /// Parent tool-call ID for subagent-spawned messages.
+    ///
+    /// Present when this assistant message was emitted by a subagent that
+    /// was started via a `Task` / `task` tool call (see `subagent.started`
+    /// events). Mutually exclusive with `turn_id` in practice.
+    #[serde(
+        rename = "parentToolCallId",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub parent_tool_call_id: Option<String>,
     /// GitHub-encrypted internal reasoning state (opaque blob).
     #[serde(
         rename = "reasoningOpaque",
@@ -599,8 +633,22 @@ pub struct HookInput {
     pub timestamp: u64,
     /// Working directory at hook time.
     pub cwd: String,
-    /// Origin label (e.g. `startup`, `tool_use`).
-    pub source: String,
+    /// Origin label (e.g. `"new"` for `sessionStart`-style hooks).
+    ///
+    /// **Optional in real Copilot CLI 1.0.x data**: only `sessionStart`
+    /// hooks carry a `source` field. `postToolUse` (and likely future
+    /// `preToolUse`) hooks carry tool-specific fields instead (`toolName`,
+    /// `toolArgs`, `toolResult`) and have no `source`. Making this
+    /// `Option<String>` is required for parser compatibility — verified
+    /// against 2 793 `hook.start` events in a real local session that
+    /// previously failed to parse with "missing field `source`".
+    ///
+    /// Tool-specific fields (`toolName`, `toolArgs`, `toolResult`) on
+    /// `postToolUse` payloads are silently ignored by serde (we don't
+    /// need them — tool execution is captured by `tool.execution_*`
+    /// events directly).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
     /// The initial user prompt for the session, when present.
     #[serde(
         rename = "initialPrompt",
@@ -1276,7 +1324,7 @@ mod payload_name_tests {
             session_id: "s".into(),
             timestamp: 0,
             cwd: "/".into(),
-            source: "tool_use".into(),
+            source: Some("tool_use".into()),
             initial_prompt: None,
         }
     }
@@ -1387,7 +1435,8 @@ mod payload_metadata_tests {
             content: String::new(),
             tool_requests: Vec::new(),
             interaction_id: "i".into(),
-            turn_id: "0".into(),
+            turn_id: Some("0".into()),
+            parent_tool_call_id: None,
             reasoning_opaque: None,
             reasoning_text: None,
             encrypted_content: None,

@@ -59,6 +59,7 @@ fn every_fixture_line_parses_as_copilot_event() {
         "with-mode-transitions",
         "orphan-events",
         "cross-turn-tool",
+        "with-post-tool-use-hooks",
         // NOTE: "corrupt" intentionally contains an unparseable line.
         // NOTE: "live-truncated" intentionally has a truncated tail.
     ];

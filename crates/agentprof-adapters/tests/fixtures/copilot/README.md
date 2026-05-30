@@ -27,6 +27,7 @@ sessions. Per `docs/internals/adr-0003-synthetic-fixture-strategy.md`.
 | `live-truncated/` | No shutdown, inuse.lock, last line partial | FR-1.4, FR-1.9 |
 | `orphan-events/` | Test `derive_episodes` orphan synthesis + abort-without-open paths (M1.3 Phase C) | FR-2.5, FR-2.8 |
 | `cross-turn-tool/` | Lock in ADR-0005 D-2 commit-call-turn-divergence fix: tool spans turn boundary, back-ref lands in start-time turn | FR-1.5, FR-1.6 |
+| `with-post-tool-use-hooks/` | Lock in three real-world Copilot CLI 1.0.x schema-mismatch parser fixes (HookInput.source, UserMessageData.source, AssistantMessageData.turn_id — all now `Option<String>`). Pre-fix dropped ~17% of events in real local sessions | FR-1.8, FR-2.5 |
 
 ## Local smoke tests (developers only)
 

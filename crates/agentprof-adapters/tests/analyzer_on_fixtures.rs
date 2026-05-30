@@ -55,3 +55,7 @@ analyzer_test!(analysis_with_mode_transitions, "with-mode-transitions");
 analyzer_test!(analysis_live_truncated, "live-truncated");
 analyzer_test!(analysis_orphan_events, "orphan-events");
 analyzer_test!(analysis_cross_turn_tool, "cross-turn-tool");
+analyzer_test!(
+    analysis_with_post_tool_use_hooks,
+    "with-post-tool-use-hooks"
+);
