@@ -1,22 +1,28 @@
 //! # agentprof-tui
 //!
 //! Ratatui-based terminal views for **agentprof**: per-session flamegraph,
-//! tool ROI matrix, and cross-session aggregate dashboards.
+//! tool ROI matrix, and per-session aggregate dashboards.
 //!
-//! Depends only on [`agentprof-core`](../agentprof_core/index.html). No other
-//! crate is allowed to depend on `ratatui` or `crossterm` directly.
+//! Depends only on [`agentprof_core`]. No other crate is allowed to depend
+//! on `ratatui` or `crossterm` directly.
 //!
 //! ## Panic safety
 //!
 //! This crate is **forbidden** from panicking at runtime
-//! (see `docs/architecture.md` §16, rule 11). `app::AppRunner` installs a
-//! panic hook that restores the terminal raw mode before re-emitting the
-//! panic, so a crash never leaves the user's shell in an unusable state.
+//! (see `docs/architecture.md` §12.3 / `docs/internals/adr-0006-panic-safe-tui.md`).
+//! Call [`app::terminal::install_panic_hook`] before [`app::terminal::enter`]
+//! to guarantee terminal state is restored even on panic.
 //!
-//! ## Modules (planned)
+//! ## Public surface (M1.5)
 //!
-//! - `app`               — event loop, view switching, terminal lifecycle
-//! - `views::flamegraph` — per-turn token flamegraph
-//! - `views::roi`        — Tool ROI matrix
-//! - `views::aggregate`  — cross-session aggregates
-//! - `theme`             — palette and styling primitives
+//! - [`theme`] — palette + style modifiers
+//! - [`error::TuiError`] — crate-level errors
+//! - [`app::terminal`] — terminal lifecycle (`install_panic_hook`, `enter`, `leave`)
+//! - [`AppRunner`] — top-level event loop / view switcher
+
+pub mod app;
+pub mod error;
+pub mod theme;
+pub mod views;
+
+pub use app::AppRunner;

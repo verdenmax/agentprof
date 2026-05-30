@@ -97,6 +97,10 @@ pub enum ExportFormat {
     Md,
     /// Machine-readable JSON (matches `AnalysisReport` serde shape).
     Json,
+    /// Interactive ratatui TUI (3 views: Flamegraph / Roi / Aggregate).
+    /// Requires a TTY on stdout; otherwise exits with `OutputError` (3).
+    /// `--output` and `--section` are ignored when `--export tui`.
+    Tui,
 }
 
 /// Sections of the report that can be enabled/disabled.
@@ -172,9 +176,32 @@ pub fn run(cmd: AnalyzeCmd) -> Result<()> {
     let episodes = derive_episodes(&raw.events, &raw.meta);
     let report = analyze(&episodes, &raw.meta, &raw.parse_warnings);
 
+    if cmd.export == ExportFormat::Tui {
+        return run_tui(&report, &episodes);
+    }
+
     let rendered = render_report(&report, &cmd)?;
     write_output(&rendered, cmd.output.as_deref())?;
     Ok(())
+}
+
+fn run_tui(report: &AnalysisReport, episodes: &agentprof_core::episode::Episodes) -> Result<()> {
+    use std::io::IsTerminal as _;
+
+    if !std::io::stdout().is_terminal() {
+        return Err(ExitKind::OutputError.into_anyhow(
+            "--export tui requires a TTY on stdout; pipe md or json for headless use \
+             (e.g. `agentprof analyze --export md > report.md`)"
+                .to_string(),
+        ));
+    }
+    agentprof_tui::app::terminal::install_panic_hook();
+    let mut term = agentprof_tui::app::terminal::enter()
+        .map_err(|e| ExitKind::OutputError.into_anyhow(format!("entering tui: {e}")))?;
+    let mut runner = agentprof_tui::AppRunner::new(report, episodes);
+    let res = runner.run(&mut term);
+    let _ = agentprof_tui::app::terminal::leave(&mut term);
+    res.map_err(|e| ExitKind::OutputError.into_anyhow(format!("tui runtime: {e}")))
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref)] // CopilotAdapter is a unit struct today but the Adapter trait API takes &self.
@@ -300,6 +327,8 @@ fn render_report(report: &AnalysisReport, cmd: &AnalyzeCmd) -> Result<String> {
             s.push('\n');
             Ok(s)
         }
+        ExportFormat::Tui => Err(ExitKind::DataError
+            .into_anyhow("internal: render_report called with Tui export".to_string())),
     }
 }
 

@@ -13,6 +13,21 @@ prefix used in commit messages).
 
 ## [Unreleased]
 
+### Fixed
+
+- TUI key bindings: `1`/`2`/`3` now ALWAYS switch view; previously they re-sorted the table when active view was Roi (spec §7 conflict rule), which made it hard to escape RoiView without remembering Tab. Sort keys are now `t`/`c`/`s`/`p` (total / calls / success% / p50), only effective when view == Roi.
+- TUI viewport scroll: `↑` / `↓` in Flamegraph and Roi now auto-scroll the visible window to follow the selected row. Previously the selection could move out of the visible viewport with no visual feedback.
+
+### Added
+
+- `agentprof-tui` crate: first interactive ratatui TUI shipped as M1.5 (`analyze --export tui`).
+  - **FlamegraphView**: per-turn horizontal gantt; segments are tool calls; whitespace = LLM thinking time.
+  - **RoiView**: interactive tool rank with sort cycling (`t`/`c`/`s`/`p` = total / calls / success% / p50); recent-calls detail strip; user-blocking tools (`ask_user`) split into separate sub-table per M1.4 post-output-audit.
+  - **AggregateView**: single-session By-Mode + By-Hook tables.
+  - **Panic-safe terminal lifecycle**: `install_panic_hook` (Once-guarded) → `enter` → `run` → best-effort `leave`. See [ADR-0006](docs/internals/adr-0006-panic-safe-tui.md).
+  - **TTY required**: piping yields `OutputError` (exit 3) with a helpful message; use `--export md` or `--export json` for headless.
+  - References: spec [`2026-05-30-m1.5-tui-design.md`](docs/superpowers/specs/2026-05-30-m1.5-tui-design.md), plan [`2026-05-30-m1.5-tui.md`](docs/superpowers/plans/2026-05-30-m1.5-tui.md).
+
 ### Docs
 
 #### Roadmap / progress sync (`docs(sync)` — 2026-05-30)

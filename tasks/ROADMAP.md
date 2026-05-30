@@ -6,7 +6,7 @@
 > **版本**：1.2
 > **最后更新**：2026-05-30
 > **当前 commit**：`main` HEAD（运行 `git log -1 --oneline` 查看最新）；最近一个重大 milestone merge = `9abd694` (post-output-audit)
-> **当前阶段**：**Phase 0 + 1 (MVP)** — M1.1 / M1.2 / M1.3 / M1.4 ✅ 完成（含 4 轮 M1.4 followups），M1.5–M1.7 待开始
+> **当前阶段**：**Phase 0 + 1 (MVP)** — M1.1 / M1.2 / M1.3 / M1.4 ✅ 完成（含 4 轮 M1.4 followups），**M1.5 ✅ 完成**（TUI + ADR-0006 panic-safe lifecycle），M1.6–M1.7 待开始
 > **下一步入口**：`tasks/001-mvp-agent-token-profiler.md` §10 Milestone 1.5（TUI 火焰图 + ROI 表），走 Stage 1 brainstorming
 >
 > **重大 pivot**（ADR-0001 events-first，详见 §4.1 / §4.2）：M1.2 不再做 ClaudeAdapter，改做 **CopilotAdapter**（real wire data 直接可得）；tokenizer / ROI / waste / aggregate 全部从 M1.3 推迟到 M1.5+。Claude / Codex / Gemini 适配器推迟到 Phase 2 / 3。
@@ -109,8 +109,8 @@ Phase 3   扩展适配：Codex CLI / Copilot CLI / Gemini / Cursor
 | 维度 | 当前状态 |
 |---|---|
 | **Git** | `main` 分支（运行 `git log -1 --oneline` 查看 HEAD）；最近 4 个 milestone merges：M1.4 audit followups + turn-metadata-extraction + mode-vocabulary-alignment + post-output-audit |
-| **Crate** | 5 lib/bin + 1 xtask。`agentprof-core` / `agentprof-adapters` / `agentprof-cli` 已实现到 M1.4；`agentprof-tui` / `agentprof-storage` 仍是 `//!` 骨架（M1.5 / Phase 2） |
-| **Phase** | Phase 0 / Phase 1（MVP），**M1.1 / M1.2 / M1.3 / M1.4 ✅ 完成**，M1.5（TUI）/ M1.6（list+aggregate+export）/ M1.7（release）❌ 未开始 |
+| **Crate** | 5 lib/bin + 1 xtask。`agentprof-core` / `agentprof-adapters` / `agentprof-cli` 已实现到 M1.4；**`agentprof-tui` ✅ M1.5 已交付**（3 视图 + panic-safe lifecycle + 3 insta snapshots，详见 [ADR-0006](../docs/internals/adr-0006-panic-safe-tui.md)）；`agentprof-storage` 仍是 `//!` 骨架（Phase 2） |
+| **Phase** | Phase 0 / Phase 1（MVP），**M1.1 / M1.2 / M1.3 / M1.4 / M1.5 ✅ 完成**，M1.6（list+aggregate+export）/ M1.7（release）❌ 未开始 |
 | **测试** | ~230+ tests pass，含 ~70 个 insta 快照（episode_derive / analyzer_on_fixtures / CLI 集成 / 单元）+ **12** 个 fixture（含 `with-post-tool-use-hooks` 锁定 Copilot CLI 1.0.x 三个 Optional schema 字段的 parser fix） |
 | **CI** | 已配（lint + test matrix + deny + docs + docs-sync + nightly-msrv + release skeleton），未在 GitHub 上运行（remote 未配） |
 | **远端** | 未推（本地 `main` only） |
@@ -120,7 +120,7 @@ Phase 3   扩展适配：Codex CLI / Copilot CLI / Gemini / Cursor
 
 | Phase | 任务文件 | Milestone | 完成度 | Release | 状态 |
 |---|---|---|---|---|---|
-| **0+1 MVP** | 001 | M1.1–M1.7 | 4/7（M1.1 / M1.2 / M1.3 / M1.4 ✅）= **57%** | v0.1.0 | 🟡 In progress |
+| **0+1 MVP** | 001 | M1.1–M1.7 | 5/7（M1.1 / M1.2 / M1.3 / M1.4 / M1.5 ✅）= **71%** | v0.1.0 | 🟡 In progress |
 | **2** | 002 (TBD) | M2.1–M2.x | 0% | v0.2.0 | ⚪ Planned |
 | **3** | 003 (TBD) | M3.1–M3.x | 0% | v1.0.0 | ⚪ Planned |
 | **Beyond** | 004+ (TBD) | — | — | post-1.0 | 💭 Vision |
@@ -137,7 +137,7 @@ Phase 3   扩展适配：Codex CLI / Copilot CLI / Gemini / Cursor
 
 | # | 文件 | 范围 | 状态 | Milestone 完成度 | 计划 release |
 |---|---|---|---|---|---|
-| **001** | [`001-mvp-agent-token-profiler.md`](./001-mvp-agent-token-profiler.md) | **Phase 0 + 1 MVP**：Copilot adapter（pivot from Claude）+ Episode aggregation + CLI `analyze` (md/json) + TUI flamegraph + list/aggregate/export | 🟡 In-Progress | 4/7（M1.1 / M1.2 / M1.3 / M1.4 ✅） | **v0.1.0** |
+| **001** | [`001-mvp-agent-token-profiler.md`](./001-mvp-agent-token-profiler.md) | **Phase 0 + 1 MVP**：Copilot adapter（pivot from Claude）+ Episode aggregation + CLI `analyze` (md/json) + TUI flamegraph + list/aggregate/export | 🟡 In-Progress | 5/7（M1.1 / M1.2 / M1.3 / M1.4 / M1.5 ✅） | **v0.1.0** |
 
 ### 3.2 计划中的 task 文件（占位）
 
@@ -305,13 +305,14 @@ Pre-1.0（即 `0.X.Y`）期间，允许 minor bump 包含 breaking change（但�
 | L-3 | **Turn Summary 无分页**：长 session（745+ turns）一次性吐表，终端 / 富文本编辑器 / GitHub 渲染都比较吃力 | 🟡 MEDIUM | [`docs/superpowers/specs/2026-05-29-post-output-audit-design.md`](../docs/superpowers/specs/2026-05-29-post-output-audit-design.md) §3 "Deferred" | M1.5+（与 TUI 一起；TUI 天然分页） |
 | L-4 | **CLI 仅 `analyze` 子命令**：`list` / `aggregate` / `watch` / `ingest-otlp` / `export` / `config` 全未实现 | 🟡 MEDIUM | [`crates/agentprof-cli/README.md`](../crates/agentprof-cli/README.md) "Public interface" 段 | M1.6 (list/aggregate/export) + Phase 2 (watch/ingest-otlp/config) |
 | L-5 | **无 tokenizer → 无法精确算 token cost / waste**：当前 `output_tokens` 直接读 wire 字段；ROI / 浪费金额、schema_utilization 等 PRD 原 §5.2 卖点全部依赖 tokenizer | 🟡 MEDIUM | [`docs/plan.md`](../docs/plan.md) §6 pivot 备注 + [`tasks/001-mvp-agent-token-profiler.md`](./001-mvp-agent-token-profiler.md) FR-2 表 | M1.5+ 或 Phase 2 |
-| L-6 | **TUI 完全未实现**：`agentprof-tui` 是 `//!` 骨架；报告仅 markdown / JSON 文本 | 🟢 EXPECTED | [`tasks/001-mvp-agent-token-profiler.md`](./001-mvp-agent-token-profiler.md) §10 M1.5 | M1.5 |
+| L-6 | ~~**TUI 完全未实现**~~ → **✅ 已交付 M1.5**（3 视图：FlamegraphView / RoiView / AggregateView，panic-safe lifecycle，3 insta snapshots + 2 CLI tests） | ✅ FIXED | [`crates/agentprof-tui/README.md`](../crates/agentprof-tui/README.md) + [ADR-0006](../docs/internals/adr-0006-panic-safe-tui.md) + [spec](../docs/superpowers/specs/2026-05-30-m1.5-tui-design.md) + [plan](../docs/superpowers/plans/2026-05-30-m1.5-tui.md) | — |
 | L-7 | **无 SQLite 持久化**：每次 `analyze` 都全量解析；跨 session aggregate 无处可存 | 🟢 EXPECTED | [`crates/agentprof-storage/README.md`](../crates/agentprof-storage/README.md) | Phase 2 (M2.1) |
 | L-8 | **只支持 Copilot CLI**：Claude / Codex / Gemini adapter 未实现 | 🟢 EXPECTED | [`crates/agentprof-adapters/README.md`](../crates/agentprof-adapters/README.md) "Supported agents" | Phase 3 (M3.1 Claude / M3.2 Codex) |
 | L-9 | **schema 兼容性只在 1 个 frozen session 验证过**：post-output-audit 在 11 806 行 session 上验证了 17 % → 0 % drop rate，但其它 Copilot CLI 版本、其它 session 风格（如纯 sub-agent / 纯交互式 / 长 plan 模式）可能仍有未发现的 schema 漏洞 | 🟡 MEDIUM | [ADR-0005 §6 "Tests"](../docs/internals/adr-0005-analyzer-and-payload-name.md#update-6-post-output-audit-fixes-parse-warning-visibility-schema-mismatches-user-blocking-split) + 现有 11 个 fixture | 每发现新 schema 漏洞时增加 fixture（持续工作） |
 | L-10 | **`ParseWarning::OutOfOrder` 不带 line_no**：用户看到 "Parse warnings: 1 / OutOfOrder: 1" 后无法快速定位是哪两行时间戳倒置 | 🟢 LOW | `crates/agentprof-core/src/error.rs` `ParseWarning::OutOfOrder` 变体定义 | 视用户反馈，可能 M1.5+ 加 detail |
 | L-11 | **`xtask anonymize` / `xtask audit-pii` 不存在**：fixture / report 的脱敏目前全靠人工 `sed`，没有自动化保护 | 🟡 MEDIUM | [`docs/features/privacy.md`](../docs/features/privacy.md) §5 "Future automation" | 待定（可能 Phase 2 与隐私 flag 一起） |
 | L-12 | **CI 无 `/home/<user>/` grep guard**：意外 commit 真实路径不会被自动拦截 | 🟢 LOW | 同上 §5 | 待定 |
+| L-13 | **Copilot wire 不广播 tool schema 定义**：`session.start` 不含 tools 列表；`tool.execution_start` 只携带 `toolCallId/toolName/arguments/turnId`，没有 `input_schema` / `parameters` 字段 → `schema_utilization` / `waste_usd` / `tokens_per_call` 等 token-cost ROI 指标在 Copilot adapter 上**结构性不可行**，不是 tokenizer 工作量问题 | 🟢 EXPECTED | [`docs/superpowers/specs/2026-05-30-m1.5-tui-design.md`](../docs/superpowers/specs/2026-05-30-m1.5-tui-design.md) §1 ("Empirical Copilot wire limit") | Phase 3 ClaudeAdapter（Claude wire 含 tools array） |
 
 ### 6.2 已确认但未列入 task 文件的未来增强（roadmap-adjacent ideas）
 

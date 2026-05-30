@@ -15,8 +15,10 @@ workspace = true
 agentprof-core = { workspace = true }
 ratatui        = { workspace = true }
 crossterm      = { workspace = true }
+chrono         = { workspace = true }
 thiserror      = { workspace = true }
 tracing        = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }
+agentprof-adapters = { workspace = true }

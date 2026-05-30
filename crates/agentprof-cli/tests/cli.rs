@@ -251,3 +251,37 @@ fn analyze_minimal_fixture_populates_turn_metadata_in_json() {
         "Turn.output_tokens must come from assistant.message.data.output_tokens"
     );
 }
+
+#[test]
+fn analyze_export_tui_flag_parses_and_short_circuits_under_non_tty() {
+    // `assert_cmd` redirects stdout — so the spawned binary sees a non-tty
+    // stdout and must exit with OutputError (3) plus a helpful message
+    // before attempting to enter raw mode.
+    Command::cargo_bin("agentprof")
+        .unwrap()
+        .args(["analyze", "--session"])
+        .arg(cross_turn_path())
+        .args(["--export", "tui"])
+        .assert()
+        .failure()
+        .code(3)
+        .stderr(contains("requires a TTY"));
+}
+
+#[test]
+fn analyze_export_value_help_lists_tui() {
+    // Sanity: `--help` text mentions 'tui' as a valid value.
+    let out = Command::cargo_bin("agentprof")
+        .unwrap()
+        .args(["analyze", "--help"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let s = String::from_utf8(out).unwrap();
+    assert!(
+        s.contains("tui"),
+        "expected --help to list 'tui' as --export value, got:\n{s}"
+    );
+}

@@ -104,6 +104,69 @@ pub struct ToolRankRow {
     pub is_user_blocking: bool,
 }
 
+impl ToolRankRow {
+    /// Explicit constructor for cross-crate test code (TUI render / sort
+    /// tests). Production callers should consume [`tool_rank`] output.
+    ///
+    /// Bypasses the `#[non_exhaustive]` struct-literal restriction so
+    /// `agentprof-tui` tests can build synthetic rows. Adding a field to
+    /// `ToolRankRow` is a breaking change for callers of this constructor —
+    /// that breakage is the desired signal.
+    ///
+    /// `is_user_blocking` is computed from [`USER_BLOCKING_TOOLS`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::analyzer::ToolRankRow;
+    /// use agentprof_core::model::ToolSource;
+    /// use chrono::Duration;
+    ///
+    /// let row = ToolRankRow::new(
+    ///     "bash".into(),
+    ///     ToolSource::Builtin,
+    ///     1, 1, 0, 0, 0,
+    ///     Duration::milliseconds(10),
+    ///     Duration::milliseconds(10),
+    ///     Duration::milliseconds(10),
+    ///     Duration::milliseconds(10),
+    /// );
+    /// assert_eq!(row.name, "bash");
+    /// ```
+    #[doc(hidden)]
+    #[must_use]
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        name: String,
+        source: ToolSource,
+        call_count: usize,
+        success_count: usize,
+        failure_count: usize,
+        orphan_count: usize,
+        user_requested_count: usize,
+        total_duration: Duration,
+        p50_duration: Duration,
+        p95_duration: Duration,
+        max_duration: Duration,
+    ) -> Self {
+        let is_user_blocking = USER_BLOCKING_TOOLS.contains(&name.as_str());
+        Self {
+            name,
+            source,
+            call_count,
+            success_count,
+            failure_count,
+            orphan_count,
+            user_requested_count,
+            total_duration,
+            p50_duration,
+            p95_duration,
+            max_duration,
+            is_user_blocking,
+        }
+    }
+}
+
 /// Compute per-tool rank rows, sorted by `total_duration` descending.
 ///
 /// Tools with zero calls are omitted from the output. Iteration order

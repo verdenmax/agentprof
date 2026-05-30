@@ -1,9 +1,9 @@
 # PRD: agentprof MVP —— AI Agent Token Profiler
 
 > **文件名**：`tasks/001-mvp-agent-token-profiler.md`
-> **版本**：1.1
+> **版本**：1.2
 > **创建日期**：2026-05-25 · **最后更新**：2026-05-30
-> **状态**：**In-Progress — M1.1 / M1.2 / M1.3 / M1.4 ✅ 已交付**（4/7 = 57 %）；M1.5（TUI）/ M1.6（list+aggregate+export）/ M1.7（release）❌ 未开始
+> **状态**：**In-Progress — M1.1 / M1.2 / M1.3 / M1.4 / M1.5 ✅ 已交付**（5/7 = 71 %）；M1.6（list+aggregate+export）/ M1.7（release）❌ 未开始
 > **当前 commit**：`main` HEAD（`git log -1 --oneline`）；最近一个重大 milestone merge = `9abd694` (post-output-audit)
 >
 > **重大 pivot（ADR-0001 events-first）**：M1.2 不做 ClaudeAdapter，改做 **CopilotAdapter**（real wire data 直接可得）。Tokenizer / ROI / waste / aggregate 全部从 M1.3 推迟到 M1.5+ 或 Phase 2。FR-2（Tokenizer）/ FR-6（Speedscope/HTML/CSV）/ FR-7（Config + Storage）目前完成度 0%，**这是 pivot 的预期行为**，不是落后。
@@ -802,7 +802,9 @@ M1.1 (skeleton, ✅ done) ──┬──→ M1.2 (claude adapter)
 
 ### Milestone 1.5：`agentprof-tui` —— 火焰图 + ROI 表（Phase 1 重点）
 
-> **状态**：❌ 未开始
+**Status:** ✅ shipped 2026-05-30 — see [`docs/superpowers/specs/2026-05-30-m1.5-tui-design.md`](../docs/superpowers/specs/2026-05-30-m1.5-tui-design.md) for the events-first refresh that supersedes this section's pre-pivot sub-tasks (tokenizer / RoiScore-5★ / cross-session aggregate are now Phase 3 / M1.6). Panic-safe lifecycle contract: [ADR-0006](../docs/internals/adr-0006-panic-safe-tui.md).
+
+> **状态**：~~❌ 未开始~~ → ✅ shipped 2026-05-30（见上方 **Status** 行）
 >
 > ratatui 三视图（flamegraph / roi / aggregate），TUI 内绝不 panic（终端 raw mode 恢复）。
 > 关联 FR：FR-4.1 ~ FR-4.7 | 关联 US：US-3
