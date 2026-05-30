@@ -34,6 +34,7 @@
 | [`tasks/ROADMAP.md`](./ROADMAP.md) | **项目总入口**（本文件） | **任何人，第一次进项目** |
 | [`docs/plan.md`](../docs/plan.md) | 产品愿景 / 市场现状 / 路线图 | 想了解"为什么做" |
 | [`docs/architecture.md`](../docs/architecture.md) | 代码架构权威（18 节，757 行） | 想动代码 / 想了解"怎么做" |
+| [`tasks/001-mvp-agent-token-profiler.md`](./001-mvp-agent-token-profiler.md) | MVP PRD：US / FR / Milestone / Sub-task 三级粒度（**当前 task**） | 推进 M1.5–M1.7 |
 | [`.github/copilot-instructions.md`](../.github/copilot-instructions.md) | AI 助手必读规则（9 阶段 pipeline） | AI 助手 / 想了解开发流程 |
 | [`README.md`](../README.md) | 用户向（安装 + Quick Start） | 想使用工具的最终用户 |
 | [`CHANGELOG.md`](../CHANGELOG.md) | Keep-a-Changelog 格式 | 想看历史变更 |
@@ -54,10 +55,18 @@
 |---|---|---|
 | 公开 API 文档 | rustdoc `///` + `# Examples` | 每个 `pub fn` / `pub struct` 必有，缺 `# Examples` = CI fail |
 | 算法 / 决策记录 | `docs/internals/<topic>.md`（ADR 风格） | 算法推导、为什么这么做、被否决的方案 |
-| 隐私 / PII | [`docs/internals/privacy-considerations.md`](../docs/internals/privacy-considerations.md) | `agentprof analyze` 输出的 PII 分级表 + 手动脱敏指南 + 计划中的 `--redact` flag |
-| Spec / Plan | `docs/superpowers/specs/YYYY-MM-DD-<topic>-*.md` | brainstorming / writing-plans 产物 |
 
-### 1.4 AI Agent 指南
+### 1.4 Process artifacts（pipeline 产物，不属于 L1/L2/L3 任一）
+
+> 这些是 `brainstorming` / `writing-plans` skill 的产物 —— "**permanent record of original intent**"，原则上 merge 后不再编辑。决策结果会反向落进 ADR (L3) 或 architecture.md (L1)，但 spec / plan 本身保留作历史快照。
+
+| 类别 | 路径 | 内容 |
+|---|---|---|
+| Brainstorming 设计 | `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md` | Stage 1 产物：方案对比、决策理由 |
+| 实施计划 | `docs/superpowers/plans/YYYY-MM-DD-<topic>.md` | Stage 3 产物：multi-step plan + review checkpoints |
+| 隐私 / PII 详情 | [`docs/features/privacy.md`](../docs/features/privacy.md) | 列在 L2 features 但 §6.1 也作为 L-1 限制的详情入口 |
+
+### 1.5 AI Agent 指南
 
 | 文件 | 角色 |
 |---|---|
@@ -66,7 +75,7 @@
 | [`.github/instructions/*.instructions.md`](../.github/instructions/) | 2 个常驻 always-on 规则 |
 | obra/superpowers plugin（全局） | 14 个全局 skill（`~/.copilot/installed-plugins/_direct/obra--superpowers/`） |
 
-### 1.5 Task 文件目录（详见 §3）
+### 1.6 Task 文件目录（详见 §3）
 
 按 `NNN-<scope>.md` 编号，每个文件 = 一个完整的 PRD + 实施计划。
 
@@ -291,7 +300,7 @@ Pre-1.0（即 `0.X.Y`）期间，允许 minor bump 包含 breaking change（但�
 
 | # | 限制 | 严重度 | 详细文档 | 计划修复 |
 |---|---|---|---|---|
-| L-1 | **隐私字段默认裸露**：`agentprof analyze` 输出含 cwd / branch / model 内部名 / session UUID / ~800 turn UUIDs，分享报告前需要手动 `sed`/`jq` 脱敏 | 🔴 HIGH | [`docs/internals/privacy-considerations.md`](../docs/internals/privacy-considerations.md) | M1.5+ `--redact` / `--anonymize` flags（同上文档 §4） |
+| L-1 | **隐私字段默认裸露**：`agentprof analyze` 输出含 cwd / branch / model 内部名 / session UUID / ~800 turn UUIDs，分享报告前需要手动 `sed`/`jq` 脱敏 | 🔴 HIGH | [`docs/features/privacy.md`](../docs/features/privacy.md) | M1.5+ `--redact` / `--anonymize` flags（同上文档 §4） |
 | L-2 | **Subagent token over-attribution**：subagent message（`parentToolCallId` 携带，无 `turnId`）的 `output_tokens` 被算到父 turn — 总数对、per-turn 数偏高 | 🟡 MEDIUM | [ADR-0005 §6 "Side effect"](../docs/internals/adr-0005-analyzer-and-payload-name.md#update-6-post-output-audit-fixes-parse-warning-visibility-schema-mismatches-user-blocking-split) + `crates/agentprof-adapters/tests/fixtures/copilot/with-post-tool-use-hooks/README.md` | M1.5+ 增加 `Turn.subagent_output_tokens` 字段拆分 |
 | L-3 | **Turn Summary 无分页**：长 session（745+ turns）一次性吐表，终端 / 富文本编辑器 / GitHub 渲染都比较吃力 | 🟡 MEDIUM | [`docs/superpowers/specs/2026-05-29-post-output-audit-design.md`](../docs/superpowers/specs/2026-05-29-post-output-audit-design.md) §3 "Deferred" | M1.5+（与 TUI 一起；TUI 天然分页） |
 | L-4 | **CLI 仅 `analyze` 子命令**：`list` / `aggregate` / `watch` / `ingest-otlp` / `export` / `config` 全未实现 | 🟡 MEDIUM | [`crates/agentprof-cli/README.md`](../crates/agentprof-cli/README.md) "Public interface" 段 | M1.6 (list/aggregate/export) + Phase 2 (watch/ingest-otlp/config) |
@@ -301,7 +310,7 @@ Pre-1.0（即 `0.X.Y`）期间，允许 minor bump 包含 breaking change（但�
 | L-8 | **只支持 Copilot CLI**：Claude / Codex / Gemini adapter 未实现 | 🟢 EXPECTED | [`crates/agentprof-adapters/README.md`](../crates/agentprof-adapters/README.md) "Supported agents" | Phase 3 (M3.1 Claude / M3.2 Codex) |
 | L-9 | **schema 兼容性只在 1 个 frozen session 验证过**：post-output-audit 在 11 806 行 session 上验证了 17 % → 0 % drop rate，但其它 Copilot CLI 版本、其它 session 风格（如纯 sub-agent / 纯交互式 / 长 plan 模式）可能仍有未发现的 schema 漏洞 | 🟡 MEDIUM | [ADR-0005 §6 "Tests"](../docs/internals/adr-0005-analyzer-and-payload-name.md#update-6-post-output-audit-fixes-parse-warning-visibility-schema-mismatches-user-blocking-split) + 现有 11 个 fixture | 每发现新 schema 漏洞时增加 fixture（持续工作） |
 | L-10 | **`ParseWarning::OutOfOrder` 不带 line_no**：用户看到 "Parse warnings: 1 / OutOfOrder: 1" 后无法快速定位是哪两行时间戳倒置 | 🟢 LOW | `crates/agentprof-core/src/error.rs` `ParseWarning::OutOfOrder` 变体定义 | 视用户反馈，可能 M1.5+ 加 detail |
-| L-11 | **`xtask anonymize` / `xtask audit-pii` 不存在**：fixture / report 的脱敏目前全靠人工 `sed`，没有自动化保护 | 🟡 MEDIUM | [`docs/internals/privacy-considerations.md`](../docs/internals/privacy-considerations.md) §5 "Future automation" | 待定（可能 Phase 2 与隐私 flag 一起） |
+| L-11 | **`xtask anonymize` / `xtask audit-pii` 不存在**：fixture / report 的脱敏目前全靠人工 `sed`，没有自动化保护 | 🟡 MEDIUM | [`docs/features/privacy.md`](../docs/features/privacy.md) §5 "Future automation" | 待定（可能 Phase 2 与隐私 flag 一起） |
 | L-12 | **CI 无 `/home/<user>/` grep guard**：意外 commit 真实路径不会被自动拦截 | 🟢 LOW | 同上 §5 | 待定 |
 
 ### 6.2 已确认但未列入 task 文件的未来增强（roadmap-adjacent ideas）

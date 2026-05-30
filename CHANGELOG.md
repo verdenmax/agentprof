@@ -127,7 +127,7 @@ classes of fix; one branch; documented in
   section instead of dominating the chart.
 
 **docs — privacy considerations (documentation-only):**
-- New `docs/internals/privacy-considerations.md` documents the PII /
+- New `docs/features/privacy.md` (L2 cross-crate feature doc) documents the PII /
   SII fields in `AnalysisReport` (Unix `cwd`, `branch`, model internal
   names, ~800 turn UUIDs per session) with a tier table + manual
   `sed`/`jq` redaction cheat sheets for both markdown and JSON outputs.

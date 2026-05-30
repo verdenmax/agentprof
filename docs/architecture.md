@@ -248,9 +248,9 @@ pub struct SessionRef {
 
 | Agent | 默认路径 |
 |---|---|
-| Claude Code | `~/.claude/projects/**/*.jsonl` |
-| Codex CLI | `~/.codex/sessions/...`（具体格式以实际抓取为准） |
-| Copilot CLI | `~/.copilot/session-state/`（**TODO**：抓取一份真实日志确认 schema） |
+| Claude Code | `~/.claude/projects/**/*.jsonl`（Phase 3 / M3.1） |
+| Codex CLI | `~/.codex/sessions/...`（Phase 3 / M3.2，具体格式以实际抓取为准） |
+| Copilot CLI | `~/.copilot/session-state/<uuid>/events.jsonl`（M1.2 已实现；schema 详见 [ADR-0002](internals/adr-0002-copilot-event-schema.md) + [ADR-0005 §6](internals/adr-0005-analyzer-and-payload-name.md)） |
 
 可在配置文件中覆盖。
 
@@ -313,15 +313,15 @@ M1.4 引入的纯函数 rollups，消费 `&Episodes` 产出 per-row 分析数据
 
 `AnalysisReport` 是导出层（markdown / JSON 渲染器，未来 TUI / 存储层）共享的稳定结构。所有 `Duration` 字段通过 `duration_ms` / `duration_ms_opt` serde helper 序列化为整型毫秒（per ADR-0004 IMP-007，保证快照稳定）。
 
-**关键算法**：
-- `tool_rank::percentile()` — 排序 + 索引 `round((pct/100) * (len-1))`。空切片 → `Duration::zero()`；单元素 → 返回该元素。
-- `hook_rank` 复用 `tool_rank::percentile`，无重复实现。
-- `commit_tool_call` / `commit_hook_call` 通过 `call.turn_id` + `rposition` 查找把 tool/hook back-reference 归到**开始时所在的 Turn**（不是结束时的 `open_turn_idx`）。修复 commit-call-turn-divergence，确保 cross-turn span 的归属正确。详见 ADR-0005 D-2。
-- `pub const USER_BLOCKING_TOOLS: &[&str] = &["ask_user"]` — 单一真理源，`tool_rank()` 在 row 上 set `is_user_blocking` 让 markdown 渲染器拆分出 `## User-blocking tools` 区（避免用户思考时间冲乱 Tool Rank）。M1.4 post-output-audit (ADR-0005 §6) 引入。
+**关键不变量（L1 视角）**：
+- `tool_rank` / `hook_rank` 都按 `total_duration` 降序；`turn_summary` 保持 `Episodes.turns` 时间序。
+- 所有 `Duration` 字段统一序列化为整型毫秒（ADR-0004 IMP-007，保证快照稳定）。
+- `commit_tool_call` / `commit_hook_call` 把 cross-turn span 归到**开始时所在的 Turn**而非结束时的 `open_turn_idx`（ADR-0005 D-2）。
+- 用户阻塞型 tool（当前仅 `ask_user`，详见 `USER_BLOCKING_TOOLS` 常量）在 `ToolRankRow.is_user_blocking` 上 set true，markdown 渲染器据此拆出独立区，避免用户思考时间冲乱 Tool Rank（ADR-0005 §6）。
 
-详细决策（D-1 / D-2 / D-3 + Update §1–§6）见 [`docs/internals/adr-0005-analyzer-and-payload-name.md`](internals/adr-0005-analyzer-and-payload-name.md)。
+具体算法实现（`percentile()` 的 round-half-up 行为、`rposition` 查找的细节、partition 顺序等）见 rustdoc 与 [ADR-0005 D-1 / D-2 / D-3 + Update §1–§6](internals/adr-0005-analyzer-and-payload-name.md)。
 
-> M1.4 post-output-audit (ADR-0005 §6) 让 `AnalysisReport` 同时携带 parser-stage warnings (`parse_warnings`) 和 derive-stage warnings (`warnings`)；markdown 渲染器在 Warnings 区分两段输出。修了 3 个 Copilot CLI 1.0.x schema 错配字段 (`HookInput.source` / `UserMessageData.source` / `AssistantMessageData.turn_id` 全部 `Option<String>`)，real-session drop rate 17 % → 0 %。隐私考虑参考新增的 [`docs/internals/privacy-considerations.md`](internals/privacy-considerations.md)。
+> M1.4 post-output-audit (ADR-0005 §6) 让 `AnalysisReport` 同时携带 parser-stage warnings (`parse_warnings`) 和 derive-stage warnings (`warnings`)；markdown 渲染器在 Warnings 区分两段输出。修了 3 个 Copilot CLI 1.0.x schema 错配字段 (`HookInput.source` / `UserMessageData.source` / `AssistantMessageData.turn_id` 全部 `Option<String>`)，real-session drop rate 17 % → 0 %。隐私考虑参考 [`docs/features/privacy.md`](features/privacy.md) (PII 分级表 + 手动脱敏指南 + 计划中的 `--redact` flag)。
 
 ---
 

@@ -140,7 +140,7 @@ manually; there is no automated CI guard nor an `xtask anonymize` helper
 
 1. **Never** commit a real `events.jsonl` file. The fixtures in
    `crates/agentprof-adapters/tests/fixtures/copilot/` are
-   **synthetic-only** per [ADR-0003 §3](adr-0003-synthetic-fixture-strategy.md):
+   **synthetic-only** per [ADR-0003 §3](../internals/adr-0003-synthetic-fixture-strategy.md):
    they must use the reserved session UUID range
    `00000000-0000-0000-0000-0000000000NN…NNNN` and the synthetic CWD
    prefix `/tmp/agentprof-fixture/<fixture-slug>`. Reviewers must

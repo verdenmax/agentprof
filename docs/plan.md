@@ -78,9 +78,9 @@
 ```
 
 **数据源位置**：
-- Claude Code: `~/.claude/projects/**/*.jsonl`
-- Codex CLI: `~/.codex/sessions/...`
-- Copilot CLI: TBD（待调研）
+- Claude Code: `~/.claude/projects/**/*.jsonl`（Phase 3）
+- Codex CLI: `~/.codex/sessions/...`（Phase 3）
+- Copilot CLI: `~/.copilot/session-state/<uuid>/events.jsonl`（M1.2 已实现）
 
 ---
 

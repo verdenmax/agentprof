@@ -24,6 +24,12 @@ contents:
 See [`docs/architecture.md`](../architecture.md) §14 for the full L1/L2/L3
 documentation system.
 
+## Current files
+
+| File | Purpose |
+|---|---|
+| [`privacy.md`](./privacy.md) | PII tier table for `AnalysisReport` output fields + manual `sed`/`jq` redaction recipes + planned `--redact` / `--anonymize` CLI flags. Touches `agentprof-core::analyzer` (which fields exist) and `agentprof-cli::cmd::format` (which fields get rendered). |
+
 ## Planned files
 
 - `otlp-receiver.md` — OpenTelemetry receiver spanning storage + cli

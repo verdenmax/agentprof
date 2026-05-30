@@ -6,17 +6,9 @@
 
 This is the **assembly** crate: it depends on every other workspace crate, but **no lib crate is allowed to depend on it**. See [`docs/architecture.md`](../../docs/architecture.md) §3 (dependency rule) and §8 (CLI protocol).
 
-## M1.4 status
+## Status
 
-`agentprof analyze` is **shipped** as of M1.4, with **4 follow-up iterations merged on top**:
-
-| Merge | Highlights |
-|---|---|
-| `feat/m1.4-cli-and-analyzer` | Initial ship: subcommand wiring, md + JSON renderer, exit-code taxonomy. |
-| `fix/m1.4-audit-followups` (`8399bdd`) | 10 audit findings: orphan tool sentinel + `PayloadNameMissing` warning + `looks_like_uuid` strict + Claude/Codex friendly errors + md cell escape + JSON trailing newline. Removed `askama` from this crate (renderer is hand-rolled). |
-| `feat/turn-metadata-extraction` (`010c9af`) | `Event` trait gains 3 payload-* methods; `Turn.model` / `mode` / `output_tokens` actually populated. |
-| `fix/mode-vocabulary-alignment` (`e0318ed`) | `Mode` enum aligned to real Copilot wire: `Interactive` / `Plan` / `Autopilot` / `Unknown(String)`. |
-| `fix/post-output-audit` (`9abd694`) | Three Copilot CLI 1.0.x schema fixes (drop rate 17 % → 0 %) + Session header gains `- Parse warnings: N` line + new `## User-blocking tools` section splits `ask_user` out of the headline Tool Rank + `docs/internals/privacy-considerations.md` ships. |
+`agentprof analyze` is **shipped** (M1.4 + 4 follow-up iterations merged on top). For a per-merge changelog of those followups, see [`CHANGELOG.md`](../../CHANGELOG.md) `[Unreleased]` section. The L2 doc below describes only the **current crate surface**, not the merge history.
 
 Subcommand wiring (current):
 
