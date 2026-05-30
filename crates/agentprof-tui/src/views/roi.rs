@@ -8,7 +8,6 @@
 
 use agentprof_core::analyzer::ToolRankRow;
 use agentprof_core::episode::{Episodes, ToolCallStatus};
-use chrono::Duration;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span as TextSpan};
@@ -16,6 +15,7 @@ use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table};
 use ratatui::Frame;
 
 use crate::app::state::{AppState, SortKey};
+use crate::views::format::human_short;
 
 /// Apply a [`SortKey`] to a slice of rows, returning a freshly sorted Vec.
 ///
@@ -280,20 +280,6 @@ fn source_label(src: &agentprof_core::model::ToolSource) -> String {
         TS::Mcp { server } => format!("mcp/{server}"),
         TS::Skill { name } => format!("skill/{name}"),
         _ => "?".to_string(),
-    }
-}
-
-#[allow(clippy::cast_precision_loss)]
-fn human_short(d: Duration) -> String {
-    let ms = d.num_milliseconds();
-    if ms < 1000 {
-        format!("{ms}ms")
-    } else if ms < 60_000 {
-        format!("{:.1}s", ms as f64 / 1000.0)
-    } else if ms < 3_600_000 {
-        format!("{:.1}m", ms as f64 / 60_000.0)
-    } else {
-        format!("{:.1}h", ms as f64 / 3_600_000.0)
     }
 }
 

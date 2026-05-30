@@ -51,4 +51,5 @@ impl View {
 // Submodules added by T3–T5.
 pub mod aggregate;
 pub mod flamegraph;
+pub mod format;
 pub mod roi;

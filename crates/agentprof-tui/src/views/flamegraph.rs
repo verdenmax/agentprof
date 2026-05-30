@@ -17,6 +17,7 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
 use crate::app::state::AppState;
+use crate::views::format::human_short;
 
 /// Pure-math layout helper for `render`.
 ///
@@ -237,20 +238,6 @@ fn build_styled_cells<'a>(buf: &[char]) -> Vec<TextSpan<'a>> {
     )]
 }
 
-#[allow(clippy::cast_precision_loss)]
-fn human_short(d: Duration) -> String {
-    let ms = d.num_milliseconds();
-    if ms < 1000 {
-        format!("{ms}ms")
-    } else if ms < 60_000 {
-        format!("{:.1}s", ms as f64 / 1000.0)
-    } else if ms < 3_600_000 {
-        format!("{:.1}m", ms as f64 / 60_000.0)
-    } else {
-        format!("{:.1}h", ms as f64 / 3_600_000.0)
-    }
-}
-
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -289,13 +276,5 @@ mod tests {
         let t10 = t0 + Duration::seconds(10);
         let segs = segment_layout(t0, t10, &[(t0, t10, 0)], 0);
         assert!(segs.is_empty());
-    }
-
-    #[test]
-    fn human_short_formats_each_bucket() {
-        assert_eq!(human_short(Duration::milliseconds(500)), "500ms");
-        assert_eq!(human_short(Duration::seconds(3)), "3.0s");
-        assert_eq!(human_short(Duration::seconds(90)), "1.5m");
-        assert_eq!(human_short(Duration::seconds(5400)), "1.5h");
     }
 }
