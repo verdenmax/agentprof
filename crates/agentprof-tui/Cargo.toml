@@ -19,4 +19,5 @@ thiserror      = { workspace = true }
 tracing        = { workspace = true }
 
 [dev-dependencies]
-insta = { workspace = true }
+insta  = { workspace = true }
+chrono = { workspace = true }

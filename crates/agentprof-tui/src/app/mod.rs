@@ -1,7 +1,9 @@
-//! Application runtime stub.
+//! Event loop, view switching, terminal lifecycle.
 //!
-//! Full `AppRunner` (state machine + event loop) lands in T6. T1 only
-//! ships [`terminal`] (panic-safe terminal lifecycle) so downstream tasks
-//! have a stable entry/leave contract to build on.
+//! See [`terminal`] for the panic-safe `enter`/`leave` pair, [`event`] for
+//! the input event abstraction, and [`state`] for the pure-logic state
+//! machine. The `AppRunner` wiring lives in T6.
 
+pub mod event;
+pub mod state;
 pub mod terminal;

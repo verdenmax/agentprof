@@ -24,3 +24,4 @@
 pub mod app;
 pub mod error;
 pub mod theme;
+pub mod views;

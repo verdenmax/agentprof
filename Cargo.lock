@@ -80,6 +80,7 @@ name = "agentprof-tui"
 version = "0.1.0"
 dependencies = [
  "agentprof-core",
+ "chrono",
  "crossterm",
  "insta",
  "ratatui",
