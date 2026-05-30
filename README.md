@@ -155,6 +155,43 @@ For repository structure and crate boundaries, see
 
 ---
 
+## TUI (M1.5)
+
+`agentprof analyze --export tui` opens an interactive ratatui terminal UI on top of the same `AnalysisReport` the markdown / JSON exporters consume. Three views, all driven from one session:
+
+**FlamegraphView (`1`):** Per-turn horizontal gantt; each row is one turn; segments are tool calls; whitespace = LLM thinking time.
+
+```
+┌─ Flamegraph (1/3) ───────────────────────────────────────────────┐
+│   T1   9.6s  ██████████████░░                                    │
+│   T2   4.7s  ██████░░                                            │
+│   T3  11.6s  ██████████████████████░ (1 FAIL)                    │
+│ ...                                                              │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+**RoiView (`2`):** Interactive tool rank; press `1`/`2`/`3`/`4` to cycle sort key. User-blocking tools (e.g. `ask_user`) split into a separate sub-table so think time doesn't skew the headline rank.
+
+```
+┌─ RoiView (2/3) — Sort: [1]total  2=calls  3=success%  4=p50 ────┐
+│ #  Tool       Source   Calls  OK  Fail   Total    p50           │
+│ 1  bash       builtin   1641 1641   0    57.4m   12ms           │
+│ 2  task       builtin    137  137   0    4.90h   3.2s           │
+│ ─ User-blocking (user think time) ─────────────────────────────  │
+│    ask_user   builtin     61   61   0    69.4h                  │
+│ ─ Selected: bash ───────────────────────────────────────────── │
+│   t-1 (609ms✓)  t-3 (1.2s✓)  t-7 (412ms✓)  t-12 (FAIL✗)         │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**AggregateView (`3`):** Single-session breakdown — By Mode (interactive / plan / autopilot) + By Hook.
+
+Key bindings: `1`/`2`/`3` switch view, `Tab` cycles, `↑`/`↓` selects, `?` opens help, `q` quits.
+
+Requires a TTY on stdout; piping yields `OutputError` (exit 3) with a helpful message. See [`crates/agentprof-tui/README.md`](crates/agentprof-tui/README.md) and [ADR-0006](docs/internals/adr-0006-panic-safe-tui.md) for the panic-safe lifecycle.
+
+---
+
 ## License
 
 Dual-licensed under either of

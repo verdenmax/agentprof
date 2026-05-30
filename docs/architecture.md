@@ -91,7 +91,7 @@ agentprof-cli  ──▶  agentprof-tui
 | `agentprof-core` | lib | `model`, `tokenizer`, `analyzer`, `export`, `error` | `serde`, `serde_json`, `tiktoken-rs`, `chrono`, `thiserror`, `reqwest`(opt, feature `anthropic-api`) |
 | `agentprof-adapters` | lib | `claude`, `codex`, `copilot`, `registry`, `discovery` | `serde_json`, `walkdir`, `globset` |
 | `agentprof-storage` | lib | `sqlite::{schema, migrations, queries}`, `otlp`(feature) | `rusqlite`(bundled), `opentelemetry-otlp`(opt), `tonic`(opt) |
-| `agentprof-tui` | lib | `app`, `views::{flamegraph, roi, aggregate}`, `theme` | `ratatui`, `crossterm` |
+| `agentprof-tui` | lib | `app::{terminal,event,state,mod}`, `views::{flamegraph, roi, aggregate, format}`, `theme`, `error` — **shipped M1.5** ([`README`](../crates/agentprof-tui/README.md), [ADR-0006](internals/adr-0006-panic-safe-tui.md)) | `ratatui 0.29`, `crossterm 0.28` |
 | `agentprof-cli` | bin (`agentprof`) | `cmd::{analyze, list, aggregate, watch, ingest_otlp, export, config}`, `config`, `main` | `clap`, `tracing`, `tracing-subscriber`, `anyhow`, `directories`, `askama` |
 | `xtask` | bin | `anonymize`, `dist-check`, `release-notes` | `xshell` |
 
@@ -852,7 +852,7 @@ todo        = "warn"
 | Phase | 启用的 crate / feature | 里程碑 | 状态 |
 |---|---|---|---|
 | **Phase 0** prototype | `agentprof-core` + `agentprof-adapters::copilot` + `agentprof-cli`（只 `analyze --export md\|json`） | events.jsonl → markdown 报告跑通 | ✅ M1.1–M1.4 已交付 |
-| **Phase 1** MVP | + `agentprof-tui`（火焰图 + ROI 表）+ `analyze --export tui` + `list` / `aggregate` 子命令 | TUI 可交互 + 跨 session 聚合 | 🟡 M1.5–M1.7 进行中 |
+| **Phase 1** MVP | + `agentprof-tui`（火焰图 + ROI 表）+ `analyze --export tui` + `list` / `aggregate` 子命令 | TUI 可交互 + 跨 session 聚合 | 🟡 M1.5 ✅ shipped（[ADR-0006](internals/adr-0006-panic-safe-tui.md)）；M1.6–M1.7 进行中 |
 | **Phase 2** 工程化 | + `agentprof-storage`（SQLite + 持久化）+ `ingest-otlp` 子命令（启用 `otlp` feature）+ tokenizer + ROI + waste estimation | 跨 session 数据库 + 实时 OTLP + 精确 token 成本 | ❌ 未开始 |
 | **Phase 3** 多 agent | + `agentprof-adapters::claude` + `agentprof-adapters::codex` (+ 可选 Gemini) | 三 agent 全支持 | ❌ 未开始 |
 

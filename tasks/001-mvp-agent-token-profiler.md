@@ -802,6 +802,8 @@ M1.1 (skeleton, ✅ done) ──┬──→ M1.2 (claude adapter)
 
 ### Milestone 1.5：`agentprof-tui` —— 火焰图 + ROI 表（Phase 1 重点）
 
+**Status:** ✅ shipped 2026-05-30 — see [`docs/superpowers/specs/2026-05-30-m1.5-tui-design.md`](../docs/superpowers/specs/2026-05-30-m1.5-tui-design.md) for the events-first refresh that supersedes this section's pre-pivot sub-tasks (tokenizer / RoiScore-5★ / cross-session aggregate are now Phase 3 / M1.6). Panic-safe lifecycle contract: [ADR-0006](../docs/internals/adr-0006-panic-safe-tui.md).
+
 > **状态**：❌ 未开始
 >
 > ratatui 三视图（flamegraph / roi / aggregate），TUI 内绝不 panic（终端 raw mode 恢复）。

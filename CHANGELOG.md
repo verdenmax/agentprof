@@ -13,6 +13,10 @@ prefix used in commit messages).
 
 ## [Unreleased]
 
+### Added
+
+- `agentprof-tui` crate: first interactive ratatui TUI (`analyze --export tui`) with three views — FlamegraphView (per-turn gantt), RoiView (interactive tool rank with sort cycling + recent-calls detail strip), AggregateView (single-session By-Mode + By-Hook). Panic-safe terminal lifecycle (ADR-0006). Requires a TTY on stdout; non-tty exits with `OutputError` (3) and a helpful message. (#M1.5, spec [`2026-05-30-m1.5-tui-design.md`](docs/superpowers/specs/2026-05-30-m1.5-tui-design.md), plan [`2026-05-30-m1.5-tui.md`](docs/superpowers/plans/2026-05-30-m1.5-tui.md), ADR [`adr-0006-panic-safe-tui.md`](docs/internals/adr-0006-panic-safe-tui.md))
+
 ### Docs
 
 #### Roadmap / progress sync (`docs(sync)` — 2026-05-30)
