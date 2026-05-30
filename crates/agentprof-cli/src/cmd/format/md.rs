@@ -142,13 +142,22 @@ fn write_tool_rank(out: &mut String, report: &AnalysisReport) {
         let _ = writeln!(out);
         return;
     }
-    let _ = writeln!(
-        out,
-        "| Tool | Source | Calls | OK | Fail | Orphan | User-req | Total | p50 | p95 | Max |"
-    );
-    let _ = writeln!(out, "|---|---|---|---|---|---|---|---|---|---|---|");
-    for row in &work {
-        write_tool_row(out, row);
+    if work.is_empty() {
+        // Defensive corner case: only user-blocking tools were used. Avoid
+        // rendering an empty work-tools table under the headline section.
+        let _ = writeln!(
+            out,
+            "_(no agent / machine-time tools recorded — see User-blocking tools below)_"
+        );
+    } else {
+        let _ = writeln!(
+            out,
+            "| Tool | Source | Calls | OK | Fail | Orphan | User-req | Total | p50 | p95 | Max |"
+        );
+        let _ = writeln!(out, "|---|---|---|---|---|---|---|---|---|---|---|");
+        for row in &work {
+            write_tool_row(out, row);
+        }
     }
     let _ = writeln!(out);
 

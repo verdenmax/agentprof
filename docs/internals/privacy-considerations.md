@@ -46,7 +46,7 @@ information (SII), graded by sensitivity.
 | `meta.cwd` | 🔴 HIGH | `/home/verden/pfind/2026-spring/code/agentprof` | Leaks Unix username + project path layout |
 | `meta.branch` | 🔴 HIGH | `feat/internal-secret-feature` | Leaks branch naming conventions + WIP feature codenames |
 | `meta.model` (inside `turn_summary[i].model`) | 🔴 HIGH | `claude-opus-4.7-1m-internal` | Identifies internal / preview model access |
-| `meta.session_id` | 🔴 HIGH | `252068e5-ca16-4186-a181-719462643d83` | Persistent UUID, cross-references local session-state dir |
+| `meta.id` | 🔴 HIGH | `252068e5-ca16-4186-a181-719462643d83` | Persistent UUID, cross-references local session-state dir |
 | `turn_summary[i].turn_id` | 🔴 HIGH | full UUIDs per turn | ≈ 800 UUIDs per session, allow cross-session correlation |
 
 ### Tier 🟡 MEDIUM — fingerprint of toolchain / habits
@@ -104,7 +104,7 @@ agentprof analyze --agent copilot --session <id> --export json \
   | jq '
       .meta.cwd            = "<redacted>" |
       .meta.branch         = "<redacted>" |
-      .meta.session_id     = "<uuid>" |
+      .meta.id             = "<uuid>" |
       .turn_summary       |= map(.turn_id = "<uuid>" | .model = "<model>")
     ' \
   > report-redacted.json
@@ -133,20 +133,39 @@ Tracked in: future M1.5+ milestone (see `docs/plan.md` roadmap).
 
 ## 5. Defense in depth — workspace conventions
 
-For repository contributors:
+For repository contributors. **Note: enforcement is currently by-convention
+only.** The items below describe what reviewers and committers should check
+manually; there is no automated CI guard nor an `xtask anonymize` helper
+(both are planned for future milestones — see issue tracker).
 
 1. **Never** commit a real `events.jsonl` file. The fixtures in
    `crates/agentprof-adapters/tests/fixtures/copilot/` are
-   **synthetic-only** (ADR-0003), and the `xtask anonymize` helper
-   refuses to run on session UUIDs outside the
-   `00000000-0000-0000-0000-0000000000NN` reserved range.
+   **synthetic-only** per [ADR-0003 §3](adr-0003-synthetic-fixture-strategy.md):
+   they must use the reserved session UUID range
+   `00000000-0000-0000-0000-0000000000NN…NNNN` and the synthetic CWD
+   prefix `/tmp/agentprof-fixture/<fixture-slug>`. Reviewers must
+   verify this by reading every new fixture; nothing in CI currently
+   enforces it.
 2. **Never** commit a real `agentprof analyze` report under `docs/`.
-   For documentation that needs a sample report, use the
-   `with-mcp-calls/` or `cross-turn-tool/` fixture (the only ones whose
-   `cwd` is `/tmp/agentprof-fixture/...`).
-3. CI guards: the `cargo deny check` step in `.github/workflows/ci.yml`
-   matches the regex `/home/[^/[:space:]]+/` in changed files — any
-   path containing a real Unix home directory triggers a build fail.
+   For documentation that needs a sample report, generate one from a
+   fixture (the only ones whose `cwd` is `/tmp/agentprof-fixture/...`).
+   Reviewers must spot-check any new committed report; nothing in CI
+   currently enforces it.
+3. **Privacy regression watch.** Any PR that touches
+   `crates/agentprof-core/src/analyzer/` or
+   `crates/agentprof-cli/src/cmd/format/` should be checked against
+   §2 above to confirm no new field surfaced from the wire layer is
+   carrying user content (prompts, tool args, tool results, assistant
+   text, reasoning text). The only safe additions are timings,
+   counts, status enums, and tool/hook/skill names from the public
+   vocabulary.
+
+Future automation tracked in roadmap:
+- An `xtask audit-pii <report.json>` command that flags 🔴 HIGH fields
+  in any report.
+- A CI step that grep-fails any committed file containing a `/home/<word>/`
+  path (the most common accidental PII leak).
+- A pre-commit hook that scans new fixture files for non-reserved UUIDs.
 
 ## 6. Reporting a leak
 

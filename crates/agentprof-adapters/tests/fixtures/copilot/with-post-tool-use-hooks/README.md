@@ -35,10 +35,33 @@ After the fix:
 - `Episodes.tools["bash"].calls.len() == 1` (status `Success`).
 - `Episodes.hooks["postToolUse"].calls.len() == 1`, `synthesized_start == false`, `total_duration ≈ 200ms`.
   Pre-fix this was `synthesized_start = true, total = 0ms` (the hook.start was dropped and only orphan hook.end survived).
-- `Episodes.turns[0].output_tokens == Some(7)` — only the in-turn assistant.message contributes;
-  the subagent message (parent_tool_call_id set, no turn_id) is correctly ignored by `derive_episodes::on_assistant_message`,
-  which keys on `open_turn_idx`. The token count `12` from the subagent message is in the event stream but not attributed to any Turn, which matches FR-8 (data anomaly silently ignored).
+- `Episodes.turns[0].output_tokens == Some(19)` — both assistant messages contribute:
+  the in-turn message's `7` plus the subagent message's `12`. See "Subagent attribution"
+  below for why.
 - `Episodes.warnings.len() == 0` — no derive warnings.
+
+## Subagent attribution (intentional, with caveat)
+
+`derive_episodes::on_assistant_message` writes `output_tokens` to whichever
+`Turn` is currently open (`open_turn_idx`), without checking the payload's
+`turn_id` / `parent_tool_call_id`. The reason: subagents that are spawned by
+a `task` tool call execute *while the parent turn is still open*, so their
+token usage is correctly attributable to the parent turn from a ROI
+perspective ("this turn caused those tokens"). Hence the `Some(19)`
+expectation in this fixture rather than `Some(7)`.
+
+**Caveat — side-effect of this fix.** Before the post-output-audit T1 fix,
+subagent assistant messages were silently dropping at parse (missing
+`turnId` field), so they never reached `on_assistant_message` and never
+inflated any turn's token count. After the fix they parse cleanly and
+*do* inflate the parent turn's `output_tokens` by the subagent's
+contribution. In a real session with ~2 K subagent messages, per-main-turn
+`output_tokens` therefore increase. This is **closer to reality**, but
+users comparing pre-fix and post-fix reports will see counts go up.
+
+A future enhancement (not in this branch; tracked for M1.5+) may add a
+`Turn.subagent_output_tokens: Option<u32>` field so the two sources can
+be shown separately in the renderer.
 
 ## Conventions
 

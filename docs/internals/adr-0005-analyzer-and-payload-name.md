@@ -282,10 +282,12 @@ fn payload_mode(&self) -> Option<&str> { None }
 
 **Context.** A 2026-05-29 audit of `agentprof analyze` against a real live Copilot CLI 1.0.54 session (11 806 lines) found three classes of issue that this Update closes:
 
-1. **24 % of events were silently dropping at the parser layer.** Real Copilot CLI 1.0.x emits multiple wire shapes for some event types:
+1. **~17 % of events were silently dropping at the parser layer.** Real Copilot CLI 1.0.x emits multiple wire shapes for some event types:
    - `hook.start` for `postToolUse` hooks has no `source` field (only `sessionStart`-style hooks do); the `HookInput.source: String` required field caused 779 / 779 (100 %) of `postToolUse` hooks to drop, surfacing as `synthesized_start = true, total_duration = 0ms` for the entire hook category in the Tool Rank.
    - `user.message` emitted by some CLI-typed prompts has no `source` field (46 % drop rate).
    - `assistant.message` emitted by **subagents** (spawned via `subagent.started` events) carry `parentToolCallId` instead of `turnId`; the `AssistantMessageData.turn_id: String` required field caused 1 995 / 2 789 (71 %) of assistant messages to drop, with all subagent token usage invisible.
+
+   The earliest scan ran while the session was still live and saw ~24 % drops; the final measurement at branch HEAD on a frozen copy was 17 %. The audit doc uses 17 % as the canonical number for this Update.
 
 2. **`ParseWarning`s were collected by the loader but never surfaced in the report.** Users had no way to know their session had 17 % of events dropping — the report just showed missing hooks / under-counted tokens. This breaks the FR-1.8 contract (parse warnings must be user-visible).
 
@@ -293,7 +295,23 @@ fn payload_mode(&self) -> Option<&str> { None }
 
 **Decision.**
 
-For (1): all three required `String` fields become `Option<String>` with `#[serde(default, skip_serializing_if = "Option::is_none")]`. The new `AssistantMessageData.parent_tool_call_id: Option<String>` field is added for subagent visibility. A new fixture `with-post-tool-use-hooks/` locks the regression (10 events covering all three schema variants + an in-turn-message regression case). This is a **conservative widening** — downstream `derive_episodes` never reads these fields (it uses session-level `open_turn_idx` for attribution), so episode / analyzer output is unchanged for events that did parse before, and now also includes the previously-dropped ones.
+For (1): all three required `String` fields become `Option<String>` with `#[serde(default, skip_serializing_if = "Option::is_none")]`. The new `AssistantMessageData.parent_tool_call_id: Option<String>` field is added for subagent visibility. A new fixture `with-post-tool-use-hooks/` locks the regression (10 events covering all three schema variants + an in-turn-message regression case). This is a **conservative widening** for events the parser already saw before, but it has one side effect worth calling out:
+
+> **Side effect: subagent token attribution.** Before this fix, subagent
+> `assistant.message` events were silently dropping at the parser layer,
+> so their token counts never reached `derive_episodes::on_assistant_message`
+> and never contributed to any `Turn.output_tokens`. After the fix they
+> parse cleanly and *do* contribute. `on_assistant_message` writes to
+> whichever turn is open (`open_turn_idx`) without checking the payload's
+> `turn_id` / `parent_tool_call_id`, so subagent tokens are attributed to
+> the parent turn that spawned them. This is **closer to reality** (the
+> turn did cause those tokens to be produced), but users comparing pre-
+> and post-fix reports will see per-turn `output_tokens` go up for any
+> turn that contains a `task` tool call. The `with-post-tool-use-hooks`
+> fixture locks `output_tokens == 19` (= main 7 + subagent 12) as the
+> expected behavior.
+
+A future enhancement (tracked for M1.5+) may split this into separate `Turn.output_tokens` (main) and `Turn.subagent_output_tokens` (subagent-spawned) fields so renderers can show the breakdown without losing the unified total.
 
 For (2): `AnalysisReport` gains a `parse_warnings: Vec<ParseWarning>` field; `analyze()` signature becomes `analyze(&Episodes, &SessionMeta, &[ParseWarning]) -> AnalysisReport`. The markdown renderer's `Session` block gains a `- Parse warnings: N` line, and the `Warnings` section adds a parse-stage breakdown (Json / Io / OutOfOrder counts) *before* the existing derive-stage breakdown. JSON contract is additive: `#[serde(default, skip_serializing_if = "Vec::is_empty")]` keeps old empty reports byte-identical and old JSON deserializable. `ParseWarning` also gains `PartialEq + Eq` (needed for round-trip + test assertions, was previously omitted by oversight).
 
