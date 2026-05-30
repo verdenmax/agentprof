@@ -79,6 +79,7 @@ dependencies = [
 name = "agentprof-tui"
 version = "0.1.0"
 dependencies = [
+ "agentprof-adapters",
  "agentprof-core",
  "chrono",
  "crossterm",

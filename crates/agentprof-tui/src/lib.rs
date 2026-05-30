@@ -18,10 +18,11 @@
 //! - [`theme`] — palette + style modifiers
 //! - [`error::TuiError`] — crate-level errors
 //! - [`app::terminal`] — terminal lifecycle (`install_panic_hook`, `enter`, `leave`)
-//!
-//! `AppRunner` ships in T6; per-view rendering ships in T3–T5.
+//! - [`AppRunner`] — top-level event loop / view switcher
 
 pub mod app;
 pub mod error;
 pub mod theme;
 pub mod views;
+
+pub use app::AppRunner;
