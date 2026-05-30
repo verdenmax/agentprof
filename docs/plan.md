@@ -115,13 +115,14 @@ playwright.click   |   1240        |   0   |     ∞ (waste)   | ✗ kill
 
 ## 6. 实施路径
 
-> **进度同步（2026-05-30）**：MVP **4/7 milestone 完成**（M1.1 ✅ skeleton / M1.2 ✅ Copilot adapter / M1.3 ✅ Episode aggregation / M1.4 ✅ CLI `analyze` 含 4 轮 followups）。详见 [`tasks/ROADMAP.md`](../tasks/ROADMAP.md) 和 [`CHANGELOG.md`](../CHANGELOG.md)。
+> **进度同步（2026-05-30）**：MVP **5+/7 milestone 完成 ≈ 75%**（M1.1 ✅ skeleton / M1.2 ✅ Copilot adapter / M1.3 ✅ Episode aggregation / M1.4 ✅ CLI `analyze` 含 4 轮 followups / M1.5 ✅ TUI + ADR-0006 panic-safe / **M1.6.1 ✅ `list` 子命令 + 8 audit polish**）。详见 [`tasks/ROADMAP.md`](../tasks/ROADMAP.md) 和 [`CHANGELOG.md`](../CHANGELOG.md)。
 >
 > **events-first pivot（ADR-0001）**：原 Phase 0 / 1 计划见下；实际路径有以下重大调整：
 >
 > - **M1.2 改做 Copilot adapter**（不是 Claude） — Copilot CLI 的 `events.jsonl` 是事件流，直接含 tool/hook/turn 元数据，比 Claude 的"最终对话日志 + 重做 tokenize"更适合 MVP 快速验证。Claude / Codex adapter 推迟到 Phase 3。
 > - **Tokenizer / ROI / waste / aggregate 全部从 Phase 1 推迟到 M1.5+ 或 Phase 2** — events 模型下 `outputTokens` 字段已经能算总账，先把可视化跑通再补 ROI 评分。
-> - **TUI 当前仅骨架**（M1.5 待开始）；M1.4 ship 的是 markdown / JSON 报告（CLI `analyze` 子命令）。
+> - **TUI 已 ship**（M1.5 ✅）：三视图（Flamegraph / Roi / Aggregate）+ panic-safe lifecycle（ADR-0006）。
+> - **M1.6 拆分**（2026-05-30 decomposition）：原 8 子任务的 M1.6 拆为 M1.6.1 (`list` ✅) + M1.6.2 (`aggregate`) + M1.6.3 (`watch`) + M1.6.4 (Speedscope + HTML)；`export` 子命令已取消（与 `analyze --export` 100% 重复）。
 >
 > 下面的清单**保留原始 Phase 0–3 设计**作为产品愿景；具体里程碑实际进度参见 ROADMAP。
 
@@ -136,9 +137,11 @@ playwright.click   |   1240        |   0   |     ∞ (waste)   | ✗ kill
 
 ### Phase 1：MVP（1–2 周，单人）
 - [x] CLI 工具 `agentprof analyze <session-id>` ✅ M1.4
-- [ ] 单 session 火焰图（terminal 用 textual TUI，或 HTML 输出）— 计划 M1.5
-- [ ] Tool ROI 表 — pivot 推迟到 M1.5+
-- [ ] 跨 session 聚合视图 — 计划 M1.6
+- [x] 单 session 火焰图（terminal `ratatui` TUI）✅ M1.5（`analyze --export tui`）
+- [x] Tool ROI 表 ✅ M1.5（TUI Roi 视图，按 calls/output_tokens/duration 排序）
+- [x] CLI 列表子命令 ✅ M1.6.1（`agentprof list` 7 列紧凑表格）
+- [ ] 跨 session 聚合视图 — 计划 M1.6.2（`aggregate` 子命令）
+- [ ] Speedscope JSON + HTML 报告导出 — 计划 M1.6.4
 
 ### Phase 2：工程化（再 1 周）
 - [ ] 接入 OTLP（订阅 Claude Code 的 telemetry endpoint）
@@ -165,15 +168,20 @@ playwright.click   |   1240        |   0   |     ∞ (waste)   | ✗ kill
 
 ## 8. 下一步行动
 
-> **2026-05-30 更新**：Phase 0 验证已完成（M1.2 + M1.3）。当前最优先 = M1.5 TUI 火焰图。
+> **2026-05-30 更新**：MVP 5+/7 ≈ 75% 已交付（M1.1–M1.5 ✅ + M1.6.1 ✅）。下一步在 M1.6.2 (`aggregate`) 或 M1.6.4 (Speedscope + HTML) 中二选一。
 
-**当前位置**：M1.4 ✅ 已 ship → 下一个 milestone 是 **M1.5 TUI 火焰图 + ROI 表**。
+**当前位置**：M1.6.1 ✅ 已 ship（`list` 子命令 + 8 audit polish，merge commit `13ed1dc`）→ 下一个 milestone 候选：
 
-**M1.5 入口**：走 9 阶段 pipeline 的 Stage 1（brainstorming）。先在 `docs/superpowers/specs/` 写 `2026-XX-XX-m1.5-tui-design.md`，决定：
+- **M1.6.2 `aggregate` 子命令**：跨 session 聚合 tool ROI / MCP 浪费榜 / 利用率时间序列。需要先设计 `AggregateReport` 类型。
+- **M1.6.3 `watch` 子命令**：监听 session 目录变化实时刷新 TUI。需要 `notify` crate + 并发设计。
+- **M1.6.4 Speedscope JSON + HTML 导出器**：pivot 适配（没 tokenizer 时用 `duration_ms`）+ HTML asset-bundling 决策。
 
-1. ratatui 的火焰图组件用哪个 crate（`ratatui` builtin 还是 third-party）
-2. ROI 评分公式（pivot 后没 tokenizer，能用 `output_tokens × call_count` 做近似 ROI 吗？）
-3. 数据源：复用 `analyze` 命令的 `AnalysisReport`，还是单独 derive
-4. 交互：keyboard navigation / 排序 / drill-down 到具体 turn
+**进入下一个 milestone 入口**：走 9 阶段 pipeline 的 Stage 1（brainstorming）。在 `docs/superpowers/specs/` 写 `2026-XX-XX-m1.6.X-<topic>-design.md`。
 
-**历史背景（原 §8 文字保留作记录）**：当时的"立即可做"是写 Phase 0 prototype 验证 JSONL 可解析性 + tool schema 提取 + 自身利用率基线。这三个问题已被 M1.2 + M1.3 完整回答（Copilot CLI events.jsonl 100 % 可解析；events 模型下 tool 调用直接可读，无需 schema 提取）。
+**已 ship 里程碑的关键问题答复（历史档案）**：
+- ratatui 火焰图组件 → M1.5 选择手写 `Block + Paragraph + Constraint` 组合（ADR-0006）。
+- ROI 评分公式 → M1.5 在没 tokenizer 时退化为 `calls × output_tokens × duration` 复合排序。
+- TUI 数据源 → M1.5 复用 `AnalysisReport`，新增 `Episode` 派生层（M1.3）。
+- 交互 → M1.5 实现三视图（Flamegraph / Roi / Aggregate）+ 1/2/3 切视图 + 排序键 + ↑↓ 选 turn + Enter drill-down + ? 帮助 overlay。
+
+**历史背景（原 §8 文字保留作记录）**：当时的"立即可做"是写 Phase 0 prototype 验证 JSONL 可解析性 + tool schema 提取 + 自身利用率基线。这三个问题已被 M1.2 + M1.3 完整回答（Copilot CLI events.jsonl 100% 可解析；events 模型下 tool 调用直接可读，无需 schema 提取）。
