@@ -3,8 +3,8 @@
 //! `agentprof` — the perf flamegraph and ROI profiler for AI coding agents.
 //!
 //! Entry point: parses CLI arguments, initializes `tracing`, dispatches
-//! to the appropriate `cmd::*` subcommand. M1.4 ships the single
-//! `analyze` subcommand; `list`, `aggregate`, `watch` land in M1.5+.
+//! to the appropriate `cmd::*` subcommand. M1.4 shipped `analyze`; M1.6.1
+//! adds `list`. `aggregate`/`watch` land in M1.6.2 / M1.6.3.
 //!
 //! See `docs/architecture.md` §8 (CLI protocol) for the canonical
 //! specification.
@@ -27,6 +27,8 @@ mod cmd;
 enum Cli {
     /// Analyze a single agent session and produce a markdown or JSON report.
     Analyze(cmd::analyze::AnalyzeCmd),
+    /// List recent agent sessions in a compact table.
+    List(cmd::list::ListCmd),
 }
 
 fn main() -> ExitCode {
@@ -44,6 +46,7 @@ fn main() -> ExitCode {
 fn run(cli: Cli) -> Result<()> {
     match cli {
         Cli::Analyze(cmd) => cmd::analyze::run(cmd),
+        Cli::List(cmd) => cmd::list::run(cmd),
     }
 }
 
