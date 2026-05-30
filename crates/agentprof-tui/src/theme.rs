@@ -35,8 +35,8 @@ pub const fn tool_source_color(source: &ToolSource) -> Color {
 ///
 /// `Failure` paints the cell background red (overrides the source color so
 /// failures are unmissable). `OrphanSynthesizedStart` and `OpenAtEndOfSession`
-/// use `Modifier::DIM` to signal "data gap, not real timing". `Success`
-/// returns `Style::default()`.
+/// use `Modifier::DIM` to signal "data gap, not real timing". Known-success
+/// or unknown future variants render with `Style::default()` (no override).
 ///
 /// # Examples
 ///

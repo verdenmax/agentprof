@@ -59,7 +59,9 @@ pub fn install_panic_hook() {
 ///
 /// Returns [`TuiError::NotATerminal`] if stdout is not a TTY (e.g. piped to
 /// a file). Returns [`TuiError::Io`] if `enable_raw_mode` or
-/// `EnterAlternateScreen` fail.
+/// `EnterAlternateScreen` fail. On `EnterAlternateScreen` or `Terminal::new`
+/// failure after raw mode was enabled, the function performs a best-effort
+/// `disable_raw_mode` cleanup before returning the error.
 ///
 /// # Examples
 ///
@@ -77,10 +79,19 @@ pub fn enter() -> Result<TuiTerminal, TuiError> {
     }
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    if let Err(e) = execute!(stdout, EnterAlternateScreen) {
+        let _ = disable_raw_mode();
+        return Err(e.into());
+    }
     let backend = CrosstermBackend::new(stdout);
-    let terminal = Terminal::new(backend)?;
-    Ok(terminal)
+    match Terminal::new(backend) {
+        Ok(t) => Ok(t),
+        Err(e) => {
+            let _ = execute!(io::stdout(), LeaveAlternateScreen);
+            let _ = disable_raw_mode();
+            Err(e.into())
+        }
+    }
 }
 
 /// Restore the terminal: leave alternate screen + disable raw mode. Best-effort,
@@ -89,8 +100,10 @@ pub fn enter() -> Result<TuiTerminal, TuiError> {
 ///
 /// # Errors
 ///
-/// Returns [`TuiError::Io`] if `disable_raw_mode` or `LeaveAlternateScreen`
-/// fail. Callers typically log and ignore (the process is about to exit).
+/// Returns the first error encountered if any of `disable_raw_mode` /
+/// `LeaveAlternateScreen` / `show_cursor` fail. All three steps are
+/// attempted regardless — failures do not short-circuit subsequent cleanup.
+/// Callers typically log and ignore (the process is about to exit).
 ///
 /// # Examples
 ///
@@ -101,10 +114,15 @@ pub fn enter() -> Result<TuiTerminal, TuiError> {
 /// # Ok::<(), agentprof_tui::error::TuiError>(())
 /// ```
 pub fn leave(terminal: &mut TuiTerminal) -> Result<(), TuiError> {
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-    terminal.show_cursor()?;
-    Ok(())
+    // Best-effort cleanup: keep going even if one step fails so we don't
+    // leave the terminal in a partially-restored state. We return the
+    // first error encountered (if any) so the CLI can log it.
+    let r1 = disable_raw_mode();
+    let r2 = execute!(terminal.backend_mut(), LeaveAlternateScreen);
+    let r3 = terminal.show_cursor();
+    r1.map_err(TuiError::from)
+        .and_then(|()| r2.map_err(TuiError::from))
+        .and_then(|()| r3.map_err(TuiError::from))
 }
 
 #[cfg(test)]
