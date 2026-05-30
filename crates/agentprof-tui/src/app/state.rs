@@ -124,6 +124,9 @@ pub fn dispatch(state: &mut AppState<'_>, event: Event) -> Action {
         return Action::None;
     }
 
+    // Resize / Tick are intentionally dropped here — ratatui re-reads the
+    // terminal dimensions on every draw, so we don't need to mirror them
+    // on AppState. Tick is reserved for a future periodic-refresh use case.
     let Event::Key(k) = event else {
         return Action::None;
     };
@@ -176,7 +179,7 @@ fn scroll_up(state: &mut AppState<'_>) {
         View::Roi => state.roi_selected = state.roi_selected.saturating_sub(1),
         View::Flamegraph => state.flame_selected = state.flame_selected.saturating_sub(1),
         View::Aggregate => {
-            let (v, _h) = state.scroll.entry(View::Aggregate).or_insert((0, 0));
+            let (v, _) = state.scroll.entry(View::Aggregate).or_insert((0, 0));
             *v = v.saturating_sub(1);
         }
     }
@@ -359,6 +362,15 @@ mod tests {
         dispatch(&mut s, key(KeyCode::Char('2')));
         assert!(!s.help_open);
         assert_eq!(s.view, View::Flamegraph);
+        // Even Ctrl-C must be swallowed (not quit) while help is open —
+        // this guards the help-check-before-quit-check precedence in dispatch().
+        s.help_open = true;
+        assert_eq!(dispatch(&mut s, ctrl('c')), Action::None);
+        assert!(!s.help_open);
+        // And 'q' — same precedence rule.
+        s.help_open = true;
+        assert_eq!(dispatch(&mut s, key(KeyCode::Char('q'))), Action::None);
+        assert!(!s.help_open);
     }
 
     #[test]
