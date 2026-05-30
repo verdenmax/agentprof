@@ -87,9 +87,16 @@ pub fn segment_layout(
 /// Render the `FlamegraphView` into the given area.
 ///
 /// Layout: vertical list of rows; each row has an 18-cell prefix
-/// (5-char turn label like `T1234` + 1 space + 10-char duration like `12.4h` + 2 trailing
-/// spaces) followed by the gantt strip. The selected turn
-/// (`state.flame_selected`) is highlighted with reverse-video.
+/// (5-char turn label like `T1234` + 1 space + 10-char duration like
+/// `12.4h` + 2 trailing spaces) followed by the gantt strip. The selected
+/// turn (`state.flame_selected`) is highlighted with reverse-video.
+///
+/// **Viewport (edge-triggered)**: `state.flame_viewport_top` is persisted
+/// across frames via [`std::cell::Cell`]. Render only adjusts it when
+/// `flame_selected` leaves the visible window — pressing `↓` past the
+/// bottom shifts viewport down by 1; pressing `↑` past the top shifts it
+/// up by 1; movement within the visible window does not scroll. This is
+/// the canonical scroll-to-follow pattern.
 pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState<'_>) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -113,13 +120,22 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState<'_>) {
         .unwrap_or(1)
         .max(1);
 
-    // Viewport: keep state.flame_selected within the visible window.
-    // Bottom-anchor strategy: when selected falls below the bottom edge,
-    // shift viewport so selected lands at the bottom row. When selected is
-    // above the top edge, shift so selected lands at the top row. This is
-    // the canonical "scroll-to-follow" pattern.
+    // Edge-triggered viewport: only scroll when selected leaves the window.
+    // Persisted via Cell on AppState so the cursor can move freely within
+    // the viewport (instead of being glued to the bottom edge every frame).
     let visible_rows = (inner.height as usize).max(1);
-    let viewport_top = (state.flame_selected + 1).saturating_sub(visible_rows);
+    let mut viewport_top = state.flame_viewport_top.get();
+    if state.flame_selected < viewport_top {
+        viewport_top = state.flame_selected;
+    } else if state.flame_selected >= viewport_top + visible_rows {
+        viewport_top = state.flame_selected + 1 - visible_rows;
+    }
+    // Defensive clamp (M1): if flame_selected somehow exceeds turns.len()
+    // (e.g. state restored from a different session), keep viewport_top
+    // within bounds so the slice below doesn't panic.
+    let max_viewport_top = turns.len().saturating_sub(visible_rows);
+    viewport_top = viewport_top.min(max_viewport_top);
+    state.flame_viewport_top.set(viewport_top);
     let visible_end = (viewport_top + visible_rows).min(turns.len());
 
     let mut lines: Vec<Line<'_>> = Vec::with_capacity(visible_end.saturating_sub(viewport_top));

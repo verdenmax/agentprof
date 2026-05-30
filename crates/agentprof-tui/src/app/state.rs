@@ -65,6 +65,12 @@ pub struct AppState<'a> {
     /// Help overlay open. While true, all input keys close the overlay
     /// instead of being interpreted.
     pub help_open: bool,
+    /// Viewport offset for Flamegraph (interior mutability — render
+    /// computes edge-triggered viewport without requiring `&mut state`
+    /// through the call chain).
+    pub flame_viewport_top: std::cell::Cell<usize>,
+    /// Viewport offset for `RoiView` work table (same rationale).
+    pub roi_viewport_top: std::cell::Cell<usize>,
     /// Source report (turn / tool / hook rollups).
     pub report: &'a AnalysisReport,
     /// Source episodes (per-call timing for `FlamegraphView`).
@@ -100,6 +106,8 @@ impl<'a> AppState<'a> {
             roi_selected: 0,
             flame_selected: 0,
             help_open: false,
+            flame_viewport_top: std::cell::Cell::new(0),
+            roi_viewport_top: std::cell::Cell::new(0),
             report,
             episodes,
         }
@@ -415,5 +423,27 @@ mod tests {
         dispatch(&mut s, key(KeyCode::Char('t')));
         assert_eq!(s.view, View::Flamegraph); // view unchanged
         assert_eq!(s.roi_sort, SortKey::TotalDur); // sort unchanged (still default)
+    }
+
+    #[test]
+    fn flame_viewport_top_defaults_to_zero() {
+        let r = empty_report();
+        let e = Episodes::new();
+        let s = AppState::new(&r, &e);
+        assert_eq!(s.flame_viewport_top.get(), 0);
+        assert_eq!(s.roi_viewport_top.get(), 0);
+    }
+
+    #[test]
+    fn viewport_state_is_cell_based_interior_mutability() {
+        // Smoke test: Cell::set works on a shared reference.
+        let r = empty_report();
+        let e = Episodes::new();
+        let s = AppState::new(&r, &e);
+        let s_ref = &s; // shared reference, not mutable
+        s_ref.flame_viewport_top.set(42);
+        s_ref.roi_viewport_top.set(7);
+        assert_eq!(s.flame_viewport_top.get(), 42);
+        assert_eq!(s.roi_viewport_top.get(), 7);
     }
 }

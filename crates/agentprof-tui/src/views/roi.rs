@@ -194,12 +194,27 @@ fn render_work_table(
     )
     .header(header)
     .block(block);
-    // Stateful render — TableState's selected() drives auto-scroll so the
-    // highlighted row always stays in the viewport even with long lists.
-    // (The REVERSED style on individual rows still works as the manual
-    // highlight; TableState.selected is used purely for the auto-scroll
-    // and ratatui's default selected-row style is left unset.)
-    let mut table_state = TableState::default().with_selected(Some(state.roi_selected));
+    // Edge-triggered viewport: compute our own offset (instead of relying on
+    // ratatui's "minimum offset to show selected" which bottom-anchors) so
+    // the cursor can move freely within the viewport. Persist offset via
+    // Cell on AppState so it stays put until the cursor leaves the window.
+    //
+    // Body row count = pane height minus 2 (top + bottom border) minus 1
+    // (header row). max(1) to avoid zero-row edge case on tiny panes.
+    let visible_rows = (area.height as usize).saturating_sub(3).max(1);
+    let mut viewport_top = state.roi_viewport_top.get();
+    if state.roi_selected < viewport_top {
+        viewport_top = state.roi_selected;
+    } else if state.roi_selected >= viewport_top + visible_rows {
+        viewport_top = state.roi_selected + 1 - visible_rows;
+    }
+    let max_viewport_top = rows.len().saturating_sub(visible_rows);
+    viewport_top = viewport_top.min(max_viewport_top);
+    state.roi_viewport_top.set(viewport_top);
+    // Pass our explicit offset to TableState (bypasses ratatui's auto-scroll).
+    let mut table_state = TableState::default()
+        .with_offset(viewport_top)
+        .with_selected(Some(state.roi_selected));
     frame.render_stateful_widget(table, area, &mut table_state);
 }
 
