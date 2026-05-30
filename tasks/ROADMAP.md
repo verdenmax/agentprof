@@ -54,6 +54,7 @@
 |---|---|---|
 | 公开 API 文档 | rustdoc `///` + `# Examples` | 每个 `pub fn` / `pub struct` 必有，缺 `# Examples` = CI fail |
 | 算法 / 决策记录 | `docs/internals/<topic>.md`（ADR 风格） | 算法推导、为什么这么做、被否决的方案 |
+| 隐私 / PII | [`docs/internals/privacy-considerations.md`](../docs/internals/privacy-considerations.md) | `agentprof analyze` 输出的 PII 分级表 + 手动脱敏指南 + 计划中的 `--redact` flag |
 | Spec / Plan | `docs/superpowers/specs/YYYY-MM-DD-<topic>-*.md` | brainstorming / writing-plans 产物 |
 
 ### 1.4 AI Agent 指南
@@ -282,16 +283,64 @@ Pre-1.0（即 `0.X.Y`）期间，允许 minor bump 包含 breaking change（但�
 
 ---
 
-## 6. How to Use This Roadmap（怎么用本文件）
+## 6. Known Limitations & Future Work（已知缺陷 + 未来工作清单）
 
-### 6.1 我是新人 / AI 第一次进项目
+> 本节是 **当前状态的"诚实告白" + 所有 deferred 工作的单一索引**。每条都指向更详细的 doc / ADR / spec / fixture，方便新人 / AI 一站式查找"为什么这里现在长这样、什么时候会改"。
+
+### 6.1 用户可见的已知限制（current limitations）
+
+| # | 限制 | 严重度 | 详细文档 | 计划修复 |
+|---|---|---|---|---|
+| L-1 | **隐私字段默认裸露**：`agentprof analyze` 输出含 cwd / branch / model 内部名 / session UUID / ~800 turn UUIDs，分享报告前需要手动 `sed`/`jq` 脱敏 | 🔴 HIGH | [`docs/internals/privacy-considerations.md`](../docs/internals/privacy-considerations.md) | M1.5+ `--redact` / `--anonymize` flags（同上文档 §4） |
+| L-2 | **Subagent token over-attribution**：subagent message（`parentToolCallId` 携带，无 `turnId`）的 `output_tokens` 被算到父 turn — 总数对、per-turn 数偏高 | 🟡 MEDIUM | [ADR-0005 §6 "Side effect"](../docs/internals/adr-0005-analyzer-and-payload-name.md#update-6-post-output-audit-fixes-parse-warning-visibility-schema-mismatches-user-blocking-split) + `crates/agentprof-adapters/tests/fixtures/copilot/with-post-tool-use-hooks/README.md` | M1.5+ 增加 `Turn.subagent_output_tokens` 字段拆分 |
+| L-3 | **Turn Summary 无分页**：长 session（745+ turns）一次性吐表，终端 / 富文本编辑器 / GitHub 渲染都比较吃力 | 🟡 MEDIUM | [`docs/superpowers/specs/2026-05-29-post-output-audit-design.md`](../docs/superpowers/specs/2026-05-29-post-output-audit-design.md) §3 "Deferred" | M1.5+（与 TUI 一起；TUI 天然分页） |
+| L-4 | **CLI 仅 `analyze` 子命令**：`list` / `aggregate` / `watch` / `ingest-otlp` / `export` / `config` 全未实现 | 🟡 MEDIUM | [`crates/agentprof-cli/README.md`](../crates/agentprof-cli/README.md) "Public interface" 段 | M1.6 (list/aggregate/export) + Phase 2 (watch/ingest-otlp/config) |
+| L-5 | **无 tokenizer → 无法精确算 token cost / waste**：当前 `output_tokens` 直接读 wire 字段；ROI / 浪费金额、schema_utilization 等 PRD 原 §5.2 卖点全部依赖 tokenizer | 🟡 MEDIUM | [`docs/plan.md`](../docs/plan.md) §6 pivot 备注 + [`tasks/001-mvp-agent-token-profiler.md`](./001-mvp-agent-token-profiler.md) FR-2 表 | M1.5+ 或 Phase 2 |
+| L-6 | **TUI 完全未实现**：`agentprof-tui` 是 `//!` 骨架；报告仅 markdown / JSON 文本 | 🟢 EXPECTED | [`tasks/001-mvp-agent-token-profiler.md`](./001-mvp-agent-token-profiler.md) §10 M1.5 | M1.5 |
+| L-7 | **无 SQLite 持久化**：每次 `analyze` 都全量解析；跨 session aggregate 无处可存 | 🟢 EXPECTED | [`crates/agentprof-storage/README.md`](../crates/agentprof-storage/README.md) | Phase 2 (M2.1) |
+| L-8 | **只支持 Copilot CLI**：Claude / Codex / Gemini adapter 未实现 | 🟢 EXPECTED | [`crates/agentprof-adapters/README.md`](../crates/agentprof-adapters/README.md) "Supported agents" | Phase 3 (M3.1 Claude / M3.2 Codex) |
+| L-9 | **schema 兼容性只在 1 个 frozen session 验证过**：post-output-audit 在 11 806 行 session 上验证了 17 % → 0 % drop rate，但其它 Copilot CLI 版本、其它 session 风格（如纯 sub-agent / 纯交互式 / 长 plan 模式）可能仍有未发现的 schema 漏洞 | 🟡 MEDIUM | [ADR-0005 §6 "Tests"](../docs/internals/adr-0005-analyzer-and-payload-name.md#update-6-post-output-audit-fixes-parse-warning-visibility-schema-mismatches-user-blocking-split) + 现有 11 个 fixture | 每发现新 schema 漏洞时增加 fixture（持续工作） |
+| L-10 | **`ParseWarning::OutOfOrder` 不带 line_no**：用户看到 "Parse warnings: 1 / OutOfOrder: 1" 后无法快速定位是哪两行时间戳倒置 | 🟢 LOW | `crates/agentprof-core/src/error.rs` `ParseWarning::OutOfOrder` 变体定义 | 视用户反馈，可能 M1.5+ 加 detail |
+| L-11 | **`xtask anonymize` / `xtask audit-pii` 不存在**：fixture / report 的脱敏目前全靠人工 `sed`，没有自动化保护 | 🟡 MEDIUM | [`docs/internals/privacy-considerations.md`](../docs/internals/privacy-considerations.md) §5 "Future automation" | 待定（可能 Phase 2 与隐私 flag 一起） |
+| L-12 | **CI 无 `/home/<user>/` grep guard**：意外 commit 真实路径不会被自动拦截 | 🟢 LOW | 同上 §5 | 待定 |
+
+### 6.2 已确认但未列入 task 文件的未来增强（roadmap-adjacent ideas）
+
+| # | 想法 | 触发来源 | 何时考虑 |
+|---|---|---|---|
+| F-1 | `Turn.subagent_output_tokens` 字段拆分主 / sub-agent 贡献 | L-2 后续 | M1.5+ 与 ROI 一起 |
+| F-2 | `--redact` / `--anonymize` CLI flag（含 stable per-session UUID mapping）| L-1 后续 | M1.5+ 与 `aggregate` 子命令一起 |
+| F-3 | `Mode` 词汇扩展（更多 Copilot CLI 模式落地后补 variant）| `Mode::Unknown(String)` fallback 设计 | 持续，发现新 mode 就补 |
+| F-4 | 通用 OpenAI-compatible 代理拦截模式（不需要每家 adapter） | [`docs/plan.md`](../docs/plan.md) §6 Phase 3 | Phase 3+ |
+| F-5 | Speedscope / HTML / CSV 导出 | FR-6 原始设计 | M1.6（与 `export` 子命令一起） |
+| F-6 | OTLP receiver（接 Claude Code telemetry endpoint） | [`docs/plan.md`](../docs/plan.md) §6 Phase 2 | Phase 2 (M2.2) |
+| F-7 | 价格表自动同步（`xtask sync-pricing`） | [`tasks/001-mvp-agent-token-profiler.md`](./001-mvp-agent-token-profiler.md) §11 Milestone 3.3 | Phase 3+ |
+| F-8 | Web dashboard | [`docs/plan.md`](../docs/plan.md) §6 Phase 2 | Phase 2 后期，可选 |
+| F-9 | OpenTelemetry trace 联动（agentprof report → Tempo / Jaeger） | 由 §7 长期愿景导出 | post-1.0 |
+
+### 6.3 设计决策（user 明确要求保留当前行为，不改）
+
+| # | 行为 | 决策理由 | 来源 |
+|---|---|---|---|
+| D-1 | Turn ID 输出全 UUID（不截断成 8 字符 + ……） | 用户要求保留全长；某些工作流需要拷贝 UUID 精确匹配 | 2026-05-30 对话 |
+| D-2 | `ask_user` 单独建 `## User-blocking tools` 区而非完全隐藏 | 用户思考时间也是 session 的真实成本，不能藏；但要拆出来避免冲乱 Tool Rank | ADR-0005 §6 |
+| D-3 | Subagent token 计入父 turn `output_tokens`（不忽略） | 主 turn 调用了 subagent，token 是它"间接花的钱"；忽略会让总数对不上 | ADR-0005 §6 "Side effect" |
+
+> 添加新条目规则：每新发现一个限制就在 6.1 加一行；每新提出一个想法就在 6.2 加一行；每被用户明确要求保留的现状就在 6.3 加一行。**不要让限制"沉默"在 commit message 里**。
+
+---
+
+## 7. How to Use This Roadmap（怎么用本文件）
+
+### 7.1 我是新人 / AI 第一次进项目
 
 1. 读完本文件 §0 TL;DR
 2. 看 §1 文档地图，按需读 L1 文档（plan.md → architecture.md）
 3. 看 §2 知道当前位置
 4. 看 §3 task 索引找到对应任务文件
+5. 看 §6 知道当前缺陷 + 未来工作（避免重复提出已知问题）
 
-### 6.2 我要继续开发（推进当前 task）
+### 7.2 我要继续开发（推进当前 task）
 
 1. 看 §2.2 当前位置 → 知道在哪个 milestone
 2. 进 `tasks/001-mvp-agent-token-profiler.md` 找该 milestone 的 Task / Sub-task
@@ -303,38 +352,39 @@ Pre-1.0（即 `0.X.Y`）期间，允许 minor bump 包含 breaking change（但�
    - Stage 7 verification → PR
    - Stage 8（release 时）github-release
 
-### 6.3 我要新增一个 feature
+### 7.3 我要新增一个 feature
 
 1. 判断是 Phase X 内的新功能 还是 整个新方向：
    - **Phase X 内**：进当前 task 文件加 Milestone / Task / Sub-task
    - **新方向**：在 `tasks/` 下新建 `NNN-<scope>.md`（编号 +1），按 §3.3 标准结构填充，并回到本文件 §3.1 加一行
 2. 走 9 阶段 pipeline（brainstorming → planning → ...）
 
-### 6.4 我要 release
+### 7.4 我要 release
 
 1. 看 §5.2 当前应该 release 哪个版本号
 2. 走 §5.3 release 流程
 3. release 后回本文件更新 §2.2 当前位置 + §3 task 状态 + §5.2 状态列
 
-### 6.5 我要做 code review / PR review
+### 7.5 我要做 code review / PR review
 
 1. 看 [`.github/PULL_REQUEST_TEMPLATE.md`](../.github/PULL_REQUEST_TEMPLATE.md) 的 L1/L2/L3 checklist
 2. 按 [`CONTRIBUTING.md`](../CONTRIBUTING.md) 的 4 大规则核对
 3. 必跑本地 gate（`cargo fmt --check`、`cargo clippy`、`cargo test`、`cargo doc`、`cargo deny check`）
 
-### 6.6 我维护本文件
+### 7.6 我维护本文件
 
 - 每次 milestone 状态变化 → 更新 §2.2 + §2.3 + §3
 - 每次新增 task 文件 → §3.1 加一行
 - 每次 release → §5.2 状态列更新
 - 每次 commit 在 `main` → §2.2 "当前 commit" 字段
-- 重要里程碑 → §8 变更记录
+- 每次发现新缺陷 / 提出未来想法 → §6.1 / §6.2 加一行
+- 重要里程碑 → §9 变更记录
 
 ---
 
-## 7. Long-term Vision（北极星）
+## 8. Long-term Vision（北极星）
 
-### 7.1 北极星指标
+### 8.1 北极星指标
 
 > 用 agentprof 的用户**第一次跑 `agentprof analyze`** 时，看到自己的 `schema_utilization` 数字后，**会发推**说"我居然 80% 的 context 在 schema 上"。
 
@@ -344,7 +394,7 @@ Pre-1.0（即 `0.X.Y`）期间，允许 minor bump 包含 breaking change（但�
 - HN front page 一次
 - 三家 agent CLI（Claude / Codex / Copilot）官方文档或 README 引用本工具
 
-### 7.2 三年愿景
+### 8.2 三年愿景
 
 | 时间 | 状态 |
 |---|---|
@@ -353,7 +403,7 @@ Pre-1.0（即 `0.X.Y`）期间，允许 minor bump 包含 breaking change（但�
 | **12–24 月** | Web dashboard（团队 dashboard），跨用户脱敏聚合，最佳实践榜单 |
 | **24–36 月** | 成为 LLM agent 性能分析的事实标准；类比 `perf` 之于 Linux profiling |
 
-### 7.3 永远不做的事（明确边界）
+### 8.3 永远不做的事（明确边界）
 
 | 不做 | 原因 |
 |---|---|
@@ -365,23 +415,26 @@ Pre-1.0（即 `0.X.Y`）期间，允许 minor bump 包含 breaking change（但�
 
 ---
 
-## 8. Change Log（本文件自身变更）
+## 9. Change Log（本文件自身变更）
 
 | 日期 | 变更内容 | Commit |
 |---|---|---|
 | 2026-05-26 | 初版：项目总入口 + 文档地图 + Phase 时间线 + task 索引 + 依赖图 + release cadence + 长期愿景 | TBD |
+| 2026-05-30 | v1.1：同步至 M1.4 + 4 轮 followups 后实状（4/7 = 57% MVP），承认 events-first pivot；**新增 §6 Known Limitations & Future Work 集中索引**（12 条已知缺陷 + 9 条未来工作 + 3 条用户明确保留的设计决策）；旧 §6/7/8/9 顺延为 §7/8/9/10 | `6c26972` + 本 commit |
 
 ---
 
-## 9. 附录：当前 Git 历史（前 10 个 commit）
+## 10. 附录：当前 Git 历史（前 10 个 commit）
 
 ```
-ae2045a  docs(tasks): add full MVP task file (PRD + implementation plan)
-472ac31  docs: tighten pipeline cohesion (three-layer flow + Stage 2 gate + orphan skills)
-201ae46  fix(skills): relocate skills from global plugin to repo .github/skills/
-dc838fc  docs: install agentprof-extras plugin + unify into 9-stage skill pipeline
-1a7a7f6  docs: integrate superpowers skills matrix into project guides
-b47aeb5  chore: initial workspace skeleton
+6c26972  docs(sync): align L1/L2 docs with M1.4 + 4 followups reality
+9abd694  Merge fix/post-output-audit: close 3 audit findings + privacy doc
+db24607  fix(post-output-audit): code-review followups (F1, F2, F3 nits)
+20e020c  docs(post-output-audit): privacy doc + ADR-0005 §6 + CHANGELOG + spec
+0c63304  feat(analyzer): split user-blocking tools from main Tool Rank
+6ee35d4  feat(analyzer): surface ParseWarnings in AnalysisReport + markdown renderer
+1153f04  fix(adapters): three Copilot CLI 1.0.x schema-mismatch parser drops
+... (省略 80+ 之前 commit，含 M1.1 / M1.2 / M1.3 / M1.4 / 4 轮 followups)
 ```
 
 ---
