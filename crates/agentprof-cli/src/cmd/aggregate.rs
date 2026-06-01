@@ -134,7 +134,21 @@ pub fn run(cmd: AggregateCmd) -> Result<()> {
         }
     };
 
-    let any_report = compute_aggregate(&adapter, &cmd)?;
+    let (any_report, refs_total) = compute_aggregate(&adapter, &cmd)?;
+
+    // Empty-root warning lives in `run()` (not `compute_aggregate`) so
+    // `watch aggregate`'s reload tick does NOT spam stderr — which during
+    // the TUI alt-screen would visually corrupt the display.
+    if refs_total == 0 {
+        let root_label = cmd.root.as_ref().map_or_else(
+            || "<adapter default>".to_string(),
+            |p| p.display().to_string(),
+        );
+        eprintln!(
+            "agentprof: no sessions matching --since={} under {}",
+            cmd.since, root_label,
+        );
+    }
 
     // Dispatch TUI before the renderers (it needs the raw report).
     if matches!(cmd.export, AggExportFormat::Tui) {
@@ -177,10 +191,16 @@ pub fn run(cmd: AggregateCmd) -> Result<()> {
 }
 
 /// Run the load-and-compute half of `agentprof aggregate`, returning
-/// the populated [`AnyAggregateReport`] without rendering or writing.
+/// the populated [`AnyAggregateReport`] alongside the total number of
+/// session refs discovered (post-`--since` filtering, pre-parse).
 ///
 /// Used by both [`run`] (for md/json/csv/html/tui dispatch) and by
 /// `cmd::watch::run` (for live reload in `watch aggregate` mode).
+///
+/// The discovered-refs count is returned (instead of e.g. logged here)
+/// so callers can decide whether to surface an "empty root" notice;
+/// `watch aggregate`'s reload tick deliberately suppresses it to keep
+/// the TUI alt-screen clean.
 ///
 /// Per-session parse failures degrade gracefully: a warning is printed
 /// to stderr and `failure_count` on the returned report is incremented.
@@ -201,7 +221,7 @@ pub fn run(cmd: AggregateCmd) -> Result<()> {
 pub fn compute_aggregate(
     adapter: &CopilotAdapter,
     cmd: &AggregateCmd,
-) -> Result<AnyAggregateReport> {
+) -> Result<(AnyAggregateReport, usize)> {
     // Validate threshold range early.
     if !(0.0..=100.0).contains(&cmd.low_utilization_threshold) {
         return Err(ExitKind::UserError.into_anyhow(format!(
@@ -269,13 +289,7 @@ pub fn compute_aggregate(
             .into_anyhow(format!("all {failure_count} session(s) failed to parse")));
     }
 
-    if refs.is_empty() {
-        eprintln!(
-            "agentprof: no sessions matching --since={} under {}",
-            cmd.since,
-            root.display()
-        );
-    }
+    let refs_total = refs.len();
 
     // Dispatch on --by.
     let mut any_report = match cmd.by.to_key() {
@@ -315,7 +329,7 @@ pub fn compute_aggregate(
         );
     }
 
-    Ok(any_report)
+    Ok((any_report, refs_total))
 }
 
 fn run_tui_for_aggregate(any_report: AnyAggregateReport) -> Result<()> {
@@ -450,8 +464,9 @@ mod tests {
             low_utilization_threshold: 20.0,
         };
         let adapter = CopilotAdapter;
-        let any = compute_aggregate(&adapter, &cmd)
+        let (any, refs_total) = compute_aggregate(&adapter, &cmd)
             .expect("compute_aggregate should succeed on empty root");
+        assert_eq!(refs_total, 0);
         let bucket_count = match &any {
             AnyAggregateReport::Tool(r) => r.buckets.len(),
             AnyAggregateReport::McpServer(r) => r.buckets.len(),

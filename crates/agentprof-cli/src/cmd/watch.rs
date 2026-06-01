@@ -13,14 +13,14 @@
 //! latest session; later sessions are NOT auto-followed.
 
 use std::io::IsTerminal as _;
-use std::path::PathBuf;
-use std::sync::mpsc::{channel, Sender};
+use std::path::{Path, PathBuf};
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Duration;
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
-use notify_debouncer_mini::notify::RecommendedWatcher;
-use notify_debouncer_mini::Debouncer;
+use notify_debouncer_mini::notify::{RecommendedWatcher, RecursiveMode};
+use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer};
 
 use agentprof_adapters::copilot::CopilotAdapter;
 use agentprof_core::adapter::{Adapter, AgentKind, SessionRef};
@@ -28,12 +28,17 @@ use agentprof_core::analyzer::analyze;
 use agentprof_core::episode::derive_episodes;
 use agentprof_tui::watch::{RefreshKind, ReloadError, WatchData, WatchRunner};
 
-use crate::cmd::aggregate::{compute_aggregate, AggregateCmd};
+use crate::cmd::aggregate::{compute_aggregate, AggExportFormat, AggregateCmd};
 use crate::cmd::analyze::{resolve_session, ExitKind, SessionSelector};
 
 /// Arguments for `agentprof watch`.
 #[derive(Args, Debug, Clone)]
 #[non_exhaustive]
+#[command(
+    after_help = "Note: global flags like --debounce-ms, --agent, --root, --session \
+                  must appear BEFORE the `aggregate` subcommand. \
+                  Example: `agentprof watch --debounce-ms 500 aggregate --by tool`."
+)]
 pub struct WatchCmd {
     /// Aggregate sub-mode (cross-session). Omit for single-session watch.
     #[command(subcommand)]
@@ -85,6 +90,13 @@ pub enum WatchSub {
 /// ```
 #[allow(clippy::needless_pass_by_value)]
 pub fn run(cmd: WatchCmd) -> Result<()> {
+    // Validate sub-mode arguments BEFORE the TTY check so users get a
+    // crisp UserError (exit 1) instead of an environment error (exit 3)
+    // when they pass conflicting flags from a non-TTY shell or CI.
+    if let Some(WatchSub::Aggregate(agg)) = &cmd.sub {
+        validate_watch_aggregate(agg)?;
+    }
+
     // TTY check — same shape as cmd::analyze::run_tui.
     if !std::io::stdout().is_terminal() || !std::io::stdin().is_terminal() {
         return Err(ExitKind::OutputError.into_anyhow(
@@ -112,7 +124,19 @@ pub fn run(cmd: WatchCmd) -> Result<()> {
     }
 }
 
-#[allow(clippy::trivially_copy_pass_by_ref)]
+/// Reject flags on `watch aggregate` whose effect is meaningless when
+/// the output is always the interactive TUI.
+fn validate_watch_aggregate(agg: &AggregateCmd) -> Result<()> {
+    if !matches!(agg.export, AggExportFormat::Md) || agg.output.is_some() {
+        return Err(ExitKind::UserError.into_anyhow(
+            "`watch aggregate` does not accept --export or --output; \
+             output is always interactive TUI. Re-run without those flags."
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
 fn run_single(adapter: CopilotAdapter, cmd: &WatchCmd, debounce: Duration) -> Result<()> {
     let sref = resolve_session(&adapter, cmd.root.clone(), &cmd.session)?;
     let events_jsonl = sref.path.clone();
@@ -126,12 +150,18 @@ fn run_single(adapter: CopilotAdapter, cmd: &WatchCmd, debounce: Duration) -> Re
 
     // Spawn the debounced file watcher; hold the Debouncer for the
     // entire lifetime of `run_single` — dropping it stops the watcher.
-    let _watcher = spawn_single_watcher(&events_jsonl, debounce, tx)?;
+    let _watcher = spawn_watcher(
+        &events_jsonl,
+        RecursiveMode::NonRecursive,
+        debounce,
+        tx,
+        "try `agentprof analyze --export md` for headless",
+    )?;
 
     // Build the reload closure (captures adapter by value — zero-sized,
     // free move; captures sref clone for repeated reload).
     let sref_for_reload = sref;
-    let reload: Box<dyn FnMut() -> Result<WatchData, ReloadError>> = Box::new(move || {
+    let reload: ReloadFn = Box::new(move || {
         if !sref_for_reload.path.exists() {
             return Err(ReloadError::SessionGone {
                 path: sref_for_reload.path.clone(),
@@ -140,10 +170,9 @@ fn run_single(adapter: CopilotAdapter, cmd: &WatchCmd, debounce: Duration) -> Re
         load_single(&adapter, &sref_for_reload).map_err(|e| ReloadError::Pipeline(format!("{e:#}")))
     });
 
-    enter_and_run(initial, Some((rx, reload)))
+    enter_and_run(initial, rx, reload)
 }
 
-#[allow(clippy::trivially_copy_pass_by_ref)]
 fn run_cross(
     adapter: CopilotAdapter,
     agg: AggregateCmd,
@@ -152,7 +181,8 @@ fn run_cross(
 ) -> Result<()> {
     // Compute the initial aggregate up-front (also validates --root).
     let initial_any = compute_aggregate(&adapter, &agg)
-        .map_err(|e| ExitKind::DataError.into_anyhow(format!("initial aggregate: {e:#}")))?;
+        .map_err(|e| ExitKind::DataError.into_anyhow(format!("initial aggregate: {e:#}")))?
+        .0;
     let initial = WatchData::Cross(initial_any);
 
     let root = agg
@@ -164,37 +194,39 @@ fn run_cross(
                 .into_anyhow("could not determine session root for watch; pass --root".to_string())
         })?;
 
-    let (tx, rx) = channel::<RefreshKind>();
-    let _watcher = spawn_recursive_watcher(&root, debounce, tx)?;
-
-    // Optional: warn if cmd.session was set in cross mode (it's ignored).
+    // Warn (before spawning the watcher) if cmd.session was set in cross
+    // mode — it's ignored here, and surfacing this even when the spawn
+    // later fails helps users diagnose a likely typo.
     if !matches!(cmd.session, SessionSelector::Latest) {
         eprintln!("agentprof: warning: --session is ignored in `watch aggregate` mode");
     }
 
+    let (tx, rx) = channel::<RefreshKind>();
+    let _watcher = spawn_watcher(
+        &root,
+        RecursiveMode::Recursive,
+        debounce,
+        tx,
+        "try `agentprof aggregate --export md` for headless",
+    )?;
+
     let agg_for_reload = agg;
-    let reload: Box<dyn FnMut() -> Result<WatchData, ReloadError>> = Box::new(move || {
+    let reload: ReloadFn = Box::new(move || {
         compute_aggregate(&adapter, &agg_for_reload)
-            .map(WatchData::Cross)
+            .map(|(r, _)| WatchData::Cross(r))
             .map_err(|e| ReloadError::Pipeline(format!("{e:#}")))
     });
 
-    enter_and_run(initial, Some((rx, reload)))
+    enter_and_run(initial, rx, reload)
 }
 
 type ReloadFn = Box<dyn FnMut() -> Result<WatchData, ReloadError>>;
 
-fn enter_and_run(
-    initial: WatchData,
-    watcher: Option<(std::sync::mpsc::Receiver<RefreshKind>, ReloadFn)>,
-) -> Result<()> {
+fn enter_and_run(initial: WatchData, rx: Receiver<RefreshKind>, reload: ReloadFn) -> Result<()> {
     agentprof_tui::app::terminal::install_panic_hook();
     let mut term = agentprof_tui::app::terminal::enter()
         .map_err(|e| ExitKind::OutputError.into_anyhow(format!("entering tui: {e}")))?;
-    let mut runner = match watcher {
-        Some((rx, reload)) => WatchRunner::with_watcher(initial, rx, reload),
-        None => WatchRunner::new_static(initial),
-    };
+    let mut runner = WatchRunner::with_watcher(initial, rx, reload);
     let res = runner.run(&mut term);
     let _ = agentprof_tui::app::terminal::leave(&mut term);
     res.map_err(|e| ExitKind::OutputError.into_anyhow(format!("tui runtime: {e}")))
@@ -214,60 +246,36 @@ fn load_single(adapter: &CopilotAdapter, sref: &SessionRef) -> Result<WatchData>
     })
 }
 
-fn spawn_single_watcher(
-    file: &std::path::Path,
+/// Spawn a debounced filesystem watcher on `target` with the given
+/// recursion mode. `headless_hint` is appended to the init-failure
+/// error message so users get a workable fallback command.
+///
+/// `tracing::warn!` is intentionally avoided in the callback — it
+/// would write to stderr during the TUI alt-screen and visually
+/// corrupt the display. Errors are emitted at `debug` level so they
+/// remain available via `RUST_LOG=debug` without breaking the UI.
+fn spawn_watcher(
+    target: &Path,
+    mode: RecursiveMode,
     debounce: Duration,
     tx: Sender<RefreshKind>,
+    headless_hint: &str,
 ) -> Result<Debouncer<RecommendedWatcher>> {
-    use notify_debouncer_mini::notify::RecursiveMode;
-    use notify_debouncer_mini::{new_debouncer, DebounceEventResult};
-
     let mut debouncer = new_debouncer(debounce, move |res: DebounceEventResult| match res {
         Ok(events) if !events.is_empty() => {
             let _ = tx.send(RefreshKind::DataChanged);
         }
         Ok(_) => {}
         Err(errors) => {
-            tracing::warn!(?errors, "notify debouncer errors");
+            tracing::debug!(?errors, "notify debouncer errors");
         }
     })
     .map_err(|e| {
-        ExitKind::DataError.into_anyhow(format!(
-            "init notify watcher: {e}; try `agentprof analyze --export md` for headless"
-        ))
+        ExitKind::DataError.into_anyhow(format!("init notify watcher: {e}; {headless_hint}"))
     })?;
     debouncer
         .watcher()
-        .watch(file, RecursiveMode::NonRecursive)
-        .map_err(|e| {
-            ExitKind::DataError.into_anyhow(format!("watch file {}: {e}", file.display()))
-        })?;
-    Ok(debouncer)
-}
-
-fn spawn_recursive_watcher(
-    root: &std::path::Path,
-    debounce: Duration,
-    tx: Sender<RefreshKind>,
-) -> Result<Debouncer<RecommendedWatcher>> {
-    use notify_debouncer_mini::notify::RecursiveMode;
-    use notify_debouncer_mini::{new_debouncer, DebounceEventResult};
-
-    let mut debouncer = new_debouncer(debounce, move |res: DebounceEventResult| match res {
-        Ok(events) if !events.is_empty() => {
-            let _ = tx.send(RefreshKind::DataChanged);
-        }
-        Ok(_) => {}
-        Err(errors) => {
-            tracing::warn!(?errors, "notify debouncer errors");
-        }
-    })
-    .map_err(|e| ExitKind::DataError.into_anyhow(format!("init notify watcher: {e}")))?;
-    debouncer
-        .watcher()
-        .watch(root, RecursiveMode::Recursive)
-        .map_err(|e| {
-            ExitKind::DataError.into_anyhow(format!("watch root {}: {e}", root.display()))
-        })?;
+        .watch(target, mode)
+        .map_err(|e| ExitKind::DataError.into_anyhow(format!("watch {}: {e}", target.display())))?;
     Ok(debouncer)
 }

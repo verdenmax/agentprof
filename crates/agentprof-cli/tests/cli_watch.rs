@@ -45,3 +45,32 @@ fn watch_aggregate_invalid_by_value_exits_with_clap_error() {
     // clap default failure exit is 2.
     cmd.assert().failure().code(2);
 }
+
+#[test]
+fn watch_aggregate_rejects_export_flag() {
+    let mut cmd = Command::cargo_bin("agentprof").unwrap();
+    cmd.args(["watch", "aggregate", "--by", "tool", "--export", "csv"])
+        .write_stdin("");
+    cmd.assert()
+        .failure()
+        .code(1)
+        .stderr(contains("does not accept --export"));
+}
+
+#[test]
+fn watch_aggregate_rejects_output_flag() {
+    let mut cmd = Command::cargo_bin("agentprof").unwrap();
+    cmd.args([
+        "watch",
+        "aggregate",
+        "--by",
+        "tool",
+        "--output",
+        "agentprof-watch-test-output.txt",
+    ])
+    .write_stdin("");
+    cmd.assert()
+        .failure()
+        .code(1)
+        .stderr(contains("does not accept --export"));
+}
