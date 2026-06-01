@@ -20,10 +20,12 @@
 //! | [`mod@tool_rank`] | Per-tool-name row: call counts (success/failure/orphan/user-requested), p50/p95/max duration |
 //! | [`mod@hook_rank`] | Per-hook-name row: call counts, p50/p95 duration, success/failure |
 
+pub mod aggregate;
 pub mod hook_rank;
 pub mod tool_rank;
 pub mod turn_summary;
 
+pub use aggregate::{AggregateKey, AggregateReport, AnyAggregateReport};
 pub use hook_rank::{hook_rank, HookRankRow};
 pub use tool_rank::{tool_rank, ToolRankRow};
 pub use turn_summary::{turn_summary, TurnSummaryRow};

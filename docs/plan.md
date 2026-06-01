@@ -115,14 +115,14 @@ playwright.click   |   1240        |   0   |     ∞ (waste)   | ✗ kill
 
 ## 6. 实施路径
 
-> **进度同步（2026-05-31）**：MVP **6/7 milestone 完成 ≈ 85%**（M1.1 ✅ skeleton / M1.2 ✅ Copilot adapter / M1.3 ✅ Episode aggregation / M1.4 ✅ CLI `analyze` 含 4 轮 followups / M1.5 ✅ TUI + ADR-0006 panic-safe / **M1.6.1 ✅ `list` 子命令 + 8 audit polish** / **M1.6.4 ✅ `--export speedscope|html` + ADR-0007**）。详见 [`tasks/ROADMAP.md`](../tasks/ROADMAP.md) 和 [`CHANGELOG.md`](../CHANGELOG.md)。
+> **进度同步（2026-06-01）**：MVP **7/7 milestone shippable surface 完成 ≈ 95%**（M1.1 ✅ skeleton / M1.2 ✅ Copilot adapter / M1.3 ✅ Episode aggregation / M1.4 ✅ CLI `analyze` 含 4 轮 followups / M1.5 ✅ TUI + ADR-0006 panic-safe / **M1.6.1 ✅ `list` 子命令 + 8 audit polish** / **M1.6.4 ✅ `--export speedscope|html` + ADR-0007** / **M1.6.2 ✅ `aggregate` 子命令 + ADR-0008**）。剩 M1.7 release。详见 [`tasks/ROADMAP.md`](../tasks/ROADMAP.md) 和 [`CHANGELOG.md`](../CHANGELOG.md)。
 >
 > **events-first pivot（ADR-0001）**：原 Phase 0 / 1 计划见下；实际路径有以下重大调整：
 >
 > - **M1.2 改做 Copilot adapter**（不是 Claude） — Copilot CLI 的 `events.jsonl` 是事件流，直接含 tool/hook/turn 元数据，比 Claude 的"最终对话日志 + 重做 tokenize"更适合 MVP 快速验证。Claude / Codex adapter 推迟到 Phase 3。
 > - **Tokenizer / ROI / waste / aggregate 全部从 Phase 1 推迟到 M1.5+ 或 Phase 2** — events 模型下 `outputTokens` 字段已经能算总账，先把可视化跑通再补 ROI 评分。
 > - **TUI 已 ship**（M1.5 ✅）：三视图（Flamegraph / Roi / Aggregate）+ panic-safe lifecycle（ADR-0006）。
-> - **M1.6 拆分**（2026-05-30 decomposition）：原 8 子任务的 M1.6 拆为 M1.6.1 (`list` ✅) + M1.6.2 (`aggregate`) + M1.6.3 (`watch`) + **M1.6.4 (Speedscope + HTML) ✅**；`export` 子命令已取消（与 `analyze --export` 100% 重复）。
+> - **M1.6 拆分**（2026-05-30 decomposition）：原 8 子任务的 M1.6 拆为 M1.6.1 (`list` ✅) + **M1.6.2 (`aggregate`) ✅** + M1.6.3 (`watch`) + **M1.6.4 (Speedscope + HTML) ✅** + M1.6.5 (MCP waste analysis, 新建)；`export` 子命令已取消（与 `analyze --export` 100% 重复）。
 >
 > 下面的清单**保留原始 Phase 0–3 设计**作为产品愿景；具体里程碑实际进度参见 ROADMAP。
 
@@ -140,7 +140,7 @@ playwright.click   |   1240        |   0   |     ∞ (waste)   | ✗ kill
 - [x] 单 session 火焰图（terminal `ratatui` TUI）✅ M1.5（`analyze --export tui`）
 - [x] Tool ROI 表 ✅ M1.5（TUI Roi 视图，按 calls/output_tokens/duration 排序）
 - [x] CLI 列表子命令 ✅ M1.6.1（`agentprof list` 7 列紧凑表格）
-- [ ] 跨 session 聚合视图 — 计划 M1.6.2（`aggregate` 子命令）
+- [x] 跨 session 聚合视图 ✅ M1.6.2（`aggregate --by tool|mcp-server|day|model --export md|json|csv|html`，[ADR-0008](internals/adr-0008-aggregate-report-and-utilization.md)）
 - [x] Speedscope JSON + HTML 报告导出 ✅ M1.6.4（`analyze --export speedscope|html`，[ADR-0007](internals/adr-0007-speedscope-export.md)）
 
 ### Phase 2：工程化（再 1 周）
@@ -168,12 +168,13 @@ playwright.click   |   1240        |   0   |     ∞ (waste)   | ✗ kill
 
 ## 8. 下一步行动
 
-> **2026-05-31 更新**：MVP 6/7 ≈ 85% 已交付（M1.1–M1.5 ✅ + M1.6.1 ✅ + M1.6.4 ✅）。下一步在 M1.6.2 (`aggregate`) 或 M1.6.3 (`watch`) 中二选一。
+> **2026-06-01 更新**：MVP 7/7 shippable surface ≈ 95% 已交付（M1.1–M1.5 ✅ + M1.6.1 ✅ + M1.6.2 ✅ + M1.6.4 ✅）。剩 M1.7 release。下一步在 M1.6.3 (`watch`) / M1.6.5 (MCP waste) / M1.7 (release) 中选择。
 
-**当前位置**：M1.6.4 ✅ 已 ship（`--export speedscope|html` + ADR-0007）→ 下一个 milestone 候选：
+**当前位置**：M1.6.2 ✅ 已 ship（`aggregate` 子命令 + ADR-0008）→ 下一个 milestone 候选：
 
-- **M1.6.2 `aggregate` 子命令**：跨 session 聚合 tool ROI / MCP 浪费榜 / 利用率时间序列。需要先设计 `AggregateReport` 类型。
-- **M1.6.3 `watch` 子命令**：监听 session 目录变化实时刷新 TUI。需要 `notify` crate + 并发设计。
+- **M1.6.3 `watch` 子命令 + aggregate TUI 视图**：监听 session 目录变化实时刷新；同时把 `aggregate --export tui` 一并 ship。需要 `notify` crate + TUI cross-session view 设计。
+- **M1.6.5 MCP server waste analysis**：parse `.copilot/mcp.json` registration data + 计算 `loaded - called` 集合 per session；扩展 AggregateReport 加 `waste_score` 字段。
+- **M1.7 v0.1.0 release**：cargo-dist 多平台 binary + GitHub Release + CHANGELOG cut。
 
 **进入下一个 milestone 入口**：走 9 阶段 pipeline 的 Stage 1（brainstorming）。在 `docs/superpowers/specs/` 写 `2026-XX-XX-m1.6.X-<topic>-design.md`。
 

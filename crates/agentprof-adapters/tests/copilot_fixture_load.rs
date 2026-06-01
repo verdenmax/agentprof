@@ -61,6 +61,9 @@ fn every_fixture_line_parses_as_copilot_event() {
         "cross-turn-tool",
         "with-post-tool-use-hooks",
         "with-span-overlap",
+        "multi-sess-a",
+        "multi-sess-b",
+        "multi-sess-c",
         // NOTE: "corrupt" intentionally contains an unparseable line.
         // NOTE: "live-truncated" intentionally has a truncated tail.
     ];

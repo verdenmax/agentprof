@@ -44,6 +44,26 @@ use agentprof_core::episode::derive_episodes;
 //   }
 ```
 
+## `analyzer::aggregate` (M1.6.2)
+
+Cross-session aggregation reports.
+
+- [`analyzer::aggregate::AggregateReport<B>`](src/analyzer/aggregate/mod.rs) — generic per-bucket-type report
+- [`analyzer::aggregate::AnyAggregateReport`](src/analyzer/aggregate/mod.rs) — serde-tagged outer enum (CLI/serde boundary)
+- [`analyzer::aggregate::AggregateKey`](src/analyzer/aggregate/mod.rs) — Tool / McpServer / Day / Model
+- 4 bucket types in [`analyzer::aggregate::bucket`](src/analyzer/aggregate/bucket.rs): `ToolBucket`, `McpServerBucket`, `DayBucket` (carries `utilization_pct` + `is_low_utilization`), `ModelBucket`
+- 4 pure aggregator functions:
+  - [`aggregate_by_tool`](src/analyzer/aggregate/group_by_tool.rs)
+  - [`aggregate_by_mcp_server`](src/analyzer/aggregate/group_by_mcp.rs)
+  - [`aggregate_by_day`](src/analyzer/aggregate/group_by_day.rs)
+  - [`aggregate_by_model`](src/analyzer/aggregate/group_by_model.rs)
+
+All aggregators take `&[AnalysisReport]` + `&[Episodes]` (the latter is needed
+for per-call duration data used in **percentile recomputation** — averaging
+per-session p50s would be statistically wrong).
+
+See [ADR-0008](../../docs/internals/adr-0008-aggregate-report-and-utilization.md) for design decisions.
+
 ## `export` (M1.6.4)
 
 Pure data transformations from `&Episodes` / `&SessionMeta` / `&AnalysisReport` into external formats.

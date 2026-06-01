@@ -28,6 +28,8 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
   table { font-size: 9pt; }
   th { background: white !important; }
 }
+.warn-row { background: #fef3c7; }
+.warn-row td { color: #92400e; }
 </style>
 </head>
 <body>
