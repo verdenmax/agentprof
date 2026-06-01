@@ -31,6 +31,8 @@ enum Cli {
     List(cmd::list::ListCmd),
     /// Aggregate metrics across many recent sessions.
     Aggregate(cmd::aggregate::AggregateCmd),
+    /// Live-refresh TUI: monitor session file(s) and redraw on change (M1.6.3).
+    Watch(cmd::watch::WatchCmd),
 }
 
 fn main() -> ExitCode {
@@ -50,6 +52,7 @@ fn run(cli: Cli) -> Result<()> {
         Cli::Analyze(cmd) => cmd::analyze::run(cmd),
         Cli::List(cmd) => cmd::list::run(cmd),
         Cli::Aggregate(cmd) => cmd::aggregate::run(cmd),
+        Cli::Watch(cmd) => cmd::watch::run(cmd),
     }
 }
 

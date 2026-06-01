@@ -40,6 +40,7 @@ serde_json         = { workspace = true }
 chrono             = { workspace = true }
 directories        = { workspace = true }
 askama             = { workspace = true }
+notify-debouncer-mini = { workspace = true }
 
 [dev-dependencies]
 assert_cmd = { workspace = true }

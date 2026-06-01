@@ -65,8 +65,7 @@ pub struct AggregateCmd {
     pub low_utilization_threshold: f32,
 }
 
-/// Output format for `aggregate` (subset of `analyze`'s; no TUI in
-/// M1.6.2).
+/// Output format for `aggregate`.
 #[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AggExportFormat {
     /// Markdown to stdout/file (default).
@@ -77,6 +76,10 @@ pub enum AggExportFormat {
     Csv,
     /// Self-contained static HTML (no JS, askama-templated).
     Html,
+    /// Interactive ratatui TUI (cross-session aggregate view, M1.6.3).
+    /// Requires both stdin and stdout to be TTYs; otherwise exits with
+    /// `OutputError` (3). `--output` is ignored.
+    Tui,
 }
 
 /// CLI-facing mirror of [`AggregateKey`].
@@ -117,9 +120,88 @@ impl AggBy {
 ///   agent, missing/non-existent `--root`, bad `--since`.
 /// - `DataError` (2): all discovered sessions failed to parse, or the
 ///   adapter could not enumerate the root.
-/// - `OutputError` (3): I/O failure writing to stdout or `--output`.
-#[allow(clippy::needless_pass_by_value, clippy::too_many_lines)]
+/// - `OutputError` (3): I/O failure writing to stdout or `--output`;
+///   TTY missing when `--export tui`.
+#[allow(clippy::needless_pass_by_value)]
 pub fn run(cmd: AggregateCmd) -> Result<()> {
+    // Resolve adapter (M1.6.3 = copilot only).
+    let adapter = match cmd.agent {
+        AgentKind::Copilot => CopilotAdapter,
+        other => {
+            return Err(ExitKind::UserError.into_anyhow(format!(
+                "{other:?} adapter not yet implemented (M1.6.3 supports copilot only)"
+            )));
+        }
+    };
+
+    let any_report = compute_aggregate(&adapter, &cmd)?;
+
+    // Dispatch TUI before the renderers (it needs the raw report).
+    if matches!(cmd.export, AggExportFormat::Tui) {
+        return run_tui_for_aggregate(any_report);
+    }
+
+    // Render.
+    let output = match cmd.export {
+        AggExportFormat::Md => format::aggregate_md::render(&any_report),
+        AggExportFormat::Json => serde_json::to_string_pretty(&any_report)
+            .context("serialize AnyAggregateReport to JSON")?,
+        AggExportFormat::Csv => {
+            format::aggregate_csv::render(&any_report).context("render aggregate CSV")?
+        }
+        AggExportFormat::Html => format::aggregate_html::render(
+            &any_report,
+            cmd.low_utilization_threshold,
+            env!("CARGO_PKG_VERSION"),
+        ),
+        AggExportFormat::Tui => unreachable!("handled above"),
+    };
+
+    // Write.
+    if let Some(path) = &cmd.output {
+        std::fs::write(path, &output).map_err(|e| {
+            ExitKind::OutputError.into_anyhow(format!("write {}: {e}", path.display()))
+        })?;
+    } else {
+        let stdout = std::io::stdout();
+        let mut handle = stdout.lock();
+        handle
+            .write_all(output.as_bytes())
+            .map_err(|e| ExitKind::OutputError.into_anyhow(format!("stdout: {e}")))?;
+        if !output.ends_with('\n') {
+            let _ = handle.write_all(b"\n");
+        }
+    }
+
+    Ok(())
+}
+
+/// Run the load-and-compute half of `agentprof aggregate`, returning
+/// the populated [`AnyAggregateReport`] without rendering or writing.
+///
+/// Used by both [`run`] (for md/json/csv/html/tui dispatch) and by
+/// `cmd::watch::run` (for live reload in `watch aggregate` mode).
+///
+/// Per-session parse failures degrade gracefully: a warning is printed
+/// to stderr and `failure_count` on the returned report is incremented.
+/// A summary line is printed to stderr when at least one session failed.
+///
+/// # Errors
+///
+/// Returns an `anyhow::Error` whose downcast target is [`ExitKind`]:
+/// - `UserError` (1): invalid `--low-utilization-threshold`, bad
+///   `--since`, missing/non-existent `--root`.
+/// - `DataError` (2): all discovered sessions failed to parse, or the
+///   adapter could not enumerate the root.
+#[allow(
+    clippy::needless_pass_by_value,
+    clippy::too_many_lines,
+    clippy::trivially_copy_pass_by_ref
+)]
+pub fn compute_aggregate(
+    adapter: &CopilotAdapter,
+    cmd: &AggregateCmd,
+) -> Result<AnyAggregateReport> {
     // Validate threshold range early.
     if !(0.0..=100.0).contains(&cmd.low_utilization_threshold) {
         return Err(ExitKind::UserError.into_anyhow(format!(
@@ -127,16 +209,6 @@ pub fn run(cmd: AggregateCmd) -> Result<()> {
             cmd.low_utilization_threshold
         )));
     }
-
-    // Resolve adapter (M1.6.2 = copilot only).
-    let adapter = match cmd.agent {
-        AgentKind::Copilot => CopilotAdapter,
-        other => {
-            return Err(ExitKind::UserError.into_anyhow(format!(
-                "{other:?} adapter not yet implemented (M1.6.2 supports copilot only)"
-            )));
-        }
-    };
 
     // Resolve root.
     let root = cmd
@@ -171,22 +243,13 @@ pub fn run(cmd: AggregateCmd) -> Result<()> {
         })
         .collect();
 
-    if refs.is_empty() {
-        eprintln!(
-            "agentprof: no sessions matching --since={} under {}",
-            cmd.since,
-            root.display()
-        );
-        return Ok(());
-    }
-
     // Sequential parse (D-2; rayon deferred).
     let mut reports: Vec<AnalysisReport> = Vec::with_capacity(refs.len());
     let mut episodes_vec: Vec<Episodes> = Vec::with_capacity(refs.len());
     let mut failure_count: usize = 0;
 
     for sref in &refs {
-        match load_and_analyze(&adapter, sref) {
+        match load_and_analyze(adapter, sref) {
             Ok((report, episodes)) => {
                 reports.push(report);
                 episodes_vec.push(episodes);
@@ -204,6 +267,14 @@ pub fn run(cmd: AggregateCmd) -> Result<()> {
     if reports.is_empty() && failure_count > 0 {
         return Err(ExitKind::DataError
             .into_anyhow(format!("all {failure_count} session(s) failed to parse")));
+    }
+
+    if refs.is_empty() {
+        eprintln!(
+            "agentprof: no sessions matching --since={} under {}",
+            cmd.since,
+            root.display()
+        );
     }
 
     // Dispatch on --by.
@@ -233,37 +304,6 @@ pub fn run(cmd: AggregateCmd) -> Result<()> {
         truncate_buckets(&mut any_report, cmd.limit);
     }
 
-    // Render.
-    let output = match cmd.export {
-        AggExportFormat::Md => format::aggregate_md::render(&any_report),
-        AggExportFormat::Json => serde_json::to_string_pretty(&any_report)
-            .context("serialize AnyAggregateReport to JSON")?,
-        AggExportFormat::Csv => {
-            format::aggregate_csv::render(&any_report).context("render aggregate CSV")?
-        }
-        AggExportFormat::Html => format::aggregate_html::render(
-            &any_report,
-            cmd.low_utilization_threshold,
-            env!("CARGO_PKG_VERSION"),
-        ),
-    };
-
-    // Write.
-    if let Some(path) = &cmd.output {
-        std::fs::write(path, &output).map_err(|e| {
-            ExitKind::OutputError.into_anyhow(format!("write {}: {e}", path.display()))
-        })?;
-    } else {
-        let stdout = std::io::stdout();
-        let mut handle = stdout.lock();
-        handle
-            .write_all(output.as_bytes())
-            .map_err(|e| ExitKind::OutputError.into_anyhow(format!("stdout: {e}")))?;
-        if !output.ends_with('\n') {
-            let _ = handle.write_all(b"\n");
-        }
-    }
-
     // Stderr summary on partial failures.
     if failure_count > 0 {
         let total = reports.len() + failure_count;
@@ -275,7 +315,27 @@ pub fn run(cmd: AggregateCmd) -> Result<()> {
         );
     }
 
-    Ok(())
+    Ok(any_report)
+}
+
+fn run_tui_for_aggregate(any_report: AnyAggregateReport) -> Result<()> {
+    use std::io::IsTerminal as _;
+    if !std::io::stdout().is_terminal() || !std::io::stdin().is_terminal() {
+        return Err(ExitKind::OutputError.into_anyhow(
+            "agentprof aggregate --export tui requires both stdin and stdout to be TTYs; \
+             use --export md|json|csv|html for headless output (e.g. `agentprof aggregate \
+             --by tool --since 7d --export md`)"
+                .to_string(),
+        ));
+    }
+    agentprof_tui::app::terminal::install_panic_hook();
+    let mut term = agentprof_tui::app::terminal::enter()
+        .map_err(|e| ExitKind::OutputError.into_anyhow(format!("entering tui: {e}")))?;
+    let data = agentprof_tui::watch::WatchData::Cross(any_report);
+    let mut runner = agentprof_tui::watch::WatchRunner::new_static(data);
+    let res = runner.run(&mut term);
+    let _ = agentprof_tui::app::terminal::leave(&mut term);
+    res.map_err(|e| ExitKind::OutputError.into_anyhow(format!("tui runtime: {e}")))
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref)]
@@ -373,5 +433,32 @@ mod tests {
         assert_eq!(parse_since("45s").unwrap(), Duration::from_secs(45));
         assert_eq!(parse_since("all").unwrap(), Duration::MAX);
         assert!(parse_since("foo").is_err());
+    }
+
+    #[test]
+    fn compute_aggregate_returns_empty_on_empty_root() {
+        use tempfile::TempDir;
+        let tmp = TempDir::new().unwrap();
+        let cmd = AggregateCmd {
+            agent: AgentKind::Copilot,
+            root: Some(tmp.path().to_path_buf()),
+            by: AggBy::Tool,
+            since: "30d".to_string(),
+            limit: 0,
+            export: AggExportFormat::Md,
+            output: None,
+            low_utilization_threshold: 20.0,
+        };
+        let adapter = CopilotAdapter;
+        let any = compute_aggregate(&adapter, &cmd)
+            .expect("compute_aggregate should succeed on empty root");
+        let bucket_count = match &any {
+            AnyAggregateReport::Tool(r) => r.buckets.len(),
+            AnyAggregateReport::McpServer(r) => r.buckets.len(),
+            AnyAggregateReport::Day(r) => r.buckets.len(),
+            AnyAggregateReport::Model(r) => r.buckets.len(),
+            _ => panic!("new AnyAggregateReport variant; extend test"),
+        };
+        assert_eq!(bucket_count, 0);
     }
 }

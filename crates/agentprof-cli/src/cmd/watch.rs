@@ -1,0 +1,273 @@
+//! `agentprof watch` subcommand (M1.6.3).
+//!
+//! Live-refresh TUI for a single Copilot session (default) or a
+//! cross-session aggregate (`watch aggregate ...`). Uses `notify` +
+//! `notify-debouncer-mini` for kernel-level filesystem events;
+//! debounce window defaults to 250 ms.
+//!
+//! Watcher target:
+//! - Single mode: `<root>/<session-id>/events.jsonl` (`NonRecursive`).
+//! - Cross mode: `<root>/` (`Recursive`) — any session change refreshes.
+//!
+//! Per spec D-5 (single mode): `--session latest` locks to the initial
+//! latest session; later sessions are NOT auto-followed.
+
+use std::io::IsTerminal as _;
+use std::path::PathBuf;
+use std::sync::mpsc::{channel, Sender};
+use std::time::Duration;
+
+use anyhow::Result;
+use clap::{Args, Subcommand};
+use notify_debouncer_mini::notify::RecommendedWatcher;
+use notify_debouncer_mini::Debouncer;
+
+use agentprof_adapters::copilot::CopilotAdapter;
+use agentprof_core::adapter::{Adapter, AgentKind, SessionRef};
+use agentprof_core::analyzer::analyze;
+use agentprof_core::episode::derive_episodes;
+use agentprof_tui::watch::{RefreshKind, ReloadError, WatchData, WatchRunner};
+
+use crate::cmd::aggregate::{compute_aggregate, AggregateCmd};
+use crate::cmd::analyze::{resolve_session, ExitKind, SessionSelector};
+
+/// Arguments for `agentprof watch`.
+#[derive(Args, Debug, Clone)]
+#[non_exhaustive]
+pub struct WatchCmd {
+    /// Aggregate sub-mode (cross-session). Omit for single-session watch.
+    #[command(subcommand)]
+    pub sub: Option<WatchSub>,
+
+    /// Agent whose session to watch. M1.6.3 supports `copilot` only.
+    #[arg(long, value_enum, default_value_t = AgentKind::Copilot)]
+    pub agent: AgentKind,
+
+    /// Override the adapter's default session-state root.
+    #[arg(long)]
+    pub root: Option<PathBuf>,
+
+    /// Which session to watch (single mode only). Defaults to `latest`.
+    /// Locked to the resolved session at startup — newer sessions are
+    /// NOT auto-followed (per spec D-5).
+    #[arg(long, default_value = "latest")]
+    pub session: SessionSelector,
+
+    /// Debounce window (ms) for filesystem events.
+    #[arg(long, default_value_t = 250)]
+    pub debounce_ms: u64,
+}
+
+/// Cross-session watch sub-mode.
+#[derive(Subcommand, Debug, Clone)]
+#[non_exhaustive]
+pub enum WatchSub {
+    /// Watch cross-session aggregate (re-aggregates on any session change
+    /// under `--root`). Accepts all `agentprof aggregate` flags.
+    Aggregate(AggregateCmd),
+}
+
+/// Entry point for `agentprof watch`.
+///
+/// # Errors
+///
+/// Returns an `anyhow::Error` whose downcast target is [`ExitKind`]:
+/// - `UserError` (1): unknown agent, bad selector, root not found.
+/// - `DataError` (2): initial session load failed, or notify init failed.
+/// - `OutputError` (3): stdin or stdout is not a TTY; tui runtime failure.
+///
+/// # Examples
+///
+/// ```text
+/// // Constructed by clap from argv in production; not invokable headless.
+/// agentprof watch --debounce-ms 500
+/// agentprof watch aggregate --by tool --since 7d
+/// ```
+#[allow(clippy::needless_pass_by_value)]
+pub fn run(cmd: WatchCmd) -> Result<()> {
+    // TTY check — same shape as cmd::analyze::run_tui.
+    if !std::io::stdout().is_terminal() || !std::io::stdin().is_terminal() {
+        return Err(ExitKind::OutputError.into_anyhow(
+            "agentprof watch requires both stdin and stdout to be TTYs; \
+             headless monitoring is not supported (use `watch -n 5 agentprof analyze \
+             --export md` as a workaround)"
+                .to_string(),
+        ));
+    }
+
+    let adapter = match cmd.agent {
+        AgentKind::Copilot => CopilotAdapter,
+        other => {
+            return Err(ExitKind::UserError.into_anyhow(format!(
+                "{other:?} adapter not yet implemented (M1.6.3 supports copilot only)"
+            )));
+        }
+    };
+
+    let debounce = Duration::from_millis(cmd.debounce_ms);
+
+    match cmd.sub.clone() {
+        None => run_single(adapter, &cmd, debounce),
+        Some(WatchSub::Aggregate(agg)) => run_cross(adapter, agg, &cmd, debounce),
+    }
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn run_single(adapter: CopilotAdapter, cmd: &WatchCmd, debounce: Duration) -> Result<()> {
+    let sref = resolve_session(&adapter, cmd.root.clone(), &cmd.session)?;
+    let events_jsonl = sref.path.clone();
+
+    // Initial load.
+    let initial = load_single(&adapter, &sref)
+        .map_err(|e| ExitKind::DataError.into_anyhow(format!("initial load: {e:#}")))?;
+
+    // mpsc channel between debouncer-thread → runner.
+    let (tx, rx) = channel::<RefreshKind>();
+
+    // Spawn the debounced file watcher; hold the Debouncer for the
+    // entire lifetime of `run_single` — dropping it stops the watcher.
+    let _watcher = spawn_single_watcher(&events_jsonl, debounce, tx)?;
+
+    // Build the reload closure (captures adapter by value — zero-sized,
+    // free move; captures sref clone for repeated reload).
+    let sref_for_reload = sref;
+    let reload: Box<dyn FnMut() -> Result<WatchData, ReloadError>> = Box::new(move || {
+        if !sref_for_reload.path.exists() {
+            return Err(ReloadError::SessionGone {
+                path: sref_for_reload.path.clone(),
+            });
+        }
+        load_single(&adapter, &sref_for_reload).map_err(|e| ReloadError::Pipeline(format!("{e:#}")))
+    });
+
+    enter_and_run(initial, Some((rx, reload)))
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn run_cross(
+    adapter: CopilotAdapter,
+    agg: AggregateCmd,
+    cmd: &WatchCmd,
+    debounce: Duration,
+) -> Result<()> {
+    // Compute the initial aggregate up-front (also validates --root).
+    let initial_any = compute_aggregate(&adapter, &agg)
+        .map_err(|e| ExitKind::DataError.into_anyhow(format!("initial aggregate: {e:#}")))?;
+    let initial = WatchData::Cross(initial_any);
+
+    let root = agg
+        .root
+        .clone()
+        .or_else(|| adapter.default_session_root())
+        .ok_or_else(|| {
+            ExitKind::UserError
+                .into_anyhow("could not determine session root for watch; pass --root".to_string())
+        })?;
+
+    let (tx, rx) = channel::<RefreshKind>();
+    let _watcher = spawn_recursive_watcher(&root, debounce, tx)?;
+
+    // Optional: warn if cmd.session was set in cross mode (it's ignored).
+    if !matches!(cmd.session, SessionSelector::Latest) {
+        eprintln!("agentprof: warning: --session is ignored in `watch aggregate` mode");
+    }
+
+    let agg_for_reload = agg;
+    let reload: Box<dyn FnMut() -> Result<WatchData, ReloadError>> = Box::new(move || {
+        compute_aggregate(&adapter, &agg_for_reload)
+            .map(WatchData::Cross)
+            .map_err(|e| ReloadError::Pipeline(format!("{e:#}")))
+    });
+
+    enter_and_run(initial, Some((rx, reload)))
+}
+
+type ReloadFn = Box<dyn FnMut() -> Result<WatchData, ReloadError>>;
+
+fn enter_and_run(
+    initial: WatchData,
+    watcher: Option<(std::sync::mpsc::Receiver<RefreshKind>, ReloadFn)>,
+) -> Result<()> {
+    agentprof_tui::app::terminal::install_panic_hook();
+    let mut term = agentprof_tui::app::terminal::enter()
+        .map_err(|e| ExitKind::OutputError.into_anyhow(format!("entering tui: {e}")))?;
+    let mut runner = match watcher {
+        Some((rx, reload)) => WatchRunner::with_watcher(initial, rx, reload),
+        None => WatchRunner::new_static(initial),
+    };
+    let res = runner.run(&mut term);
+    let _ = agentprof_tui::app::terminal::leave(&mut term);
+    res.map_err(|e| ExitKind::OutputError.into_anyhow(format!("tui runtime: {e}")))
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn load_single(adapter: &CopilotAdapter, sref: &SessionRef) -> Result<WatchData> {
+    let raw = adapter.load_session(sref).map_err(|e| {
+        ExitKind::DataError.into_anyhow(format!("loading session {}: {e}", sref.path.display()))
+    })?;
+    let episodes = derive_episodes(&raw.events, &raw.meta);
+    let report = analyze(&episodes, &raw.meta, &raw.parse_warnings);
+    Ok(WatchData::Single {
+        report,
+        episodes,
+        meta: raw.meta,
+    })
+}
+
+fn spawn_single_watcher(
+    file: &std::path::Path,
+    debounce: Duration,
+    tx: Sender<RefreshKind>,
+) -> Result<Debouncer<RecommendedWatcher>> {
+    use notify_debouncer_mini::notify::RecursiveMode;
+    use notify_debouncer_mini::{new_debouncer, DebounceEventResult};
+
+    let mut debouncer = new_debouncer(debounce, move |res: DebounceEventResult| match res {
+        Ok(events) if !events.is_empty() => {
+            let _ = tx.send(RefreshKind::DataChanged);
+        }
+        Ok(_) => {}
+        Err(errors) => {
+            tracing::warn!(?errors, "notify debouncer errors");
+        }
+    })
+    .map_err(|e| {
+        ExitKind::DataError.into_anyhow(format!(
+            "init notify watcher: {e}; try `agentprof analyze --export md` for headless"
+        ))
+    })?;
+    debouncer
+        .watcher()
+        .watch(file, RecursiveMode::NonRecursive)
+        .map_err(|e| {
+            ExitKind::DataError.into_anyhow(format!("watch file {}: {e}", file.display()))
+        })?;
+    Ok(debouncer)
+}
+
+fn spawn_recursive_watcher(
+    root: &std::path::Path,
+    debounce: Duration,
+    tx: Sender<RefreshKind>,
+) -> Result<Debouncer<RecommendedWatcher>> {
+    use notify_debouncer_mini::notify::RecursiveMode;
+    use notify_debouncer_mini::{new_debouncer, DebounceEventResult};
+
+    let mut debouncer = new_debouncer(debounce, move |res: DebounceEventResult| match res {
+        Ok(events) if !events.is_empty() => {
+            let _ = tx.send(RefreshKind::DataChanged);
+        }
+        Ok(_) => {}
+        Err(errors) => {
+            tracing::warn!(?errors, "notify debouncer errors");
+        }
+    })
+    .map_err(|e| ExitKind::DataError.into_anyhow(format!("init notify watcher: {e}")))?;
+    debouncer
+        .watcher()
+        .watch(root, RecursiveMode::Recursive)
+        .map_err(|e| {
+            ExitKind::DataError.into_anyhow(format!("watch root {}: {e}", root.display()))
+        })?;
+    Ok(debouncer)
+}
