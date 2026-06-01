@@ -1,0 +1,92 @@
+---
+source: crates/agentprof-cli/tests/cli.rs
+expression: json
+---
+{
+  "$schema": "https://www.speedscope.app/file-format-schema.json",
+  "name": "agentprof 00000000 copilot",
+  "exporter": "agentprof v0.0.0",
+  "shared": {
+    "frames": [
+      {
+        "name": "session"
+      },
+      {
+        "name": "turn-1"
+      },
+      {
+        "name": "turn-2"
+      },
+      {
+        "name": "bash"
+      },
+      {
+        "name": "skill:synthetic-example"
+      },
+      {
+        "name": "skill:synthetic:example"
+      }
+    ]
+  },
+  "profiles": [
+    {
+      "type": "evented",
+      "name": "wall-clock",
+      "unit": "milliseconds",
+      "startValue": 0,
+      "endValue": 12000,
+      "events": [
+        {
+          "type": "O",
+          "at": 0,
+          "frame": 0
+        },
+        {
+          "type": "O",
+          "at": 3000,
+          "frame": 1
+        },
+        {
+          "type": "O",
+          "at": 5000,
+          "frame": 3
+        },
+        {
+          "type": "C",
+          "at": 6000,
+          "frame": 3
+        },
+        {
+          "type": "C",
+          "at": 7000,
+          "frame": 1
+        },
+        {
+          "type": "O",
+          "at": 8000,
+          "frame": 2
+        },
+        {
+          "type": "O",
+          "at": 10000,
+          "frame": 5
+        },
+        {
+          "type": "C",
+          "at": 11000,
+          "frame": 5
+        },
+        {
+          "type": "C",
+          "at": 12000,
+          "frame": 2
+        },
+        {
+          "type": "C",
+          "at": 12000,
+          "frame": 0
+        }
+      ]
+    }
+  ]
+}

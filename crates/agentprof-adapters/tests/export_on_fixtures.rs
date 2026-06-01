@@ -131,3 +131,47 @@ fn speedscope_skill_frame_is_aggregated() {
         p.shared.frames
     );
 }
+
+// ---- SVG flamegraph (M1.6.4 T2) ----
+
+use agentprof_core::export::svg_flamegraph::SvgFlamegraph;
+
+#[test]
+fn svg_flamegraph_has_session_root_and_color_classes() {
+    let (episodes, meta) = load_fixture("with-skill-invoked");
+    let svg = SvgFlamegraph::from_episodes(&episodes, &meta).into_svg_string();
+    assert!(
+        svg.starts_with("<svg "),
+        "should start with <svg tag: {svg}"
+    );
+    assert!(svg.contains("viewBox=\""), "should have viewBox");
+    assert!(svg.contains("fill=\"#6b7280\""), "should have session grey");
+    // with-skill-invoked fixture has at least one skill invocation → green expected.
+    assert!(svg.contains("fill=\"#10b981\""), "skill green expected");
+    assert!(!svg.contains("<script"), "must not contain <script>");
+    assert!(
+        svg.ends_with("</svg>"),
+        "should end with </svg>: ...{}",
+        &svg[svg.len().saturating_sub(40)..]
+    );
+}
+
+#[test]
+fn svg_flamegraph_viewbox_scales_with_turn_count() {
+    for fixture in &["with-skill-invoked", "cross-turn-tool"] {
+        let (episodes, meta) = load_fixture(fixture);
+        let svg = SvgFlamegraph::from_episodes(&episodes, &meta).into_svg_string();
+        let vb_marker = "viewBox=\"";
+        let start = svg.find(vb_marker).unwrap() + vb_marker.len();
+        let rest = &svg[start..];
+        let end = rest.find('"').unwrap();
+        let vb = &rest[..end];
+        let parts: Vec<&str> = vb.split_whitespace().collect();
+        assert_eq!(parts.len(), 4, "viewBox should have 4 parts: {vb}");
+        let w: i64 = parts[2].parse().unwrap();
+        assert!(
+            (1000..=5000).contains(&w),
+            "viewBox W should be in [1000,5000], got {w} for {fixture}"
+        );
+    }
+}
