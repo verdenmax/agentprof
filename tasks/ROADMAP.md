@@ -6,8 +6,8 @@
 > **版本**：1.2
 > **最后更新**：2026-06-01
 > **当前 commit**：`main` HEAD（运行 `git log -1 --oneline` 查看最新）；最近一个重大 milestone merge = `9abd694` (post-output-audit)
-> **当前阶段**：**Phase 0 + 1 (MVP)** — M1.1 / M1.2 / M1.3 / M1.4 ✅ 完成（含 4 轮 M1.4 followups），**M1.5 ✅ 完成**（TUI + ADR-0006 panic-safe lifecycle），**M1.6.1 ✅ 完成**（`list` 子命令 + 8 个 M1.5 audit polish 项），**M1.6.4 ✅ 完成**（`--export speedscope|html` + ADR-0007），**M1.6.2 ✅ 完成**（`aggregate` 子命令 + ADR-0008），M1.6.3 / M1.6.5 / M1.7 待开始
-> **下一步入口**：`tasks/001-mvp-agent-token-profiler.md` §10 Milestone 1.6.3（`watch` 子命令 + aggregate TUI 视图）/ 1.6.5（MCP waste analysis）/ 1.7（v0.1.0 release），走 Stage 1 brainstorming
+> **当前阶段**：**Phase 0 + 1 (MVP)** — M1.1 / M1.2 / M1.3 / M1.4 ✅ 完成（含 4 轮 M1.4 followups），**M1.5 ✅ 完成**（TUI + ADR-0006 panic-safe lifecycle），**M1.6.1 ✅ 完成**（`list` 子命令 + 8 个 M1.5 audit polish 项），**M1.6.4 ✅ 完成**（`--export speedscope|html` + ADR-0007），**M1.6.2 ✅ 完成**（`aggregate` 子命令 + ADR-0008），**M1.6.3 ✅ 完成 2026-06-01**（`watch` 子命令 + `aggregate --export tui` 激活 + ADR-0009），M1.6.5 / M1.7 待开始
+> **下一步入口**：`tasks/001-mvp-agent-token-profiler.md` §10 Milestone 1.7（v0.1.0 release via `github-release` skill）；M1.6.5（MCP waste analysis）属于 post-MVP 增量，可推到 0.2.0
 >
 > **重大 pivot**（ADR-0001 events-first，详见 §4.1 / §4.2）：M1.2 不再做 ClaudeAdapter，改做 **CopilotAdapter**（real wire data 直接可得）；tokenizer / ROI / waste / aggregate 全部从 M1.3 推迟到 M1.5+。Claude / Codex / Gemini 适配器推迟到 Phase 2 / 3。
 
@@ -110,7 +110,7 @@ Phase 3   扩展适配：Codex CLI / Copilot CLI / Gemini / Cursor
 |---|---|
 | **Git** | `main` 分支（运行 `git log -1 --oneline` 查看 HEAD）；最近 4 个 milestone merges：M1.4 audit followups + turn-metadata-extraction + mode-vocabulary-alignment + post-output-audit |
 | **Crate** | 5 lib/bin + 1 xtask。`agentprof-core` / `agentprof-adapters` / `agentprof-cli` 已实现到 M1.4；**`agentprof-tui` ✅ M1.5 已交付**（3 视图 + panic-safe lifecycle + 3 insta snapshots，详见 [ADR-0006](../docs/internals/adr-0006-panic-safe-tui.md)）；`agentprof-storage` 仍是 `//!` 骨架（Phase 2） |
-| **Phase** | Phase 0 / Phase 1（MVP），**M1.1 / M1.2 / M1.3 / M1.4 / M1.5 / M1.6.1 / M1.6.2 / M1.6.4 ✅ 完成**，M1.6.3 (`watch`) / M1.6.5 (MCP waste) / M1.7 (release) ❌ 未开始；`export` 子命令已取消 |
+| **Phase** | Phase 0 / Phase 1（MVP），**M1.1 / M1.2 / M1.3 / M1.4 / M1.5 / M1.6.1 / M1.6.2 / M1.6.3 / M1.6.4 ✅ 完成**，M1.6.5 (MCP waste) / M1.7 (release) ❌ 未开始；`export` 子命令已取消 |
 | **测试** | ~230+ tests pass，含 ~70 个 insta 快照（episode_derive / analyzer_on_fixtures / CLI 集成 / 单元）+ **12** 个 fixture（含 `with-post-tool-use-hooks` 锁定 Copilot CLI 1.0.x 三个 Optional schema 字段的 parser fix） |
 | **CI** | 已配（lint + test matrix + deny + docs + docs-sync + nightly-msrv + release skeleton），未在 GitHub 上运行（remote 未配） |
 | **远端** | 未推（本地 `main` only） |
@@ -120,7 +120,7 @@ Phase 3   扩展适配：Codex CLI / Copilot CLI / Gemini / Cursor
 
 | Phase | 任务文件 | Milestone | 完成度 | Release | 状态 |
 |---|---|---|---|---|---|
-| **0+1 MVP** | 001 | M1.1–M1.7 | 7/7 shippable surface（M1.1 / M1.2 / M1.3 / M1.4 / M1.5 ✅ + M1.6.1 + M1.6.2 + M1.6.4）= **~95%**（剩 M1.7 release） | v0.1.0 | 🟡 In progress |
+| **0+1 MVP** | 001 | M1.1–M1.7 | 8/8 shippable surface（M1.1 / M1.2 / M1.3 / M1.4 / M1.5 ✅ + M1.6.1 + M1.6.2 + M1.6.3 + M1.6.4）= **~98%**（剩 M1.7 release） | v0.1.0 | 🟡 In progress |
 | **2** | 002 (TBD) | M2.1–M2.x | 0% | v0.2.0 | ⚪ Planned |
 | **3** | 003 (TBD) | M3.1–M3.x | 0% | v1.0.0 | ⚪ Planned |
 | **Beyond** | 004+ (TBD) | — | — | post-1.0 | 💭 Vision |
@@ -137,7 +137,7 @@ Phase 3   扩展适配：Codex CLI / Copilot CLI / Gemini / Cursor
 
 | # | 文件 | 范围 | 状态 | Milestone 完成度 | 计划 release |
 |---|---|---|---|---|---|
-| **001** | [`001-mvp-agent-token-profiler.md`](./001-mvp-agent-token-profiler.md) | **Phase 0 + 1 MVP**：Copilot adapter（pivot from Claude）+ Episode aggregation + CLI `analyze` (md/json) + TUI flamegraph + list/aggregate/export | 🟡 In-Progress | 7/7 shippable surface（M1.1 / M1.2 / M1.3 / M1.4 / M1.5 ✅ + M1.6.1 + M1.6.2 + M1.6.4）= **~95%** | **v0.1.0** |
+| **001** | [`001-mvp-agent-token-profiler.md`](./001-mvp-agent-token-profiler.md) | **Phase 0 + 1 MVP**：Copilot adapter（pivot from Claude）+ Episode aggregation + CLI `analyze` (md/json) + TUI flamegraph + list/aggregate/watch/export | 🟡 In-Progress | 8/8 shippable surface（M1.1 / M1.2 / M1.3 / M1.4 / M1.5 ✅ + M1.6.1 + M1.6.2 + M1.6.3 + M1.6.4）= **~98%** | **v0.1.0** |
 
 ### 3.2 计划中的 task 文件（占位）
 
@@ -228,7 +228,7 @@ M1.4 ✅ CLI analyze + md     │                M2.4 ❌ pricing 自动同步
 M1.5 ✅ TUI views            │                M2.5 ❌ tokenizer + ROI + waste (events-first pivot 推迟)
 M1.6.1 ✅ list 子命令         │                       │
 M1.6.2 ✅ aggregate 子命令    │
-M1.6.3 ❌ watch 子命令        │
+M1.6.3 ✅ watch 子命令        │
 M1.6.4 ✅ Speedscope + HTML 导出
 M1.6.5 ❌ MCP waste analysis (new)
 M1.7 ❌ v0.1.0 release ──────┘                       │ release
@@ -307,7 +307,7 @@ Pre-1.0（即 `0.X.Y`）期间，允许 minor bump 包含 breaking change（但�
 | L-1 | **隐私字段默认裸露**：`agentprof analyze` 输出含 cwd / branch / model 内部名 / session UUID / ~800 turn UUIDs，分享报告前需要手动 `sed`/`jq` 脱敏 | 🔴 HIGH | [`docs/features/privacy.md`](../docs/features/privacy.md) | M1.5+ `--redact` / `--anonymize` flags（同上文档 §4） |
 | L-2 | **Subagent token over-attribution**：subagent message（`parentToolCallId` 携带，无 `turnId`）的 `output_tokens` 被算到父 turn — 总数对、per-turn 数偏高 | 🟡 MEDIUM | [ADR-0005 §6 "Side effect"](../docs/internals/adr-0005-analyzer-and-payload-name.md#update-6-post-output-audit-fixes-parse-warning-visibility-schema-mismatches-user-blocking-split) + `crates/agentprof-adapters/tests/fixtures/copilot/with-post-tool-use-hooks/README.md` | M1.5+ 增加 `Turn.subagent_output_tokens` 字段拆分 |
 | L-3 | **Turn Summary 无分页**：长 session（745+ turns）一次性吐表，终端 / 富文本编辑器 / GitHub 渲染都比较吃力 | 🟡 MEDIUM | [`docs/superpowers/specs/2026-05-29-post-output-audit-design.md`](../docs/superpowers/specs/2026-05-29-post-output-audit-design.md) §3 "Deferred" | M1.5+（与 TUI 一起；TUI 天然分页） |
-| L-4 | **CLI 子命令仍少**：`analyze` (M1.4) + `--export speedscope\|html` (M1.6.4) + `list` (M1.6.1) + `aggregate` (M1.6.2) ✅；`watch` / `ingest-otlp` / `config` 未实现；`export` 已取消（与 `analyze --export` 重复） | 🟡 MEDIUM | [`crates/agentprof-cli/README.md`](../crates/agentprof-cli/README.md) + [M1.6.1 spec](../docs/superpowers/specs/2026-05-30-m1.6.1-list-and-polish-design.md) + [M1.6.2 spec](../docs/superpowers/specs/2026-06-01-m1.6.2-aggregate-design.md) + [M1.6.4 spec](../docs/superpowers/specs/2026-05-31-m1.6.4-speedscope-and-html-export-design.md) + [ADR-0007](../docs/internals/adr-0007-speedscope-export.md) + [ADR-0008](../docs/internals/adr-0008-aggregate-report-and-utilization.md) | M1.6.3 watch / Phase 2 (ingest-otlp / config) |
+| L-4 | **CLI 子命令仍少**：`analyze` (M1.4) + `--export speedscope\|html` (M1.6.4) + `list` (M1.6.1) + `aggregate` (M1.6.2 + `--export tui` M1.6.3) + `watch` (M1.6.3) ✅；`ingest-otlp` / `config` 未实现；`export` 已取消（与 `analyze --export` 重复） | 🟡 MEDIUM | [`crates/agentprof-cli/README.md`](../crates/agentprof-cli/README.md) + [M1.6.1 spec](../docs/superpowers/specs/2026-05-30-m1.6.1-list-and-polish-design.md) + [M1.6.2 spec](../docs/superpowers/specs/2026-06-01-m1.6.2-aggregate-design.md) + [M1.6.3 spec](../docs/superpowers/specs/2026-06-01-m1.6.3-watch-and-aggregate-tui-design.md) + [M1.6.4 spec](../docs/superpowers/specs/2026-05-31-m1.6.4-speedscope-and-html-export-design.md) + [ADR-0007](../docs/internals/adr-0007-speedscope-export.md) + [ADR-0008](../docs/internals/adr-0008-aggregate-report-and-utilization.md) + [ADR-0009](../docs/internals/adr-0009-watch-runner-and-notify.md) | Phase 2 (`ingest-otlp` / `config`) |
 | L-5 | **无 tokenizer → 无法精确算 token cost / waste**：当前 `output_tokens` 直接读 wire 字段；ROI / 浪费金额、schema_utilization 等 PRD 原 §5.2 卖点全部依赖 tokenizer | 🟡 MEDIUM | [`docs/plan.md`](../docs/plan.md) §6 pivot 备注 + [`tasks/001-mvp-agent-token-profiler.md`](./001-mvp-agent-token-profiler.md) FR-2 表 | M1.5+ 或 Phase 2 |
 | L-6 | ~~**TUI 完全未实现**~~ → **✅ 已交付 M1.5**（3 视图：FlamegraphView / RoiView / AggregateView，panic-safe lifecycle，3 insta snapshots + 2 CLI tests） | ✅ FIXED | [`crates/agentprof-tui/README.md`](../crates/agentprof-tui/README.md) + [ADR-0006](../docs/internals/adr-0006-panic-safe-tui.md) + [spec](../docs/superpowers/specs/2026-05-30-m1.5-tui-design.md) + [plan](../docs/superpowers/plans/2026-05-30-m1.5-tui.md) | — |
 | L-7 | **无 SQLite 持久化**：每次 `analyze` 都全量解析；跨 session aggregate 无处可存 | 🟢 EXPECTED | [`crates/agentprof-storage/README.md`](../crates/agentprof-storage/README.md) | Phase 2 (M2.1) |

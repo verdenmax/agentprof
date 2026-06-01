@@ -122,7 +122,9 @@ full CLI documentation.
 - `agentprof analyze` — analyze a single session (`--export md|json|tui|speedscope|html`). See [`docs/architecture.md`](docs/architecture.md) §8.
   - M1.6.4 adds `--export speedscope` (for upload to <https://speedscope.app>) and `--export html` (self-contained static report, no JS).
 - `agentprof list` (M1.6.1) — discover recent sessions in a compact 7-column table. `--since 7d --limit 20` defaults keep the command snappy; per-session parse failures degrade gracefully. See [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) `## agentprof list`.
-- `agentprof aggregate` (M1.6.2) — cross-session aggregation reports (`--by tool|mcp-server|day|model`, `--export md|json|csv|html`). See [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) `## agentprof aggregate`.
+- `agentprof aggregate` (M1.6.2 + M1.6.3 tui) — cross-session aggregation reports (`--by tool|mcp-server|day|model`, `--export md|json|csv|html|tui`). See [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) `## agentprof aggregate`.
+- `agentprof watch` (M1.6.3) — live-refresh single-session TUI (kernel-event-driven via `notify-debouncer-mini`; default 250 ms debounce). See [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) `## agentprof watch` and [ADR-0009](docs/internals/adr-0009-watch-runner-and-notify.md).
+- `agentprof watch aggregate --by KEY` (M1.6.3) — live-refresh cross-session aggregate TUI; accepts every `aggregate` flag (except `--export` / `--output`, which are rejected because the output is always TUI).
 
 ---
 
