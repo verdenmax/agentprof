@@ -43,13 +43,27 @@ Internally, the core exposes a **type-parameterized** report:
 
 ```rust
 pub struct AggregateReport<B> {
-    pub window: AggregateWindow,
+    pub by: AggregateKey,
+    pub since: chrono::Duration,
+    pub session_count: usize,
+    pub failure_count: usize,
+    pub total_wall_duration: chrono::Duration,
     pub buckets: Vec<B>,
-    pub meta: AggregateMeta,   // counts of skipped / parsed sessions, etc.
+}
+
+#[serde(tag = "by", content = "data", rename_all = "snake_case")]
+pub enum AnyAggregateReport {
+    Tool(AggregateReport<ToolBucket>),
+    McpServer(AggregateReport<McpServerBucket>),
+    Day(AggregateReport<DayBucket>),
+    Model(AggregateReport<ModelBucket>),
 }
 ```
 
-with one concrete bucket per group-by key:
+Each `AggregateReport<B>` has a flat field layout (no nested `window` /
+`meta` sub-structs); metadata is at the top level alongside `buckets`.
+
+With one concrete bucket per group-by key:
 
 | `B` | Where | Schema highlights |
 |---|---|---|
@@ -58,19 +72,8 @@ with one concrete bucket per group-by key:
 | `DayBucket` | same | date (UTC), session_count, wall_time, tool_time, out_tokens, `utilization_pct`, `is_low_utilization` |
 | `ModelBucket` | same | model, sessions, turns, out_tokens, total_wall |
 
-For the CLI/serde boundary we wrap them in a serde-tagged outer enum:
-
-```rust
-#[derive(Serialize)]
-#[serde(tag = "by")]
-#[non_exhaustive]
-pub enum AnyAggregateReport {
-    Tool(AggregateReport<ToolBucket>),
-    McpServer(AggregateReport<McpServerBucket>),
-    Day(AggregateReport<DayBucket>),
-    Model(AggregateReport<ModelBucket>),
-}
-```
+The outer enum `AnyAggregateReport` is `#[non_exhaustive]` so we can add
+a 5th group-by key without breaking downstream consumers.
 
 Rejected alternatives:
 
@@ -160,7 +163,8 @@ tools, undercounting wall time for hook-heavy sessions).
 All four bucket types and `AnyAggregateReport` carry `#[non_exhaustive]`
 so we can add a 5th group-by key (e.g. `--by hook` for M1.6.5) without
 breaking downstream consumers. The CLI dispatch sites
-(`AnyAggregateReport::meta()`, `fill_metadata`, `truncate_buckets`)
+(`cmd::aggregate::fill_metadata`, `cmd::aggregate::truncate_buckets`,
+and the per-format renderers in `cmd::format::aggregate_*`)
 match all four variants explicitly and use `unreachable!` for the
 wildcard arm — chosen over silent `_ => {}` so that adding a new variant
 **fails to compile** until the dispatch is updated. (Without the
@@ -172,13 +176,14 @@ This change shipped as T2 fix-up commit `549fb40`.
 
 ### `--since all` rendering as "all" sentinel (T2 fix-up)
 
-`--since all` is implemented internally as a 100-year `Duration`
-sentinel (`AggregateWindow::All` is conceptually distinct, but in the
-date-math layer it lives as `since_secs = 100 * 365 * 86400`). Naively
-rendering this in the human-readable header would emit
-`Window: 876000.0 h` (or the `2562047788015.2 h` u64-max overflow seen
-before the fix-up). The renderers special-case the sentinel and write
-`Window: all` for `md` / `csv` / `html`.
+The parser (`cmd::aggregate::parse_since`) maps the literal token `"all"` to
+`std::time::Duration::MAX`. The CLI then converts to chrono via
+`try_seconds().unwrap_or(chrono::Duration::MAX)` (handles the i64 overflow).
+The MD/HTML human renderers (`format::aggregate_{md,html}::human_duration`)
+threshold-check any `chrono::Duration >= chrono::Duration::days(365 * 100)`
+(100 years) and render it as `"all"` instead of the otherwise-correct but
+useless `"2562047788015.2 h"`. No dedicated `Window` enum is involved —
+the sentinel is just `chrono::Duration::MAX`.
 
 Shipped as T2 fix-up commit `549fb40`.
 
@@ -206,14 +211,29 @@ Shipped as T2 fix-up commit `549fb40`.
 ## Implementation
 
 - **Module**: `agentprof-core::analyzer::aggregate` —
-  - `mod.rs` (~200 LOC): `AggregateReport<B>`, `AnyAggregateReport`,
-    `AggregateKey`, `AggregateWindow`, `AggregateMeta`, `fill_metadata`,
-    `truncate_buckets`.
-  - `bucket.rs` (~150 LOC): `ToolBucket`, `McpServerBucket`,
-    `DayBucket`, `ModelBucket` (all `#[non_exhaustive]`).
-  - `group_by_{tool,mcp,day,model}.rs` (~100 LOC each): pure aggregator
-    functions taking `&[AnalysisReport]` + `&[Episodes]`.
-  - Total core surface ≈ 700 LOC including tests.
+  - `analyzer::aggregate::mod.rs` (~290 LOC): `AggregateKey`,
+    `AggregateReport<B>`, `AnyAggregateReport`, `wall::compute_wall`
+    helper, doctest examples.
+  - `analyzer::aggregate::bucket.rs` (~300 LOC): 4 bucket types
+    (`ToolBucket`, `McpServerBucket`, `DayBucket`, `ModelBucket`) with
+    `pub const fn new(...)` constructors (all `#[non_exhaustive]`).
+  - `analyzer::aggregate::group_by_{tool,mcp,day,model}.rs` (~150 LOC
+    each): 4 pure aggregator functions taking `&[AnalysisReport]` +
+    `&[Episodes]`.
+  - `agentprof-cli::cmd::aggregate::fill_metadata` + `truncate_buckets` —
+    CLI-layer helpers that mutate `AnyAggregateReport` after aggregation
+    (fill `since` + `failure_count`; apply `--limit` truncation). Use
+    `_ => unreachable!()` wildcards on the `#[non_exhaustive]` enum to
+    fail loudly when a future variant lands without explicit handling
+    (per T2 fix-up). NOT in `agentprof-core`.
+  - Core surface: ~1100 LOC source + 250 LOC tests
+    (`crates/agentprof-core/src/analyzer/aggregate/` +
+    `crates/agentprof-core/tests/aggregate.rs` +
+    `crates/agentprof-adapters/tests/aggregate_on_fixtures.rs`).
+  - CLI surface: ~380 LOC orchestrator + ~700 LOC renderers +
+    11 integration/snapshot tests.
+  - Template + CSS: ~90 LOC (askama).
+  - Total ≈ 2500 LOC for the M1.6.2 milestone.
 - **CLI**: `agentprof-cli::cmd::aggregate::run` (~370 LOC) —
   - Local `AggBy` enum mirrors `AggregateKey` for `clap::ValueEnum`
     derivation (the core type intentionally does NOT impl `ValueEnum`
