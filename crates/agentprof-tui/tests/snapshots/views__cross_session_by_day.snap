@@ -1,0 +1,36 @@
+---
+source: crates/agentprof-tui/tests/views.rs
+expression: "format!(\"{buf:?}\")"
+---
+Buffer {
+    area: Rect { x: 0, y: 0, width: 120, height: 20 },
+    content: [
+        "┌ Aggregate watch — by day | 2 sessions | window 7d ───────────────────────────────────────────────────────────────────┐",
+        "│Keys: c/t/s/p sort  ↑/↓ select  q quit  ? help                                                                        │",
+        "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
+        "┌ Day buckets ─────────────────────────────────────────────────────────────────────────────────────────────────────────┐",
+        "│Date         Sess   Wall       Tool       Util%   Low?                                                                │",
+        "│2026-05-30   2      3.0m       1.0m       33.3    yes                                                                 │",
+        "│                                                                                                                      │",
+        "│                                                                                                                      │",
+        "│                                                                                                                      │",
+        "│                                                                                                                      │",
+        "│                                                                                                                      │",
+        "│                                                                                                                      │",
+        "│                                                                                                                      │",
+        "│                                                                                                                      │",
+        "│                                                                                                                      │",
+        "│                                                                                                                      │",
+        "│                                                                                                                      │",
+        "│                                                                                                                      │",
+        "│                                                                                                                      │",
+        "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
+    ],
+    styles: [
+        x: 0, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 1, y: 4, fg: Reset, bg: Reset, underline: Reset, modifier: BOLD,
+        x: 119, y: 4, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 1, y: 5, fg: Reset, bg: Reset, underline: Reset, modifier: REVERSED,
+        x: 119, y: 5, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+    ]
+}
