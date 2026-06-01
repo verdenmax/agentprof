@@ -34,8 +34,17 @@ mod wall {
 
     /// Wall duration of a single session = `max(last_event_ts, session_start) - session_start`.
     ///
-    /// Walks `Turn.ended_at` + every `ToolCall.span.ended_at`. Clamped
-    /// to non-negative.
+    /// Walks the maximum end timestamp across:
+    /// - `Turn.ended_at`
+    /// - every `ToolCall.span.ended_at`
+    /// - every `HookCall.span.ended_at`
+    /// - every `SkillInvocation.at` (skills are instants — M1.6.4 T1)
+    /// - every `ModeSegment.ended_at` when `Some`
+    ///
+    /// Clamped to non-negative. Sessions whose last observable event is
+    /// a hook / skill / mode change (no later turn or tool end) would
+    /// otherwise be under-counted, which over-reports the
+    /// `utilization_pct` headline metric in the `--by day` rollup.
     pub fn compute_wall(episodes: &Episodes, session_start: DateTime<Utc>) -> Duration {
         let mut latest = session_start;
         for turn in &episodes.turns {
@@ -52,12 +61,75 @@ mod wall {
                 }
             }
         }
+        for hook in episodes.hooks.values() {
+            for call in &hook.calls {
+                if call.span.ended_at > latest {
+                    latest = call.span.ended_at;
+                }
+            }
+        }
+        for skill in episodes.skills.values() {
+            for inv in &skill.invocations {
+                if inv.at > latest {
+                    latest = inv.at;
+                }
+            }
+        }
+        for seg in &episodes.mode_segments {
+            if let Some(end) = seg.ended_at {
+                if end > latest {
+                    latest = end;
+                }
+            }
+        }
         let d = latest - session_start;
         if d < Duration::zero() {
             Duration::zero()
         } else {
             d
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::{TimeZone as _, Utc};
+
+    use super::wall::compute_wall;
+    use crate::episode::hook::{HookCall, HookEpisode};
+    use crate::episode::skill::{SkillEpisode, SkillInvocation};
+    use crate::episode::turn::Span;
+    use crate::episode::Episodes;
+
+    #[test]
+    fn compute_wall_includes_hook_end_when_no_tool_or_turn_end() {
+        let session_start = Utc.with_ymd_and_hms(2026, 6, 1, 10, 0, 0).unwrap();
+        let hook_end = Utc.with_ymd_and_hms(2026, 6, 1, 10, 0, 5).unwrap();
+
+        let mut episodes = Episodes::new();
+        let mut hook = HookEpisode::new("synthetic_hook".to_string());
+        hook.calls.push(HookCall::new(Span {
+            started_at: session_start,
+            ended_at: hook_end,
+        }));
+        episodes.hooks.insert("synthetic_hook".to_string(), hook);
+
+        let wall = compute_wall(&episodes, session_start);
+        assert_eq!(wall.num_seconds(), 5);
+    }
+
+    #[test]
+    fn compute_wall_includes_skill_at_when_no_tool_or_hook_end() {
+        let session_start = Utc.with_ymd_and_hms(2026, 6, 1, 10, 0, 0).unwrap();
+        let skill_at = Utc.with_ymd_and_hms(2026, 6, 1, 10, 0, 7).unwrap();
+
+        let mut episodes = Episodes::new();
+        let mut skill = SkillEpisode::new("brainstorming".to_string());
+        skill.invocations.push(SkillInvocation::new(skill_at));
+        episodes.skills.insert("brainstorming".to_string(), skill);
+
+        let wall = compute_wall(&episodes, session_start);
+        assert_eq!(wall.num_seconds(), 7);
     }
 }
 

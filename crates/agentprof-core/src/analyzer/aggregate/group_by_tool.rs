@@ -126,21 +126,66 @@ struct TempToolAcc {
     duration_pool: Vec<Duration>,
 }
 
-/// Nearest-rank percentile on a pre-sorted slice. `p` is `0.0..=1.0`.
+/// Returns the percentile value at `p` (0.0..=1.0) using the nearest-rank
+/// method: `idx = ceil(p * N) - 1`, clamped to `[0, N-1]`.
 ///
-/// Returns `Duration::zero()` for empty input; otherwise
-/// `sorted[((len * p).floor() as usize).min(len - 1)]`.
+/// For `p = 0.5`, `N = 2` → `idx = 0` (the smaller value, "lower median").
+/// For `p = 0.95`, `N = 20` → `idx = 18` (the 19th of 20 in 0-indexing).
+///
+/// Returns `Duration::zero()` for an empty pool. Input MUST be pre-sorted
+/// ascending; the function does not sort.
 fn percentile(sorted_pool: &[Duration], p: f64) -> Duration {
     if sorted_pool.is_empty() {
         return Duration::zero();
     }
-    let len = sorted_pool.len();
+    let n = sorted_pool.len();
     #[allow(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
         clippy::cast_precision_loss
     )]
-    let idx = ((len as f64) * p).floor() as usize;
-    let idx = idx.min(len.saturating_sub(1));
+    let rank = ((p * n as f64).ceil() as usize).max(1);
+    let idx = (rank - 1).min(n - 1);
     sorted_pool[idx]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::percentile;
+    use chrono::Duration;
+
+    #[test]
+    fn percentile_nearest_rank_two_element_p50() {
+        let pool = vec![Duration::seconds(1), Duration::seconds(10)];
+        // ceil(0.5 * 2) - 1 = 1 - 1 = 0 → first element
+        assert_eq!(percentile(&pool, 0.50), Duration::seconds(1));
+    }
+
+    #[test]
+    fn percentile_nearest_rank_ten_element_p95() {
+        let pool: Vec<_> = (1..=10).map(Duration::seconds).collect();
+        // ceil(0.95 * 10) - 1 = 10 - 1 = 9 → last element
+        assert_eq!(percentile(&pool, 0.95), Duration::seconds(10));
+    }
+
+    #[test]
+    fn percentile_nearest_rank_ten_element_p50() {
+        let pool: Vec<_> = (1..=10).map(Duration::seconds).collect();
+        // ceil(0.5 * 10) - 1 = 5 - 1 = 4 → 5th element (value 5)
+        assert_eq!(percentile(&pool, 0.50), Duration::seconds(5));
+    }
+
+    #[test]
+    fn percentile_empty_pool_returns_zero() {
+        let pool: Vec<Duration> = Vec::new();
+        assert_eq!(percentile(&pool, 0.50), Duration::zero());
+    }
+
+    #[test]
+    fn percentile_single_element_any_p_returns_that_element() {
+        let pool = vec![Duration::seconds(42)];
+        assert_eq!(percentile(&pool, 0.0), Duration::seconds(42));
+        assert_eq!(percentile(&pool, 0.5), Duration::seconds(42));
+        assert_eq!(percentile(&pool, 1.0), Duration::seconds(42));
+    }
 }
