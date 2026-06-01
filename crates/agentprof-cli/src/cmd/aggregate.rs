@@ -51,7 +51,8 @@ pub struct AggregateCmd {
     #[arg(long, default_value_t = 0)]
     pub limit: usize,
 
-    /// Output format. TUI deferred to M1.6.3.
+    /// Output format. `tui` opens a static cross-session aggregate TUI
+    /// (shipped M1.6.3); for live refresh use `agentprof watch aggregate ...`.
     #[arg(long, value_enum, default_value_t = AggExportFormat::Md)]
     pub export: AggExportFormat,
 
