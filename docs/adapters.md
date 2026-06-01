@@ -47,13 +47,13 @@ pub trait Adapter: Send + Sync {
 8. Update `crates/agentprof-adapters/README.md`'s matrix.
 9. CHANGELOG entry: `feat(adapters): add <agent> adapter`.
 
-## Supported agents (matrix duplicate; canonical in README.md)
+## Supported agents (matrix duplicate; canonical in `crates/agentprof-adapters/README.md`)
 
 | Agent | Module | Status |
 |---|---|---|
-| GitHub Copilot CLI | `copilot` | ✅ MVP (M1.2) |
-| Anthropic Claude Code | (planned) | ⏳ Phase 2 |
-| OpenAI Codex CLI | (planned) | ⏳ Phase 3 |
+| GitHub Copilot CLI | `copilot` | ✅ MVP (M1.2) + ongoing schema iterations through M1.6.x |
+| Anthropic Claude Code | (planned) | ⏳ Phase 3 / M3.1 |
+| OpenAI Codex CLI | (planned) | ⏳ Phase 3 / M3.2 |
 
 ## Fixture rules
 
