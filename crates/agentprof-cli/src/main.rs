@@ -4,7 +4,7 @@
 //!
 //! Entry point: parses CLI arguments, initializes `tracing`, dispatches
 //! to the appropriate `cmd::*` subcommand. M1.4 shipped `analyze`; M1.6.1
-//! adds `list`. `aggregate`/`watch` land in M1.6.2 / M1.6.3.
+//! adds `list`. `aggregate` lands in M1.6.2; `watch` in M1.6.3.
 //!
 //! See `docs/architecture.md` §8 (CLI protocol) for the canonical
 //! specification.
@@ -29,6 +29,8 @@ enum Cli {
     Analyze(cmd::analyze::AnalyzeCmd),
     /// List recent agent sessions in a compact table.
     List(cmd::list::ListCmd),
+    /// Aggregate metrics across many recent sessions.
+    Aggregate(cmd::aggregate::AggregateCmd),
 }
 
 fn main() -> ExitCode {
@@ -47,6 +49,7 @@ fn run(cli: Cli) -> Result<()> {
     match cli {
         Cli::Analyze(cmd) => cmd::analyze::run(cmd),
         Cli::List(cmd) => cmd::list::run(cmd),
+        Cli::Aggregate(cmd) => cmd::aggregate::run(cmd),
     }
 }
 

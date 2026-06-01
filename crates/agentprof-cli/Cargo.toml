@@ -30,6 +30,7 @@ agentprof-storage  = { workspace = true }
 agentprof-tui      = { workspace = true }
 
 clap               = { workspace = true }
+csv                = { workspace = true }
 anyhow             = { workspace = true }
 thiserror          = { workspace = true }
 tracing            = { workspace = true }

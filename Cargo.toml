@@ -50,6 +50,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # CLI
 clap        = { version = "4", features = ["derive", "env"] }
 directories = "5"
+csv         = "1"
 
 # Templating (used by agentprof-cli for HTML export, M1.6.4)
 askama = "0.16"
