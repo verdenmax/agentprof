@@ -149,6 +149,7 @@ Single-session watch mode reuses the M1.5 `AppRunner` view bindings
 
 `agentprof watch` (in `agentprof-cli`) owns the file-watcher thread —
 see [ADR-0009 D-10](../../docs/internals/adr-0009-watch-runner-and-notify.md)
-for the dependency-graph reason. `agentprof-tui` only imports the
-`RecommendedWatcher` / `RecursiveMode` type names via its `views`
-documentation; it does NOT depend on `notify` at runtime.
+for the dependency-graph reason. `agentprof-tui` has no `notify`
+dependency at all (neither in `Cargo.toml` nor in any `use` statement);
+the runner only sees an opaque `Receiver<RefreshKind>` plus the reload
+closure, both injected by `agentprof-cli`.
