@@ -47,7 +47,7 @@ pub fn render(report: &AnyAggregateReport) -> String {
     out
 }
 
-const fn meta(r: &AnyAggregateReport) -> (&'static str, usize, usize, Duration, Duration) {
+fn meta(r: &AnyAggregateReport) -> (&'static str, usize, usize, Duration, Duration) {
     match r {
         AnyAggregateReport::Tool(x) => (
             "tool",
@@ -77,7 +77,9 @@ const fn meta(r: &AnyAggregateReport) -> (&'static str, usize, usize, Duration, 
             x.since,
             x.total_wall_duration,
         ),
-        _ => ("?", 0, 0, Duration::zero(), Duration::zero()),
+        _ => unreachable!(
+            "new AnyAggregateReport variant; add an explicit arm in aggregate_md::meta"
+        ),
     }
 }
 
@@ -204,6 +206,9 @@ fn human_duration(d: Duration) -> String {
     let ms = d.num_milliseconds();
     if ms == 0 {
         return "0 ms".to_string();
+    }
+    if d >= Duration::days(365 * 100) {
+        return "all".to_string();
     }
     if ms < 1000 {
         return format!("{ms} ms");

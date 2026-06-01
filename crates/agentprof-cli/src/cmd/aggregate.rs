@@ -340,7 +340,10 @@ fn fill_metadata(r: &mut AnyAggregateReport, since: chrono::Duration, failure_co
             x.since = since;
             x.failure_count = failure_count;
         }
-        _ => {}
+        _ => unreachable!(
+            "new AnyAggregateReport variant; add an explicit arm here AND in \
+             cmd::format::aggregate_{{md,csv,html}}::{{meta,render,render_buckets}}"
+        ),
     }
 }
 
@@ -350,7 +353,10 @@ fn truncate_buckets(r: &mut AnyAggregateReport, limit: usize) {
         AnyAggregateReport::McpServer(x) => x.buckets.truncate(limit),
         AnyAggregateReport::Day(x) => x.buckets.truncate(limit),
         AnyAggregateReport::Model(x) => x.buckets.truncate(limit),
-        _ => {}
+        _ => unreachable!(
+            "new AnyAggregateReport variant; add an explicit arm here AND in \
+             cmd::format::aggregate_{{md,csv,html}}::{{meta,render,render_buckets}}"
+        ),
     }
 }
 

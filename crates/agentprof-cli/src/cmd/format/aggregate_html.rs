@@ -73,7 +73,7 @@ struct AggregateTemplate {
     generated_at: String,
 }
 
-const fn meta(
+fn meta(
     r: &AnyAggregateReport,
 ) -> (
     &'static str,
@@ -111,12 +111,8 @@ const fn meta(
             x.since,
             x.total_wall_duration,
         ),
-        _ => (
-            "?",
-            0,
-            0,
-            chrono::Duration::zero(),
-            chrono::Duration::zero(),
+        _ => unreachable!(
+            "new AnyAggregateReport variant; add an explicit arm in aggregate_html::meta"
         ),
     }
 }
@@ -242,6 +238,9 @@ fn human_duration(d: chrono::Duration) -> String {
     let ms = d.num_milliseconds();
     if ms == 0 {
         return "0 ms".to_string();
+    }
+    if d >= chrono::Duration::days(365 * 100) {
+        return "all".to_string();
     }
     if ms < 1000 {
         return format!("{ms} ms");

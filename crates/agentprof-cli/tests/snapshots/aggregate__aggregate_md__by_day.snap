@@ -5,7 +5,7 @@ expression: s
 # agentprof aggregate
 
 - By: day
-- Window: 2562047788015.2 h
+- Window: all
 - Sessions: 16
 - Total wall-clock time: 3.1 min
 
