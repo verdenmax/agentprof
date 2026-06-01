@@ -1,36 +1,24 @@
 ---
 source: crates/agentprof-tui/tests/views.rs
-expression: "format!(\"{buf:?}\")"
+expression: buffer_to_symbol_grid(&buf)
 ---
-Buffer {
-    area: Rect { x: 0, y: 0, width: 120, height: 20 },
-    content: [
-        "┌ Aggregate watch — by tool | 3 sessions | window 30d ─────────────────────────────────────────────────────────────────┐",
-        "│Keys: c/t/s/p sort  ↑/↓ select  q quit  ? help                                                                        │",
-        "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
-        "┌ Tool buckets ────────────────────────────────────────────────────────────────────────────────────────────────────────┐",
-        "│Tool                           Source       Calls   Total      p50      p95      Sess                                 │",
-        "│bash                           builtin      50      2.0m       150ms    800ms    3                                    │",
-        "│mcp__github__list_pulls        mcp:github   10      30.0s      2.0s     4.5s     2                                    │",
-        "│                                                                                                                      │",
-        "│                                                                                                                      │",
-        "│                                                                                                                      │",
-        "│                                                                                                                      │",
-        "│                                                                                                                      │",
-        "│                                                                                                                      │",
-        "│                                                                                                                      │",
-        "│                                                                                                                      │",
-        "│                                                                                                                      │",
-        "│                                                                                                                      │",
-        "│                                                                                                                      │",
-        "│                                                                                                                      │",
-        "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
-    ],
-    styles: [
-        x: 0, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
-        x: 1, y: 4, fg: Reset, bg: Reset, underline: Reset, modifier: BOLD,
-        x: 119, y: 4, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
-        x: 1, y: 5, fg: Reset, bg: Reset, underline: Reset, modifier: REVERSED,
-        x: 119, y: 5, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
-    ]
-}
+┌ Aggregate watch — by tool | 3 sessions | window 30d ─────────────────────────────────────────────────────────────────┐
+│Keys: c/t/s/p sort  ↑/↓ select  q quit  ? help                                                                        │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ Tool buckets ────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│Tool                           Source       Calls   Total      p50      p95      Sess                                 │
+│bash                           builtin      50      2.0m       150ms    800ms    3                                    │
+│mcp__github__list_pulls        mcp:github   10      30.0s      2.0s     4.5s     2                                    │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘

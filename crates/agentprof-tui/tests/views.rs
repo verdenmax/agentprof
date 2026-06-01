@@ -54,14 +54,11 @@ fn load_fixture(
     (report, episodes)
 }
 
-fn snapshot_view(fixture: &str, view: View, snap_name: &str) {
-    let (report, episodes) = load_fixture(fixture);
-    let mut runner = AppRunner::new(&report, &episodes);
-    runner.set_view(view);
-    let backend = TestBackend::new(100, 30);
-    let mut terminal = Terminal::new(backend).unwrap();
-    runner.draw_frame(&mut terminal).expect("draw");
-    let buffer = terminal.backend().buffer().clone();
+/// Render a `ratatui::Buffer` to a newline-separated grid of cell symbols.
+///
+/// Avoids depending on `ratatui::Buffer`'s `Debug` impl (which is not part of
+/// the public API contract and can change across minor versions).
+fn buffer_to_symbol_grid(buffer: &ratatui::buffer::Buffer) -> String {
     let cells_per_row = buffer.area.width as usize;
     let mut text = String::with_capacity(buffer.content.len() + buffer.area.height as usize);
     for (i, cell) in buffer.content.iter().enumerate() {
@@ -70,7 +67,18 @@ fn snapshot_view(fixture: &str, view: View, snap_name: &str) {
         }
         text.push_str(cell.symbol());
     }
-    insta::assert_snapshot!(snap_name, text);
+    text
+}
+
+fn snapshot_view(fixture: &str, view: View, snap_name: &str) {
+    let (report, episodes) = load_fixture(fixture);
+    let mut runner = AppRunner::new(&report, &episodes);
+    runner.set_view(view);
+    let backend = TestBackend::new(100, 30);
+    let mut terminal = Terminal::new(backend).unwrap();
+    runner.draw_frame(&mut terminal).expect("draw");
+    let buffer = terminal.backend().buffer().clone();
+    insta::assert_snapshot!(snap_name, buffer_to_symbol_grid(&buffer));
 }
 
 // --- baseline: cross-turn-tool × 3 views ---
@@ -189,7 +197,7 @@ fn cross_session_by_tool_snapshot() {
     term.draw(|f| render_cross_session(f, f.area(), &any, AggSortKey::TotalDuration, 0))
         .unwrap();
     let buf = term.backend().buffer().clone();
-    insta::assert_snapshot!("cross_session_by_tool", format!("{buf:?}"));
+    insta::assert_snapshot!("cross_session_by_tool", buffer_to_symbol_grid(&buf));
 }
 
 #[test]
@@ -226,5 +234,5 @@ fn cross_session_by_day_snapshot() {
     term.draw(|f| render_cross_session(f, f.area(), &any, AggSortKey::TotalDuration, 0))
         .unwrap();
     let buf = term.backend().buffer().clone();
-    insta::assert_snapshot!("cross_session_by_day", format!("{buf:?}"));
+    insta::assert_snapshot!("cross_session_by_day", buffer_to_symbol_grid(&buf));
 }

@@ -226,11 +226,12 @@ pub fn render_cross_session(
     match report {
         A::Tool(r) => render_tool_buckets(frame, chunks[1], r, sort, selected),
         A::McpServer(r) => render_mcp_buckets(frame, chunks[1], r, sort, selected),
-        A::Day(r) => render_day_buckets(frame, chunks[1], r, selected),
+        A::Day(r) => render_day_buckets(frame, chunks[1], r, sort, selected),
         A::Model(r) => render_model_buckets(frame, chunks[1], r, sort, selected),
         _ => {
             let p = Paragraph::new(
-                "agentprof: unknown AnyAggregateReport variant; rebuild against newer core",
+                "This aggregate type is not supported by the current TUI build. \
+                 Please update agentprof.",
             );
             frame.render_widget(p, chunks[1]);
         }
@@ -402,8 +403,11 @@ fn render_day_buckets(
     r: &agentprof_core::analyzer::aggregate::AggregateReport<
         agentprof_core::analyzer::aggregate::DayBucket,
     >,
+    sort: crate::watch::AggSortKey,
     selected: usize,
 ) {
+    // Day buckets are intrinsically chronological — see AggSortKey doc.
+    let _ = sort;
     let header = Row::new(vec![
         Cell::from("Date"),
         Cell::from("Sess"),

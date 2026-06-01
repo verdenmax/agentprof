@@ -124,6 +124,9 @@ pub enum ReloadError {
 
 /// Sort key for the cross-session aggregate table.
 ///
+/// Day buckets are always rendered in chronological order; the sort key is
+/// ignored entirely for `--by day`.
+///
 /// # Examples
 ///
 /// ```
@@ -140,7 +143,8 @@ pub enum AggSortKey {
     /// Sort by per-bucket `session_count` descending.
     Sessions,
     /// Sort by per-bucket `p50_duration` descending (Tool only;
-    /// other variants fall back to `TotalDuration`).
+    /// MCP-server / Model variants fall back to `TotalDuration`.
+    /// Day buckets are always chronological and ignore the sort key entirely).
     Percentile50,
 }
 

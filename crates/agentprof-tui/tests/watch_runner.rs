@@ -114,3 +114,49 @@ fn cross_mode_draw_frame_renders_by_tool_header() {
         "expected 'by tool' in cross-mode header; got: {rendered}"
     );
 }
+
+#[test]
+fn reload_success_after_failure_clears_banner() {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    use std::sync::mpsc::channel;
+
+    let calls = Rc::new(RefCell::new(0u8));
+    let calls_for_closure = Rc::clone(&calls);
+    let reload: Box<dyn FnMut() -> Result<WatchData, agentprof_tui::watch::ReloadError>> =
+        Box::new(move || {
+            let mut c = calls_for_closure.borrow_mut();
+            *c += 1;
+            if *c == 1 {
+                Err(agentprof_tui::watch::ReloadError::Pipeline(
+                    "synthetic first-call failure".to_string(),
+                ))
+            } else {
+                Ok(fake_single())
+            }
+        });
+
+    let (tx, rx) = channel();
+    let mut runner = WatchRunner::with_watcher(fake_cross_tool(), rx, reload);
+    let mut term = Terminal::new(TestBackend::new(80, 24)).unwrap();
+
+    tx.send(agentprof_tui::watch::RefreshKind::DataChanged)
+        .unwrap();
+    runner.run_one_iteration_for_test(&mut term).unwrap();
+    assert!(
+        runner.last_error().is_some(),
+        "expected last_error after first failed reload"
+    );
+    assert_eq!(runner.refresh_count(), 0);
+
+    tx.send(agentprof_tui::watch::RefreshKind::DataChanged)
+        .unwrap();
+    runner.run_one_iteration_for_test(&mut term).unwrap();
+    assert!(
+        runner.last_error().is_none(),
+        "expected last_error cleared after successful reload; got: {:?}",
+        runner.last_error()
+    );
+    assert_eq!(runner.refresh_count(), 1);
+    assert!(matches!(runner.data(), WatchData::Single { .. }));
+}
