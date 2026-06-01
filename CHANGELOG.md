@@ -15,6 +15,8 @@ prefix used in commit messages).
 
 ### Added
 
+- `agentprof analyze --export speedscope` (M1.6.4) — write a Speedscope evented JSON profile (frame-deduplicated, timestamp-normalized to session start) consumable by <https://speedscope.app>. Span-overlap within a turn is auto-adjusted with `ExportWarning::SpanAdjustedForSpeedscope` on stderr. Frame naming: builtin `<tool>` / MCP `mcp:<server>::<leaf>` / hook `hook:<name>` / skill `skill:<skill>` / synthetic `session`/`turn-<N>`/`turn-orphan`. See [ADR-0007](docs/internals/adr-0007-speedscope-export.md).
+- `agentprof analyze --export html` (M1.6.4) — write a self-contained static HTML report (no JS, no external assets) with embedded build-time-rendered SVG flamegraph (responsive, ToolSource-color-coded) + Turn / Tool / Hook tables + Warnings list + print-friendly CSS. Re-activates the `askama` 0.16 workspace dep.
 - `agentprof list` subcommand (M1.6.1) — cheap session discovery + 7-column plain text table (`ID / Started / Model / Turns / Out-tokens / Duration / Size`). Defaults `--since 7d --limit 20`. Per-session parse failures degrade gracefully (skipped + summarized to stderr). See [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) `## agentprof list` section.
 - `agentprof-tui` crate: first interactive ratatui TUI shipped as M1.5 (`analyze --export tui`).
   - **FlamegraphView**: per-turn horizontal gantt; segments are tool calls; whitespace = LLM thinking time.

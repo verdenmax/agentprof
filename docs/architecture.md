@@ -88,11 +88,11 @@ agentprof-cli  ──▶  agentprof-tui
 
 | Crate | 类型 | 关键模块 | 关键外部依赖 |
 |---|---|---|---|
-| `agentprof-core` | lib | `model`, `tokenizer`, `analyzer`, `export`, `error` | `serde`, `serde_json`, `tiktoken-rs`, `chrono`, `thiserror`, `reqwest`(opt, feature `anthropic-api`) |
+| `agentprof-core` | lib | `model`, `tokenizer`, `analyzer`, `export` (M1.6.4: speedscope JSON + SVG flamegraph), `error` | `serde`, `serde_json`, `tiktoken-rs`, `chrono`, `thiserror`, `reqwest`(opt, feature `anthropic-api`) |
 | `agentprof-adapters` | lib | `claude`, `codex`, `copilot`, `registry`, `discovery` | `serde_json`, `walkdir`, `globset` |
 | `agentprof-storage` | lib | `sqlite::{schema, migrations, queries}`, `otlp`(feature) | `rusqlite`(bundled), `opentelemetry-otlp`(opt), `tonic`(opt) |
 | `agentprof-tui` | lib | `app` (with AppRunner) + `app::{terminal,event,state}`, `views::{flamegraph, roi, aggregate, format}`, `theme`, `error` — **shipped M1.5** ([`README`](../crates/agentprof-tui/README.md), [ADR-0006](internals/adr-0006-panic-safe-tui.md)) | `ratatui 0.29`, `crossterm 0.28` |
-| `agentprof-cli` | bin (`agentprof`) | `cmd::analyze` ✅ M1.4，`cmd::list` ✅ M1.6.1，`cmd::{aggregate, watch, ingest_otlp, config}` 规划中（M1.6.2 / M1.6.3 / Phase 2），`export` 已取消（与 `analyze --export` 重复），`config`, `main` | `clap`, `tracing`, `tracing-subscriber`, `anyhow`, `directories`, `askama` |
+| `agentprof-cli` | bin (`agentprof`) | `cmd::analyze` ✅ M1.4 + `--export tui` (M1.5) + `--export speedscope\|html` ✅ M1.6.4，`cmd::list` ✅ M1.6.1，`cmd::{aggregate, watch, ingest_otlp, config}` 规划中（M1.6.2 / M1.6.3 / Phase 2），`export` 已取消（与 `analyze --export` 重复），`config`, `main` | `clap`, `tracing`, `tracing-subscriber`, `anyhow`, `directories`, **`askama`** |
 | `xtask` | bin | `anonymize`, `dist-check`, `release-notes` | `xshell` |
 
 ---
@@ -327,13 +327,13 @@ M1.4 引入的纯函数 rollups，消费 `&Episodes` 产出 per-row 分析数据
 
 ## 8. CLI 协议（`agentprof <COMMAND>`）
 
-> **当前实现状态**（2026-05-30）：`analyze` ✅ M1.4 / `list` ✅ M1.6.1 已 ship；`aggregate` / `watch` / `ingest-otlp` / `config` 规划中；`export` 已取消（与 `analyze --export` 100% 重复，CLI surface 已移除）。
+> **当前实现状态**（2026-05-31）：`analyze` ✅ M1.4 + `--export tui` M1.5 + `--export speedscope|html` M1.6.4 / `list` ✅ M1.6.1 已 ship；`aggregate` / `watch` / `ingest-otlp` / `config` 规划中；`export` 已取消（与 `analyze --export` 100% 重复，CLI surface 已移除）。
 
 ```
 analyze [--agent copilot]                     # ✅ M1.4: copilot only; auto/claude/codex 留给 Phase 3
         [--session latest|previous|<uuid>|<path>]   # 默认 latest
         [--root <dir>]                        # 覆盖 adapter 默认 session-state 根
-        [--export md|json|tui]                # ✅ M1.4+M1.5: md (默认) / json / tui; speedscope/html/csv 留给 M1.6.4
+        [--export md|json|tui|speedscope|html]   # ✅ M1.4 (md/json) + M1.5 (tui) + M1.6.4 (speedscope/html); csv 推迟到 M1.6.5
         [--output <file>]                     # 写文件而非 stdout（--export tui 时会 warn 并忽略）
         [--section turn-summary,tool-rank,hook-rank]   # 只影响 --export md；默认全部（--export tui 时会 warn 并忽略）
     分析单个 session（默认 latest），输出 markdown / JSON 报告或进入 TUI。
@@ -365,6 +365,10 @@ config  [show | edit | path]                   # 🚧 规划中 — Phase 2
 ```
 
 > **export 子命令已取消**：原 spec 包含 `export <session> --format speedscope|html|md|csv`，但与 `analyze --session X --export <fmt> --output Y` 功能完全重叠。M1.6.1 decomposition 决定取消该 surface；Speedscope / HTML 导出走 `analyze --export speedscope|html`（待 M1.6.4 添加格式）。
+
+**`--export speedscope`**：写一个 Speedscope evented JSON profile（schema 见 <https://github.com/jlfwong/speedscope/blob/main/file-format.md>），可拖入 https://speedscope.app 渲染交互火焰图。`--section` 在此模式下被忽略并发警告。frame 命名 + 重叠处理见 [ADR-0007](internals/adr-0007-speedscope-export.md)。
+
+**`--export html`**：写一个自包含的静态 HTML 报告（无 JS、含 print-friendly CSS、内嵌响应式 SVG 火焰图）。`--section` 与 md 一致。`--output` 缺失时写到 stdout 并发警告。
 
 ### 8.1 退出码
 
@@ -859,7 +863,7 @@ todo        = "warn"
 | Phase | 启用的 crate / feature | 里程碑 | 状态 |
 |---|---|---|---|
 | **Phase 0** prototype | `agentprof-core` + `agentprof-adapters::copilot` + `agentprof-cli`（只 `analyze --export md\|json`） | events.jsonl → markdown 报告跑通 | ✅ M1.1–M1.4 已交付 |
-| **Phase 1** MVP | + `agentprof-tui`（火焰图 + ROI 表）+ `analyze --export tui` + `list` / `aggregate` 子命令 | TUI 可交互 + 跨 session 聚合 | 🟡 M1.5 ✅ shipped（[ADR-0006](internals/adr-0006-panic-safe-tui.md)）；**M1.6.1 ✅ shipped**（`list` 子命令 + 8 polish）；M1.6.2 (`aggregate`) / M1.6.3 (`watch`) / M1.6.4 (Speedscope+HTML) / M1.7 进行中 |
+| **Phase 1** MVP | + `agentprof-tui`（火焰图 + ROI 表）+ `analyze --export tui` + `list` / `aggregate` 子命令 + 多种 `--export` 格式 | TUI 可交互 + 跨 session 聚合 + 可分享报告 | 🟡 M1.5 ✅ shipped（[ADR-0006](internals/adr-0006-panic-safe-tui.md)）；**M1.6.1 ✅ shipped**（`list` 子命令 + 8 polish）；**M1.6.4 ✅ shipped**（`--export speedscope|html`，[ADR-0007](internals/adr-0007-speedscope-export.md)）；M1.6.2 (`aggregate`) / M1.6.3 (`watch`) / M1.7 进行中 |
 | **Phase 2** 工程化 | + `agentprof-storage`（SQLite + 持久化）+ `ingest-otlp` 子命令（启用 `otlp` feature）+ tokenizer + ROI + waste estimation | 跨 session 数据库 + 实时 OTLP + 精确 token 成本 | ❌ 未开始 |
 | **Phase 3** 多 agent | + `agentprof-adapters::claude` + `agentprof-adapters::codex` (+ 可选 Gemini) | 三 agent 全支持 | ❌ 未开始 |
 

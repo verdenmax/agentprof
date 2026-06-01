@@ -79,7 +79,7 @@ impl SvgFlamegraph {
     /// `[1000, 5000]`) so wide sessions remain readable without changing
     /// per-row height. Skills are emitted as zero-duration rects at the
     /// invocation instant (still visible thanks to the `>= 1` width
-    /// width floor in `position`).
+    /// floor in `position`).
     ///
     /// # Examples
     ///
