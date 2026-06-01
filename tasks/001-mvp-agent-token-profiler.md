@@ -2,7 +2,7 @@
 
 > **文件名**：`tasks/001-mvp-agent-token-profiler.md`
 > **版本**：1.2
-> **创建日期**：2026-05-25 · **最后更新**：2026-05-30
+> **创建日期**：2026-05-25 · **最后更新**：2026-05-31
 > **状态**：**In-Progress — M1.1 / M1.2 / M1.3 / M1.4 / M1.5 ✅ + M1.6.1 ✅ + M1.6.4 ✅ 已交付**（6/7 ≈ 85 %）；M1.6.2 / M1.6.3 / M1.7 ❌ 未开始
 > **当前 commit**：`main` HEAD（`git log -1 --oneline`）；最近一个重大 milestone merge = `9abd694` (post-output-audit)
 >

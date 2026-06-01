@@ -4,7 +4,7 @@
 >
 > **文件名**：`tasks/ROADMAP.md`
 > **版本**：1.2
-> **最后更新**：2026-05-30
+> **最后更新**：2026-05-31
 > **当前 commit**：`main` HEAD（运行 `git log -1 --oneline` 查看最新）；最近一个重大 milestone merge = `9abd694` (post-output-audit)
 > **当前阶段**：**Phase 0 + 1 (MVP)** — M1.1 / M1.2 / M1.3 / M1.4 ✅ 完成（含 4 轮 M1.4 followups），**M1.5 ✅ 完成**（TUI + ADR-0006 panic-safe lifecycle），**M1.6.1 ✅ 完成**（`list` 子命令 + 8 个 M1.5 audit polish 项），**M1.6.4 ✅ 完成**（`--export speedscope|html` + ADR-0007），M1.6.2 / M1.6.3 / M1.7 待开始
 > **下一步入口**：`tasks/001-mvp-agent-token-profiler.md` §10 Milestone 1.6.2（`aggregate` 子命令）或 1.6.3（`watch` 子命令），走 Stage 1 brainstorming

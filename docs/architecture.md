@@ -364,7 +364,7 @@ config  [show | edit | path]                   # 🚧 规划中 — Phase 2
     XDG 配置：~/.config/agentprof/config.toml。
 ```
 
-> **export 子命令已取消**：原 spec 包含 `export <session> --format speedscope|html|md|csv`，但与 `analyze --session X --export <fmt> --output Y` 功能完全重叠。M1.6.1 decomposition 决定取消该 surface；Speedscope / HTML 导出走 `analyze --export speedscope|html`（待 M1.6.4 添加格式）。
+> **export 子命令已取消**：原 spec 包含 `export <session> --format speedscope|html|md|csv`，但与 `analyze --session X --export <fmt> --output Y` 功能完全重叠。M1.6.1 decomposition 决定取消该 surface；Speedscope / HTML 导出走 `analyze --export speedscope|html`（M1.6.4 ✅ 已 ship）；CSV 推迟到 M1.6.5。
 
 **`--export speedscope`**：写一个 Speedscope evented JSON profile（schema 见 <https://github.com/jlfwong/speedscope/blob/main/file-format.md>），可拖入 https://speedscope.app 渲染交互火焰图。`--section` 在此模式下被忽略并发警告。frame 命名 + 重叠处理见 [ADR-0007](internals/adr-0007-speedscope-export.md)。
 

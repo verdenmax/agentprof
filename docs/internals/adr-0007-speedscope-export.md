@@ -138,7 +138,8 @@ future formats (CSV, HTML-specific) get their own variants.
 - Overlapping spans lose timing fidelity (≤ 1 ms shift), but the data is
   preserved and the user is notified.
 - Frame naming convention is **load-bearing** across exporters: the same
-  prefix scheme is used by `svg_flamegraph` for color coding (D-5).
+  prefix scheme is used by `svg_flamegraph` for color coding (D-5 in the
+  M1.6.4 spec — see "Locked decisions" section).
 - Future tokenizer (Phase 2) will likely emit a second `Profile` with
   `unit = "tokens"`, demonstrating the multi-profile capability of the
   format.
