@@ -2,8 +2,8 @@
 
 > **文件名**：`tasks/001-mvp-agent-token-profiler.md`
 > **版本**：1.2
-> **创建日期**：2026-05-25 · **最后更新**：2026-05-30
-> **状态**：**In-Progress — M1.1 / M1.2 / M1.3 / M1.4 / M1.5 ✅ + M1.6.1 ✅ 已交付**（5+/7 ≈ 75 %）；M1.6.2 / M1.6.3 / M1.6.4 / M1.7 ❌ 未开始
+> **创建日期**：2026-05-25 · **最后更新**：2026-05-31
+> **状态**：**In-Progress — M1.1 / M1.2 / M1.3 / M1.4 / M1.5 ✅ + M1.6.1 ✅ + M1.6.4 ✅ 已交付**（6/7 ≈ 85 %）；M1.6.2 / M1.6.3 / M1.7 ❌ 未开始
 > **当前 commit**：`main` HEAD（`git log -1 --oneline`）；最近一个重大 milestone merge = `9abd694` (post-output-audit)
 >
 > **重大 pivot（ADR-0001 events-first）**：M1.2 不做 ClaudeAdapter，改做 **CopilotAdapter**（real wire data 直接可得）。Tokenizer / ROI / waste / aggregate 全部从 M1.3 推迟到 M1.5+ 或 Phase 2。FR-2（Tokenizer）/ FR-6（Speedscope/HTML/CSV）/ FR-7（Config + Storage）目前完成度 0%，**这是 pivot 的预期行为**，不是落后。
@@ -869,10 +869,10 @@ M1.1 (skeleton, ✅ done) ──┬──→ M1.2 (claude adapter)
 > - **M1.6.1 ✅ shipped 2026-05-30**: `list` subcommand + 8 M1.5 audit polish items. See [`docs/superpowers/specs/2026-05-30-m1.6.1-list-and-polish-design.md`](../docs/superpowers/specs/2026-05-30-m1.6.1-list-and-polish-design.md).
 > - **M1.6.2** (future): `aggregate` subcommand (needs `AggregateReport` type design).
 > - **M1.6.3** (future): `watch` subcommand (needs `notify` + concurrency design).
-> - **M1.6.4** (future): Speedscope JSON + HTML report exporters (need pivot-adapted units + HTML asset-bundling decision).
+> - **M1.6.4 ✅ shipped 2026-05-31**: Speedscope JSON + HTML report exporters. See [`docs/superpowers/specs/2026-05-31-m1.6.4-speedscope-and-html-export-design.md`](../docs/superpowers/specs/2026-05-31-m1.6.4-speedscope-and-html-export-design.md) + [ADR-0007](../docs/internals/adr-0007-speedscope-export.md).
 > - **`export` subcommand** (cancelled): 100% redundant with `analyze --export`; surface removed.
 >
-> Original sub-task tree preserved below for historical context; task 1.6.1 (list) ✅; tasks 1.6.2 / 1.6.4 / 1.6.5 / 1.6.6 / 1.6.7 in future milestones; task 1.6.3 (export) cancelled.
+> Original sub-task tree preserved below for historical context; task 1.6.1 (list) ✅; task 1.6.4 (Speedscope + HTML) ✅; tasks 1.6.2 / 1.6.5 / 1.6.6 / 1.6.7 in future milestones; task 1.6.3 (export) cancelled.
 
 > **状态**：❌ 未开始
 >

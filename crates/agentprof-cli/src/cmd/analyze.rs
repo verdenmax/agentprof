@@ -15,7 +15,8 @@ use agentprof_adapters::copilot::CopilotAdapter;
 use agentprof_adapters::registry;
 use agentprof_core::adapter::{Adapter, AgentKind, SessionRef};
 use agentprof_core::analyzer::{analyze, AnalysisReport};
-use agentprof_core::episode::derive_episodes;
+use agentprof_core::episode::{derive_episodes, Episodes};
+use agentprof_core::model::SessionMeta;
 
 use crate::cmd::format;
 
@@ -101,6 +102,13 @@ pub enum ExportFormat {
     /// Requires a TTY on stdout; otherwise exits with `OutputError` (3).
     /// `--output` and `--section` are ignored when `--export tui`.
     Tui,
+    /// Speedscope evented JSON profile (M1.6.4). Upload to
+    /// <https://speedscope.app> for interactive exploration. `--section`
+    /// is ignored (Speedscope is a single surface).
+    Speedscope,
+    /// Self-contained static HTML report (M1.6.4) with embedded SVG
+    /// flamegraph; no JS. Best with `--output report.html`.
+    Html,
 }
 
 /// Sections of the report that can be enabled/disabled.
@@ -189,12 +197,22 @@ pub fn run(cmd: AnalyzeCmd) -> Result<()> {
         return run_tui(&report, &episodes);
     }
 
-    let rendered = render_report(&report, &cmd)?;
+    if cmd.export == ExportFormat::Speedscope && cmd.section != AnalysisSection::all_vec() {
+        eprintln!("agentprof: warning: --section is ignored with --export speedscope");
+    }
+    if cmd.export == ExportFormat::Html && cmd.output.is_none() {
+        eprintln!(
+            "agentprof: warning: writing HTML to stdout; pass --output report.html for \
+             a saved file"
+        );
+    }
+
+    let rendered = render_report(&report, &episodes, &raw.meta, &cmd)?;
     write_output(&rendered, cmd.output.as_deref())?;
     Ok(())
 }
 
-fn run_tui(report: &AnalysisReport, episodes: &agentprof_core::episode::Episodes) -> Result<()> {
+fn run_tui(report: &AnalysisReport, episodes: &Episodes) -> Result<()> {
     use std::io::IsTerminal as _;
 
     if !std::io::stdout().is_terminal() || !std::io::stdin().is_terminal() {
@@ -324,7 +342,12 @@ fn resolve_session_by_discovery(
     }
 }
 
-fn render_report(report: &AnalysisReport, cmd: &AnalyzeCmd) -> Result<String> {
+fn render_report(
+    report: &AnalysisReport,
+    episodes: &Episodes,
+    meta: &SessionMeta,
+    cmd: &AnalyzeCmd,
+) -> Result<String> {
     match cmd.export {
         ExportFormat::Md => Ok(format::md::render(report, &cmd.section)),
         ExportFormat::Json => {
@@ -338,6 +361,23 @@ fn render_report(report: &AnalysisReport, cmd: &AnalyzeCmd) -> Result<String> {
         }
         ExportFormat::Tui => Err(ExitKind::DataError
             .into_anyhow("internal: render_report called with Tui export".to_string())),
+        ExportFormat::Speedscope => {
+            let (mut json, warnings) =
+                format::speedscope::render(episodes, meta, env!("CARGO_PKG_VERSION"));
+            for w in &warnings {
+                eprintln!("agentprof: warning: {w}");
+            }
+            // POSIX-final-newline + visual separation, mirroring json branch.
+            json.push('\n');
+            Ok(json)
+        }
+        ExportFormat::Html => Ok(format::html::render(
+            report,
+            episodes,
+            meta,
+            &cmd.section,
+            env!("CARGO_PKG_VERSION"),
+        )),
     }
 }
 

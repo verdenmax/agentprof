@@ -15,7 +15,7 @@ Subcommand wiring (current):
 - `--agent` (default `copilot`; `claude` / `codex` reserved with friendly errors)
 - `--session` (`latest` / `previous` / `<uuid>` / `<path>`)
 - `--root <DIR>` (override default `~/.copilot/session-state/`)
-- `--export md|json` (default `md`)
+- `--export md|json|tui|speedscope|html` (default `md`)
 - `--output <FILE>` (default stdout)
 - `--section turn-summary,tool-rank,hook-rank` (md only; Session header + Warnings always included)
 
@@ -72,6 +72,48 @@ agentprof analyze --section turn-summary,tool-rank
 
 Set `AGENTPROF_LOG=debug` to enable `tracing` output on stderr.
 
+### `agentprof analyze --export speedscope`
+
+Emit a [Speedscope evented JSON profile](https://github.com/jlfwong/speedscope/blob/main/file-format.md) suitable for upload to <https://speedscope.app>.
+
+```sh
+agentprof analyze --export speedscope > session.speedscope.json
+agentprof analyze --export speedscope --output session.speedscope.json
+```
+
+**Frame naming** (per [ADR-0007](../../docs/internals/adr-0007-speedscope-export.md)):
+
+| Source | Frame name |
+|---|---|
+| Builtin | `<tool>` |
+| MCP | `mcp:<server>::<leaf>` |
+| Hook | `hook:<name>` |
+| Skill (invocation) | `skill:<skill>` |
+| Tool whose ToolSource is Skill | `skill:<skill>:<leaf>` |
+| Synthetic | `session`, `turn-<N>`, `turn-<N> (open)`, `turn-orphan` |
+
+**Notes:**
+- `--section` is ignored (speedscope is a single surface; a warning is printed).
+- Span overlap within a turn is auto-adjusted (1 ms gap) with an `ExportWarning` on stderr.
+- Timestamp anchor is the session's first event (`at = 0`), so output is reproducible.
+
+### `agentprof analyze --export html`
+
+Emit a self-contained static HTML report (no JS, no external assets) with embedded SVG flamegraph and full tables.
+
+```sh
+agentprof analyze --export html --output report.html
+agentprof analyze --export html > report.html              # warns; prefer --output
+agentprof analyze --export html --output report.html --section turn-summary,tool-rank
+```
+
+**Content:** Header (session ID + agent + model + duration + counts) → SVG flamegraph (responsive, colored by ToolSource) → Turn Summary → Tool Rank → Hook Rank → Warnings.
+
+**Notes:**
+- `--section` filter respected (same as `--export md`).
+- `--output` recommended — HTML on terminal is ugly; a warning prints when stdout is used.
+- Print-friendly CSS included (`@media print` query).
+
 ## `agentprof list`
 
 Discover recent agent sessions in a compact 7-column plain-text table.
@@ -102,7 +144,7 @@ This crate produces a binary, not a library. The user-facing protocol is the CLI
 
 ```text
 agentprof analyze    [--agent copilot] [--session ...] [--root ...]
-                     [--export md|json] [--output ...] [--section ...]    # ✓ shipped (M1.4)
+                     [--export md|json|tui|speedscope|html] [--output ...] [--section ...]    # ✓ shipped (M1.4 + M1.5 tui + M1.6.4 speedscope|html)
 agentprof list       [--agent copilot] [--root ...]
                      [--since <N>d|h|m|s|all] [--limit N]                 # ✓ shipped (M1.6.1)
 agentprof aggregate  [--by tool|mcp-server|day|model] [--since 30d]        # planned (M1.6.2)
@@ -120,6 +162,8 @@ See [`docs/architecture.md`](../../docs/architecture.md) §8 for the canonical s
 | `cmd::analyze` | The `analyze` subcommand: session discovery, load+derive+analyze, render dispatch | ✓ shipped (M1.4) |
 | `cmd::format::md` | Markdown renderer for `AnalysisReport` | ✓ shipped (M1.4) |
 | `cmd::format::json` | JSON renderer for `AnalysisReport` | ✓ shipped (M1.4) |
+| `cmd::format::speedscope` | Speedscope evented JSON exporter (thin wrapper over `agentprof_core::export::speedscope`) | ✓ shipped (M1.6.4) |
+| `cmd::format::html` | Self-contained static HTML report (askama 0.16 template + embedded SVG flamegraph) | ✓ shipped (M1.6.4) |
 | `exit` | `ExitKind` enum + `classify_error` downcast | ✓ shipped (M1.4) |
 | `cmd::list` / `aggregate` / `watch` / `ingest_otlp` / `export` / `config` | One module per planned subcommand | planned (M1.5+) |
 | `config` | TOML loader / writer for `~/.config/agentprof/config.toml` | planned (M1.5+) |
@@ -139,7 +183,7 @@ To build a minimal binary: `cargo build -p agentprof-cli --no-default-features`.
 ## Dependencies
 
 - Workspace internal: every other `agentprof-*` crate
-- External: `clap`, `anyhow`, `tracing`, `tracing-subscriber`, `serde`, `serde_json`, `chrono`, `directories` (`askama` removed in M1.4 audit followups — md renderer is now hand-rolled string-building)
+- External: `clap`, `anyhow`, `tracing`, `tracing-subscriber`, `serde`, `serde_json`, `chrono`, `directories`, `askama 0.16` (re-activated in M1.6.4 for the HTML report template; md renderer remains hand-rolled string-building)
 
 ## Local commands
 

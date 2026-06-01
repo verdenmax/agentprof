@@ -44,6 +44,18 @@ use agentprof_core::episode::derive_episodes;
 //   }
 ```
 
+## `export` (M1.6.4)
+
+Pure data transformations from `&Episodes` / `&SessionMeta` / `&AnalysisReport` into external formats.
+
+- [`export::speedscope`](src/export/speedscope.rs) — emit a Speedscope evented JSON profile (`SpeedscopeProfile`, `to_speedscope()`)
+- [`export::svg_flamegraph`](src/export/svg_flamegraph.rs) — render a responsive SVG flamegraph string (`SvgFlamegraph::from_episodes(...).into_svg_string()`)
+- [`export::ExportWarning`](src/export/warning.rs) — non-fatal observations (e.g. `SpanAdjustedForSpeedscope`)
+
+All pipelines are pure functions (no IO). The cli crate (`agentprof-cli::cmd::format::{speedscope, html}`) wraps them with serialization + writing + stderr warnings.
+
+See [ADR-0007](../../docs/internals/adr-0007-speedscope-export.md) for design decisions.
+
 ## Stability promises
 
 All public extensibility points are `#[non_exhaustive]`:
