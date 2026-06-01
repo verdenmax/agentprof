@@ -46,7 +46,6 @@ fn nesting_holds(events: &[Event]) -> bool {
                 Some(top) if top == ev.frame => {}
                 _ => return false,
             },
-            _ => return false,
         }
     }
     stack.is_empty()
@@ -111,4 +110,24 @@ fn speedscope_unit_is_milliseconds() {
     assert_eq!(p.profiles[0].unit, "milliseconds");
     assert_eq!(p.profiles[0].start_value, 0);
     assert!(p.profiles[0].end_value >= 0);
+}
+
+#[test]
+fn speedscope_skill_frame_is_aggregated() {
+    // All invocations of a single skill collapse to one frame named
+    // `skill:<name>` in `shared.frames` (mirrors tool dedup; see D-11
+    // and the rustdoc on `to_speedscope`).
+    let (episodes, meta) = load_fixture("with-skill-invoked");
+    let (p, _) = to_speedscope(&episodes, &meta, "0.0.0");
+    let count = p
+        .shared
+        .frames
+        .iter()
+        .filter(|f| f.name == "skill:synthetic-example")
+        .count();
+    assert_eq!(
+        count, 1,
+        "expected exactly one 'skill:synthetic-example' frame, got {count}; frames: {:?}",
+        p.shared.frames
+    );
 }

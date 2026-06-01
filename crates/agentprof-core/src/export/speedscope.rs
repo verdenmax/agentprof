@@ -278,7 +278,6 @@ impl Event {
 /// assert_eq!(serde_json::to_string(&EventType::Close).unwrap(), "\"C\"");
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[non_exhaustive]
 pub enum EventType {
     /// `"O"` — open / enter frame.
     #[serde(rename = "O")]
@@ -295,11 +294,18 @@ pub enum EventType {
 /// reproducible for snapshot tests. The unit is `"milliseconds"` (D-9).
 ///
 /// Frame naming follows D-11: builtin `<name>`, MCP `mcp:<server>::<leaf>`,
-/// hook `hook:<name>`, skill `skill:<skill>:<tool>`, synthetic `session`,
-/// `turn-<N>`, `turn-<N> (open)`, `turn-orphan`. Frames are deduplicated
-/// globally (D-12) and orphan tool calls are grouped under a trailing
-/// `turn-orphan` frame (D-14). Open turns get an `(open)` suffix and a
-/// synthetic close at the last observed event timestamp (D-13).
+/// hook `hook:<name>`, skill `skill:<skill>` (one frame per skill,
+/// aggregated across all invocations — mirrors the dedup behavior used
+/// for tools), synthetic `session`, `turn-<N>`, `turn-<N> (open)`,
+/// `turn-orphan`. Frames are deduplicated globally (D-12) and orphan
+/// tool calls are grouped under a trailing `turn-orphan` frame (D-14).
+/// Open turns get an `(open)` suffix and a synthetic close at the last
+/// observed event timestamp (D-13).
+///
+/// Skill invocations are zero-duration instants (`Open` and `Close`
+/// emitted at the same `inv.at` timestamp); per-invocation timing is
+/// preserved while all invocations of the same skill share a single
+/// frame in `shared.frames`.
 ///
 /// Returns the profile plus any [`ExportWarning`]s emitted while
 /// adjusting overlapping sibling spans for Speedscope's strict-nesting
@@ -416,9 +422,7 @@ fn build_frame_table(episodes: &Episodes, has_orphan_tool_calls: bool) -> Vec<St
         leaf_names.insert(format!("hook:{}", hook.name));
     }
     for skill in episodes.skills.values() {
-        for inv in &skill.invocations {
-            leaf_names.insert(format!("skill:{}:{}", skill.name, inv_label(inv)));
-        }
+        leaf_names.insert(format!("skill:{}", skill.name));
     }
     frame_names.extend(leaf_names);
     frame_names
@@ -454,10 +458,13 @@ fn collect_turn_children(turn: &crate::episode::Turn, episodes: &Episodes) -> Ve
         if let Some(skill) = episodes.skills.get(&skill_ref.name) {
             if let Some(inv) = skill.invocations.get(skill_ref.index) {
                 // Skill invocations are instants — emit a zero-duration span.
+                // All invocations of the same skill share one frame
+                // (`skill:<name>`), matching the dedup behavior used for
+                // tools so the viewer can show cumulative skill cost.
                 children.push(Child {
                     started_at: inv.at,
                     ended_at: inv.at,
-                    frame_name: format!("skill:{}:{}", skill_ref.name, inv_label(inv)),
+                    frame_name: format!("skill:{}", skill_ref.name),
                     warning_label: format!("skill:{}", skill_ref.name),
                 });
             }
@@ -670,15 +677,9 @@ fn short_id(session_id: &str) -> String {
     session_id.chars().take(8).collect()
 }
 
-/// Skill invocations don't carry their triggering tool name; use the
-/// invocation ordinal as a stable label so the frame name is unique.
-fn inv_label(inv: &crate::episode::SkillInvocation) -> String {
-    // The invocation does not record a per-invocation tool name; fall back
-    // to a stable timestamp-derived suffix so concurrent invocations don't
-    // collide. Using the RFC3339 timestamp keeps frame names deterministic.
-    inv.at.to_rfc3339()
-}
-
+/// Look up a frame's index in the dedup table. Returns 0 (the `session`
+/// frame) if the name is unknown, which should be impossible because
+/// `build_frame_table` is the single source of truth.
 fn lookup(idx: &BTreeMap<String, usize>, name: &str) -> usize {
     idx.get(name).copied().unwrap_or(0)
 }
