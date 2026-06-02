@@ -71,6 +71,11 @@ pub fn default_session_root() -> Option<PathBuf> {
 ///     println!("{} ({} bytes, live={})", s.id, s.size_bytes, s.is_live);
 /// }
 /// ```
+#[tracing::instrument(
+    name = "adapter.discover",
+    skip_all,
+    fields(root = %agentprof_core::observability::pii::hash_path(root))
+)]
 pub fn discover_sessions(root: &Path) -> Result<Vec<SessionRef>, AdapterError> {
     if !root.is_dir() {
         return Err(AdapterError::RootNotFound {
@@ -117,6 +122,7 @@ pub fn discover_sessions(root: &Path) -> Result<Vec<SessionRef>, AdapterError> {
     }
 
     sessions.sort_by(|a, b| b.modified_at.cmp(&a.modified_at));
+    tracing::debug!(found = sessions.len(), "discovered sessions");
     Ok(sessions)
 }
 

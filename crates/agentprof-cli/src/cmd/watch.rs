@@ -89,7 +89,20 @@ pub enum WatchSub {
 /// agentprof watch aggregate --by tool --since 7d
 /// ```
 #[allow(clippy::needless_pass_by_value)]
-pub fn run(cmd: WatchCmd) -> Result<()> {
+#[tracing::instrument(
+    name = "cmd.watch",
+    skip_all,
+    fields(
+        agent = "copilot",
+        sub = if cmd.sub.is_some() { "aggregate" } else { "single" },
+        debounce_ms = cmd.debounce_ms,
+    )
+)]
+pub fn run(
+    cmd: WatchCmd,
+    cfg: &crate::cmd::LogConfig,
+    tracing_handle: &crate::cmd::TracingHandle,
+) -> Result<()> {
     // Validate sub-mode arguments BEFORE the TTY check so users get a
     // crisp UserError (exit 1) instead of an environment error (exit 3)
     // when they pass conflicting flags from a non-TTY shell or CI.
@@ -119,8 +132,10 @@ pub fn run(cmd: WatchCmd) -> Result<()> {
     let debounce = Duration::from_millis(cmd.debounce_ms);
 
     match cmd.sub.clone() {
-        None => run_single(adapter, &cmd, debounce),
-        Some(WatchSub::Aggregate(agg)) => run_cross(adapter, agg, &cmd, debounce),
+        None => run_single(adapter, &cmd, debounce, cfg, tracing_handle),
+        Some(WatchSub::Aggregate(agg)) => {
+            run_cross(adapter, agg, &cmd, debounce, cfg, tracing_handle)
+        }
     }
 }
 
@@ -137,7 +152,13 @@ fn validate_watch_aggregate(agg: &AggregateCmd) -> Result<()> {
     Ok(())
 }
 
-fn run_single(adapter: CopilotAdapter, cmd: &WatchCmd, debounce: Duration) -> Result<()> {
+fn run_single(
+    adapter: CopilotAdapter,
+    cmd: &WatchCmd,
+    debounce: Duration,
+    cfg: &crate::cmd::LogConfig,
+    tracing_handle: &crate::cmd::TracingHandle,
+) -> Result<()> {
     let sref = resolve_session(&adapter, cmd.root.clone(), &cmd.session)?;
     let events_jsonl = sref.path.clone();
 
@@ -170,7 +191,7 @@ fn run_single(adapter: CopilotAdapter, cmd: &WatchCmd, debounce: Duration) -> Re
         load_single(&adapter, &sref_for_reload).map_err(|e| ReloadError::Pipeline(format!("{e:#}")))
     });
 
-    enter_and_run(initial, rx, reload)
+    enter_and_run(initial, rx, reload, cfg, tracing_handle)
 }
 
 fn run_cross(
@@ -178,6 +199,8 @@ fn run_cross(
     agg: AggregateCmd,
     cmd: &WatchCmd,
     debounce: Duration,
+    cfg: &crate::cmd::LogConfig,
+    tracing_handle: &crate::cmd::TracingHandle,
 ) -> Result<()> {
     // Compute the initial aggregate up-front (also validates --root).
     let initial_any = compute_aggregate(&adapter, &agg)
@@ -198,7 +221,11 @@ fn run_cross(
     // mode — it's ignored here, and surfacing this even when the spawn
     // later fails helps users diagnose a likely typo.
     if !matches!(cmd.session, SessionSelector::Latest) {
-        eprintln!("agentprof: warning: --session is ignored in `watch aggregate` mode");
+        tracing::warn!(
+            flag = "--session",
+            sub = "aggregate",
+            "flag ignored in watch aggregate mode"
+        );
     }
 
     let (tx, rx) = channel::<RefreshKind>();
@@ -217,12 +244,22 @@ fn run_cross(
             .map_err(|e| ReloadError::Pipeline(format!("{e:#}")))
     });
 
-    enter_and_run(initial, rx, reload)
+    enter_and_run(initial, rx, reload, cfg, tracing_handle)
 }
 
 type ReloadFn = Box<dyn FnMut() -> Result<WatchData, ReloadError>>;
 
-fn enter_and_run(initial: WatchData, rx: Receiver<RefreshKind>, reload: ReloadFn) -> Result<()> {
+fn enter_and_run(
+    initial: WatchData,
+    rx: Receiver<RefreshKind>,
+    reload: ReloadFn,
+    cfg: &crate::cmd::LogConfig,
+    tracing_handle: &crate::cmd::TracingHandle,
+) -> Result<()> {
+    // Swap the tracing writer to a rolling file BEFORE entering the
+    // alt-screen — see `cmd::analyze::run_tui` for the rationale.
+    let _log_guard = crate::observability::enter_tui_log_guard(cfg, tracing_handle);
+
     agentprof_tui::app::terminal::install_panic_hook();
     let mut term = agentprof_tui::app::terminal::enter()
         .map_err(|e| ExitKind::OutputError.into_anyhow(format!("entering tui: {e}")))?;

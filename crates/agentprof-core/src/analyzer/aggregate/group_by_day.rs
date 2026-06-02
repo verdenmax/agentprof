@@ -34,6 +34,7 @@ use crate::episode::Episodes;
 ///
 /// If `reports.len() != episodes_per_report.len()`.
 #[must_use]
+#[tracing::instrument(name = "aggregator.group_by", skip_all, fields(key = "day", sessions = reports.len()))]
 pub fn aggregate_by_day(
     reports: &[AnalysisReport],
     episodes_per_report: &[Episodes],
@@ -98,14 +99,16 @@ pub fn aggregate_by_day(
         })
         .collect();
 
-    AggregateReport::new(
+    let report = AggregateReport::new(
         AggregateKey::Day,
         Duration::zero(),
         reports.len(),
         0,
         total_wall,
         buckets,
-    )
+    );
+    tracing::debug!(buckets = report.buckets.len(), "aggregated");
+    report
 }
 
 struct TempDayAcc {

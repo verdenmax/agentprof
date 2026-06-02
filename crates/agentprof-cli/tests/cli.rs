@@ -19,6 +19,7 @@
 use std::path::PathBuf;
 
 use assert_cmd::Command;
+use predicates::boolean::PredicateBooleanExt;
 use predicates::str::contains;
 
 fn fixtures_root() -> PathBuf {
@@ -88,14 +89,14 @@ fn analyze_writes_to_output_file_when_specified() {
     let out_path = tmp.path().join("report.md");
     Command::cargo_bin("agentprof")
         .unwrap()
-        .args(["analyze", "--session"])
+        .args(["--log-level", "info", "analyze", "--session"])
         .arg(cross_turn_path())
         .args(["--export", "md", "--output"])
         .arg(&out_path)
         .assert()
         .success()
-        .stderr(contains("wrote"))
-        .stderr(contains("bytes"));
+        .stderr(contains("wrote output file"))
+        .stderr(contains("bytes="));
     let written = std::fs::read_to_string(&out_path).unwrap();
     assert!(written.starts_with("# agentprof analyze"));
     assert!(written.contains("turn-A"));
@@ -299,7 +300,11 @@ fn analyze_export_tui_with_output_flag_warns() {
         .assert()
         .failure()
         .code(3)
-        .stderr(contains("--output is ignored with --export tui"))
+        .stderr(
+            contains("flag ignored")
+                .and(contains("--output"))
+                .and(contains("--export tui")),
+        )
         .stderr(contains("requires both stdin and stdout to be TTYs"));
 }
 
@@ -359,7 +364,11 @@ fn analyze_export_speedscope_section_flag_warns() {
         .args(["--export", "speedscope", "--section", "turn-summary"])
         .assert()
         .success()
-        .stderr(contains("--section is ignored with --export speedscope"));
+        .stderr(
+            contains("flag ignored")
+                .and(contains("--section"))
+                .and(contains("--export speedscope")),
+        );
 }
 
 #[test]

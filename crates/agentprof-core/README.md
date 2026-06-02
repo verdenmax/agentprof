@@ -76,6 +76,26 @@ All pipelines are pure functions (no IO). The cli crate (`agentprof-cli::cmd::fo
 
 See [ADR-0007](../../docs/internals/adr-0007-speedscope-export.md) for design decisions.
 
+## Observability (M1.6.4)
+
+`agentprof_core::observability::pii::{hash_path, hash_short}` are the
+canonical PII redaction helpers (sha256[..8] hex). Other workspace crates
+emit session paths as `session = %hash_path(p)` in their tracing fields so
+log consumers can correlate sessions across runs without seeing raw
+filesystem paths.
+
+- [`pii::hash_path`](src/observability/pii.rs) — hash a `&Path` via its
+  lossy-UTF-8 string form. Returns an 8-char hex string.
+- [`pii::hash_short`](src/observability/pii.rs) — hash an arbitrary `&str`
+  to the same 8-char hex form (used for non-path identifiers).
+
+8-char hex (32-bit) gives a small theoretical collision space but is the
+right PII / readability trade-off for log-correlation use. See
+[ADR-0010 D-5](../../docs/internals/adr-0010-tracing-infrastructure.md)
+for the full discussion.
+
+Direct dep: `sha2 = "0.10"` (added M1.6.4).
+
 ## Stability promises
 
 All public extensibility points are `#[non_exhaustive]`:

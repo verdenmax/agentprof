@@ -71,7 +71,16 @@ struct ListRow {
 /// - Otherwise exits 0 even on partial per-session failures (summarized
 ///   to stderr).
 #[allow(clippy::needless_pass_by_value)]
-pub fn run(cmd: ListCmd) -> Result<()> {
+#[tracing::instrument(
+    name = "cmd.list",
+    skip_all,
+    fields(agent = "copilot", since = %cmd.since, limit = cmd.limit)
+)]
+pub fn run(
+    cmd: ListCmd,
+    _cfg: &crate::cmd::LogConfig,
+    _tracing_handle: &crate::cmd::TracingHandle,
+) -> Result<()> {
     let adapter = match cmd.agent {
         AgentKind::Copilot => CopilotAdapter,
         other => {
@@ -150,12 +159,12 @@ pub fn run(cmd: ListCmd) -> Result<()> {
         cmd.limit,
     );
     if !failures.is_empty() {
-        eprintln!(
-            "\n{} sessions failed to parse (use `agentprof analyze --session <id>` for details):",
-            failures.len()
+        tracing::warn!(
+            failure_count = failures.len(),
+            "session(s) failed to parse (use `agentprof analyze --session <id>` for details)"
         );
         for (id, e) in &failures {
-            eprintln!("  - {id}: {e:#}");
+            tracing::warn!(session = %agentprof_core::observability::pii::hash_short(id), error = %format_args!("{e:#}"), "parse failure detail");
         }
     }
     Ok(())

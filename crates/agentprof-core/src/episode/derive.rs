@@ -78,6 +78,7 @@ pub const ORPHAN_TOOL_SENTINEL: &str = "<orphan>";
 /// assert!(episodes.turns.is_empty());
 /// ```
 #[must_use]
+#[tracing::instrument(name = "analyzer.derive_episodes", skip_all, fields(events = events.len()))]
 pub fn derive_episodes<E: Event>(events: &[E], meta: &SessionMeta) -> Episodes {
     let mut state = DeriveState::new(meta);
     for (idx, ev) in events.iter().enumerate() {
@@ -98,7 +99,19 @@ pub fn derive_episodes<E: Event>(events: &[E], meta: &SessionMeta) -> Episodes {
         }
         state.bump_skill_windows(idx, ev);
     }
-    state.finalize()
+    let episodes = state.finalize();
+    tracing::debug!(
+        turns = episodes.turns.len(),
+        tool_calls = episodes
+            .tools
+            .values()
+            .map(|t| t.calls.len())
+            .sum::<usize>(),
+        hooks = episodes.hooks.len(),
+        warnings = episodes.warnings.len(),
+        "derived episodes"
+    );
+    episodes
 }
 
 // ---------- Internal state machine ----------

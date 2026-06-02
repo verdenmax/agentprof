@@ -145,10 +145,23 @@ agentprof aggregate  --by mcp-server --since 30d          # ROI leaderboard (shi
 agentprof aggregate  --by tool --export tui               # static cross-session TUI (shipped M1.6.3)
 agentprof watch                                           # live single-session TUI (shipped M1.6.3)
 agentprof watch aggregate --by tool                       # live cross-session TUI (shipped M1.6.3)
+
+# Global flags (M1.6.4) — work on every subcommand (clap global = true):
+agentprof --log-level debug list                          # raise tracing verbosity (default: warn)
+agentprof --log-file /tmp/agentprof.log analyze           # send tracing events to a file instead of stderr
 ```
 
 All commands default to `--agent copilot` (the only adapter shipped in MVP);
 `--agent claude|codex` are reserved for Phase 3 post-MVP.
+
+**Global flags (M1.6.4)**: `--log-level <LEVEL>` and `--log-file <PATH>` work
+on every subcommand. TUI modes (`analyze --export tui`, `watch`,
+`watch aggregate`) auto-redirect tracing to a rolling log under
+`$XDG_STATE_HOME/agentprof/agentprof.log` to avoid alt-screen corruption.
+See [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md)
+`## Tracing & logging` for env vars (`AGENTPROF_LOG_LEVEL` /
+`AGENTPROF_LOG_FILE` / `AGENTPROF_LOG_FULL_PATHS`) and
+[ADR-0010](docs/internals/adr-0010-tracing-infrastructure.md) for design.
 
 See [`docs/architecture.md`](docs/architecture.md) §8 for the canonical CLI
 protocol and exit codes.

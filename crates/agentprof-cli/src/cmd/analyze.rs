@@ -166,7 +166,32 @@ impl ExitKind {
 /// Returns an `anyhow::Error` whose downcast target is `ExitKind`,
 /// signaling which process exit code `main()` should use.
 #[allow(clippy::needless_pass_by_value)] // main() owns the parsed Cli enum and moves the variant payload in.
-pub fn run(cmd: AnalyzeCmd) -> Result<()> {
+pub fn run(
+    cmd: AnalyzeCmd,
+    cfg: &crate::cmd::LogConfig,
+    tracing_handle: &crate::cmd::TracingHandle,
+) -> Result<()> {
+    // Compute a redacted span field for the session selector. The `Path`
+    // variant otherwise Display-formats the raw filesystem path, which
+    // is PII (rubber-duck Critical #2). We redact it via
+    // [`maybe_hash_path`] so the span's `session` field honours the
+    // `AGENTPROF_LOG_FULL_PATHS=1` opt-out (spec D-5).
+    let session_field = match &cmd.session {
+        SessionSelector::Path(p) => crate::observability::maybe_hash_path(cfg, p),
+        SessionSelector::Latest => "latest".to_string(),
+        SessionSelector::Previous => "previous".to_string(),
+        SessionSelector::Uuid(u) => u.clone(),
+    };
+    // Manual `info_span!` (NOT `#[tracing::instrument]`) so the runtime
+    // `cfg`-aware redaction above can populate `session`.
+    let _cmd_span = tracing::info_span!(
+        "cmd.analyze",
+        agent = "copilot",
+        export = ?cmd.export,
+        session = %session_field,
+    )
+    .entered();
+
     let adapter = registry::adapter_for(cmd.agent).ok_or_else(|| {
         ExitKind::UserError.into_anyhow(format!(
             "{:?} adapter not yet implemented (M1.4 ships copilot only; \
@@ -189,31 +214,46 @@ pub fn run(cmd: AnalyzeCmd) -> Result<()> {
         // dispatch ignores. Documented in ExportFormat::Tui doc-comment
         // but worth surfacing at runtime so silent ignore doesn't confuse.
         if cmd.output.is_some() {
-            eprintln!("agentprof: warning: --output is ignored with --export tui");
+            tracing::warn!(flag = "--output", with = "--export tui", "flag ignored");
         }
         if cmd.section != AnalysisSection::all_vec() {
-            eprintln!("agentprof: warning: --section is ignored with --export tui");
+            tracing::warn!(flag = "--section", with = "--export tui", "flag ignored");
         }
-        return run_tui(&report, &episodes);
+        return run_tui(&report, &episodes, cfg, tracing_handle);
     }
 
     if cmd.export == ExportFormat::Speedscope && cmd.section != AnalysisSection::all_vec() {
-        eprintln!("agentprof: warning: --section is ignored with --export speedscope");
+        tracing::warn!(
+            flag = "--section",
+            with = "--export speedscope",
+            "flag ignored"
+        );
     }
     if cmd.export == ExportFormat::Html && cmd.output.is_none() {
-        eprintln!(
-            "agentprof: warning: writing HTML to stdout; pass --output report.html for \
-             a saved file"
+        tracing::warn!(
+            export = "html",
+            "writing HTML to stdout; pass --output report.html for a saved file"
         );
     }
 
     let rendered = render_report(&report, &episodes, &raw.meta, &cmd)?;
-    write_output(&rendered, cmd.output.as_deref())?;
+    write_output(&rendered, cmd.output.as_deref(), cfg)?;
     Ok(())
 }
 
-fn run_tui(report: &AnalysisReport, episodes: &Episodes) -> Result<()> {
+fn run_tui(
+    report: &AnalysisReport,
+    episodes: &Episodes,
+    cfg: &crate::cmd::LogConfig,
+    tracing_handle: &crate::cmd::TracingHandle,
+) -> Result<()> {
     use std::io::IsTerminal as _;
+
+    // Swap the tracing writer to a rolling file BEFORE entering the
+    // alt-screen so subsequent emissions don't visually corrupt the TUI.
+    // The named binding holds the guard for the whole TUI session; on
+    // Drop (after `terminal::leave` below) it prints the log path.
+    let _log_guard = crate::observability::enter_tui_log_guard(cfg, tracing_handle);
 
     if !std::io::stdout().is_terminal() || !std::io::stdin().is_terminal() {
         return Err(ExitKind::OutputError.into_anyhow(
@@ -365,7 +405,7 @@ fn render_report(
             let (mut json, warnings) =
                 format::speedscope::render(episodes, meta, env!("CARGO_PKG_VERSION"));
             for w in &warnings {
-                eprintln!("agentprof: warning: {w}");
+                tracing::warn!(category = "speedscope", warning = %w, "render warning");
             }
             // POSIX-final-newline + visual separation, mirroring json branch.
             json.push('\n');
@@ -381,7 +421,7 @@ fn render_report(
     }
 }
 
-fn write_output(content: &str, path: Option<&Path>) -> Result<()> {
+fn write_output(content: &str, path: Option<&Path>, cfg: &crate::cmd::LogConfig) -> Result<()> {
     match path {
         None => {
             print!("{content}");
@@ -391,7 +431,11 @@ fn write_output(content: &str, path: Option<&Path>) -> Result<()> {
             std::fs::write(p, content).map_err(|e| {
                 ExitKind::OutputError.into_anyhow(format!("writing {}: {e}", p.display()))
             })?;
-            eprintln!("wrote {} bytes to {}", content.len(), p.display());
+            tracing::info!(
+                bytes = content.len(),
+                path = %crate::observability::maybe_hash_path(cfg, p),
+                "wrote output file"
+            );
             Ok(())
         }
     }

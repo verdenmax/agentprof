@@ -124,7 +124,22 @@ impl AggBy {
 /// - `OutputError` (3): I/O failure writing to stdout or `--output`;
 ///   TTY missing when `--export tui`.
 #[allow(clippy::needless_pass_by_value)]
-pub fn run(cmd: AggregateCmd) -> Result<()> {
+#[tracing::instrument(
+    name = "cmd.aggregate",
+    skip_all,
+    fields(
+        agent = "copilot",
+        by = ?cmd.by,
+        since = %cmd.since,
+        limit = cmd.limit,
+        export = ?cmd.export,
+    )
+)]
+pub fn run(
+    cmd: AggregateCmd,
+    cfg: &crate::cmd::LogConfig,
+    tracing_handle: &crate::cmd::TracingHandle,
+) -> Result<()> {
     // Resolve adapter (M1.6.3 = copilot only).
     let adapter = match cmd.agent {
         AgentKind::Copilot => CopilotAdapter,
@@ -143,17 +158,18 @@ pub fn run(cmd: AggregateCmd) -> Result<()> {
     if refs_total == 0 {
         let root_label = cmd.root.as_ref().map_or_else(
             || "<adapter default>".to_string(),
-            |p| p.display().to_string(),
+            |p| crate::observability::maybe_hash_path(cfg, p),
         );
-        eprintln!(
-            "agentprof: no sessions matching --since={} under {}",
-            cmd.since, root_label,
+        tracing::warn!(
+            since = %cmd.since,
+            root = %root_label,
+            "no sessions matching window under root"
         );
     }
 
     // Dispatch TUI before the renderers (it needs the raw report).
     if matches!(cmd.export, AggExportFormat::Tui) {
-        return run_tui_for_aggregate(any_report);
+        return run_tui_for_aggregate(any_report, cfg, tracing_handle);
     }
 
     // Render.
@@ -276,9 +292,10 @@ pub fn compute_aggregate(
                 episodes_vec.push(episodes);
             }
             Err(e) => {
-                eprintln!(
-                    "agentprof: warning: failed to parse session {}: {e:#}",
-                    sref.id
+                tracing::warn!(
+                    session = %agentprof_core::observability::pii::hash_short(&sref.id),
+                    error = %format_args!("{e:#}"),
+                    "failed to parse session"
                 );
                 failure_count += 1;
             }
@@ -322,19 +339,28 @@ pub fn compute_aggregate(
     // Stderr summary on partial failures.
     if failure_count > 0 {
         let total = reports.len() + failure_count;
-        eprintln!(
-            "agentprof: aggregated {} of {} sessions ({} failed)",
-            reports.len(),
-            total,
-            failure_count
+        tracing::warn!(
+            sessions_ok = reports.len(),
+            sessions_total = total,
+            failure_count,
+            "partial aggregate: some sessions failed"
         );
     }
 
     Ok((any_report, refs_total))
 }
 
-fn run_tui_for_aggregate(any_report: AnyAggregateReport) -> Result<()> {
+fn run_tui_for_aggregate(
+    any_report: AnyAggregateReport,
+    cfg: &crate::cmd::LogConfig,
+    tracing_handle: &crate::cmd::TracingHandle,
+) -> Result<()> {
     use std::io::IsTerminal as _;
+
+    // Swap the tracing writer to a rolling file BEFORE entering the
+    // alt-screen — see `cmd::analyze::run_tui` for the rationale.
+    let _log_guard = crate::observability::enter_tui_log_guard(cfg, tracing_handle);
+
     if !std::io::stdout().is_terminal() || !std::io::stdin().is_terminal() {
         return Err(ExitKind::OutputError.into_anyhow(
             "agentprof aggregate --export tui requires both stdin and stdout to be TTYs; \

@@ -88,11 +88,11 @@ agentprof-cli  ──▶  agentprof-tui
 
 | Crate | 类型 | 关键模块 | 关键外部依赖 |
 |---|---|---|---|
-| `agentprof-core` | lib | `model`, `tokenizer`, `analyzer` (+ `analyzer::aggregate` M1.6.2), `export` (M1.6.4: speedscope JSON + SVG flamegraph), `error` | `serde`, `serde_json`, `tiktoken-rs`, `chrono`, `thiserror`, `reqwest`(opt, feature `anthropic-api`) |
+| `agentprof-core` | lib | `model`, `tokenizer`, `analyzer` (+ `analyzer::aggregate` M1.6.2), `export` (M1.6.4: speedscope JSON + SVG flamegraph), `observability::pii::{hash_path, hash_short}` (M1.6.4 tracing), `error` | `serde`, `serde_json`, `tiktoken-rs`, `chrono`, `thiserror`, **`sha2`** (M1.6.4 tracing), `reqwest`(opt, feature `anthropic-api`) |
 | `agentprof-adapters` | lib | `claude`, `codex`, `copilot`, `registry`, `discovery` | `serde_json`, `walkdir`, `globset` |
 | `agentprof-storage` | lib | `sqlite::{schema, migrations, queries}`, `otlp`(feature) | `rusqlite`(bundled), `opentelemetry-otlp`(opt), `tonic`(opt) |
 | `agentprof-tui` | lib | `app` (with `AppRunner`) + `app::{terminal,event,state}`, `views::{flamegraph, roi, aggregate, format}`, `theme`, `error` — **shipped M1.5** ([`README`](../crates/agentprof-tui/README.md), [ADR-0006](internals/adr-0006-panic-safe-tui.md)); + `watch::{WatchRunner, WatchData, RefreshKind, ReloadError, AggSortKey}` + cross-session arm in `views::aggregate` + `Event::Refresh` — **shipped M1.6.3** ([ADR-0009](internals/adr-0009-watch-runner-and-notify.md)) | `ratatui 0.29`, `crossterm 0.28` |
-| `agentprof-cli` | bin (`agentprof`) | `cmd::analyze` ✅ M1.4 + `--export tui` (M1.5) + `--export speedscope\|html` ✅ M1.6.4，`cmd::list` ✅ M1.6.1，`cmd::aggregate` ✅ M1.6.2 (--by tool\|mcp-server\|day\|model, --export md\|json\|csv\|html) + `--export tui` ✅ M1.6.3（deferred from M1.6.2），`cmd::watch` ✅ M1.6.3 (单 session + `watch aggregate ...` 子模式)，`cmd::{ingest_otlp, config}` 规划中（Phase 2），`export` 已取消（与 `analyze --export` 重复），`config`, `main` | `clap`, `tracing`, `tracing-subscriber`, `anyhow`, `directories`, **`askama`**, **`csv`**, **`notify-debouncer-mini`**（M1.6.3，含 `notify` v6.1.1 transitive） |
+| `agentprof-cli` | bin (`agentprof`) | `cmd::analyze` ✅ M1.4 + `--export tui` (M1.5) + `--export speedscope\|html` ✅ M1.6.4，`cmd::list` ✅ M1.6.1，`cmd::aggregate` ✅ M1.6.2 (--by tool\|mcp-server\|day\|model, --export md\|json\|csv\|html) + `--export tui` ✅ M1.6.3（deferred from M1.6.2），`cmd::watch` ✅ M1.6.3 (单 session + `watch aggregate ...` 子模式)，`observability::{config, init, tui_guard}` ✅ M1.6.4 (tracing infra — global `--log-level` / `--log-file` + TUI auto-redirect + reload-Layer)，`cmd::{ingest_otlp, config}` 规划中（Phase 2），`export` 已取消（与 `analyze --export` 重复），`config`, `main` | `clap`, `tracing`, `tracing-subscriber`, **`tracing-appender`**（M1.6.4 tracing，rolling-file writer），`anyhow`, `directories`, **`askama`**, **`csv`**, **`notify-debouncer-mini`**（M1.6.3，含 `notify` v6.1.1 transitive） |
 | `xtask` | bin | `anonymize`, `dist-check`, `release-notes` | `xshell` |
 
 ---
@@ -391,6 +391,25 @@ ingest-otlp [--listen 0.0.0.0:4317]            # 🚧 规划中 — Phase 2
 config  [show | edit | path]                   # 🚧 规划中 — Phase 2
     XDG 配置：~/.config/agentprof/config.toml。
 ```
+
+### 全局 flags (M1.6.4)
+
+适用于所有子命令（clap `global = true`），由 `agentprof-cli::observability` 模块解析。
+
+`--log-level <LEVEL>` — tracing level filter (`trace` / `debug` / `info` / `warn` / `error`
+或完整 env-filter 语法 如 `warn,agentprof_core=debug`)。env fallback：
+`AGENTPROF_LOG_LEVEL`，然后 `AGENTPROF_LOG`（向后兼容），默认 `warn`。
+
+`--log-file <PATH>` — tracing 事件写入文件而非 stderr。`-` 表示强制 stderr
+（即使在 TUI 模式下，用户自负 alt-screen 污染风险）。默认：
+非 TUI = stderr；TUI 模式（`analyze --export tui` / `watch` / `watch aggregate`）
+自动到 `$XDG_STATE_HOME/agentprof/agentprof.log`（按天滚动；干净退出后 stdout
+打印路径）。env fallback：`AGENTPROF_LOG_FILE`。
+
+`AGENTPROF_LOG_FULL_PATHS=1` — 关闭 session 路径默认的 sha256[..8] hash
+（仅影响 cli 层 emission；core / adapters 层固定 hash 以避免 PII 泄漏）。
+
+详见 [ADR-0010](internals/adr-0010-tracing-infrastructure.md) 与 §15.5 Observability。
 
 > **export 子命令已取消**：原 spec 包含 `export <session> --format speedscope|html|md|csv`，但与 `analyze --session X --export <fmt> --output Y` 功能完全重叠。M1.6.1 decomposition 决定取消该 surface；Speedscope / HTML 导出走 `analyze --export speedscope|html`（M1.6.4 ✅ 已 ship）；CSV 推迟到 M1.6.5。
 
@@ -863,6 +882,42 @@ todo        = "warn"
 - `agentprof-storage/features = ["otlp"]` —— 启用 OTLP receiver（Phase 2）
 - `agentprof-cli/features = ["full"]` = `core/anthropic-api + storage/otlp`（默认）
 
+### 15.5 Observability (M1.6.4)
+
+agentprof 使用 `tracing` 0.1 作为 single canonical 诊断 / 警告 / 调试输出渠道
+（取代 `eprintln!`）。配置由 `agentprof-cli::observability::LogConfig::resolve_from_env_and_flags`
+合并 CLI flags / env vars / 默认值，由 `init_tracing` 安装 subscriber
+（含 `reload::Layer` 以支持运行时把 writer 从 stderr 换成 rolling file）。
+全局 flags 协议见 §8。
+
+Span 拓扑 4 层（13 spans 总计）：
+
+| Layer | Span name | Emitted at | Level |
+|---|---|---|---|
+| 1 | `cmd.{analyze, list, aggregate, watch}` | `agentprof-cli::cmd::*::run` | `info_span!` |
+| 2 | `adapter.{discover, parse, load_meta}` | `agentprof-adapters` | `debug_span!` |
+| 3 | `analyzer.{derive_episodes, analyze}`, `aggregator.group_by{tool,mcp,day,model}` | `agentprof-core` | `debug_span!` |
+| 4 | event-level `tracing::{trace, debug, info, warn, error}!` | anywhere | varies |
+
+TUI 模式（`analyze --export tui` / `watch` / `watch aggregate`）自动把 writer
+切到 `$XDG_STATE_HOME/agentprof/agentprof.log`（rolling daily，via `tracing-appender`），
+干净退出时 stdout 打印 log 路径。`--log-file -` 强制 stderr（用户自负
+alt-screen 污染风险）。
+
+**Soft-fall policy**：任何 init 失败（文件权限 / XDG path 不可写 / env-filter
+syntax error 等）软降级到默认 stderr — tracing 永远不阻塞 CLI 启动。
+
+**PII**：session 路径默认 sha256[..8] hex hash（由
+`agentprof_core::observability::pii::{hash_path, hash_short}` 提供）；
+`AGENTPROF_LOG_FULL_PATHS=1` 仅 cli 层 opt-out；core / adapters 层固定 hash
+以确保即使重定向到第三方 log 收集系统也不泄漏文件系统路径。Trade-off：
+8-hex 字符存在理论 collision 风险但 PII safety 优先（见
+[ADR-0010 D-5](internals/adr-0010-tracing-infrastructure.md)）。
+
+完整设计见 [ADR-0010](internals/adr-0010-tracing-infrastructure.md)
++ [spec](../docs/superpowers/specs/2026-06-02-tracing-design.md)
++ [plan](../docs/superpowers/plans/2026-06-02-m1.6.4-tracing.md)。
+
 ---
 
 ## 16. 编码规约
@@ -891,7 +946,7 @@ todo        = "warn"
 | Phase | 启用的 crate / feature | 里程碑 | 状态 |
 |---|---|---|---|
 | **Phase 0** prototype | `agentprof-core` + `agentprof-adapters::copilot` + `agentprof-cli`（只 `analyze --export md\|json`） | events.jsonl → markdown 报告跑通 | ✅ M1.1–M1.4 已交付 |
-| **Phase 1** MVP | + `agentprof-tui`（火焰图 + ROI 表）+ `analyze --export tui` + `list` / `aggregate` 子命令 + 多种 `--export` 格式 + `watch` 子命令 | TUI 可交互 + 跨 session 聚合 + 可分享报告 + 实时刷新 | 🟡 M1.5 ✅ shipped（[ADR-0006](internals/adr-0006-panic-safe-tui.md)）；**M1.6.1 ✅ shipped**（`list` 子命令 + 8 polish）；**M1.6.4 ✅ shipped**（`--export speedscope|html`，[ADR-0007](internals/adr-0007-speedscope-export.md)）；**M1.6.2 ✅ shipped**（`aggregate` 子命令，[ADR-0008](internals/adr-0008-aggregate-report-and-utilization.md)）；**M1.6.3 ✅ shipped 2026-06-01**（`watch` 子命令 + `aggregate --export tui` 激活，[ADR-0009](internals/adr-0009-watch-runner-and-notify.md)）；M1.6.5 (MCP waste) / M1.7 (v0.1.0 release) 进行中 |
+| **Phase 1** MVP | + `agentprof-tui`（火焰图 + ROI 表）+ `analyze --export tui` + `list` / `aggregate` 子命令 + 多种 `--export` 格式 + `watch` 子命令 + 全工程结构化 tracing | TUI 可交互 + 跨 session 聚合 + 可分享报告 + 实时刷新 + 可观测性 | 🟡 M1.5 ✅ shipped（[ADR-0006](internals/adr-0006-panic-safe-tui.md)）；**M1.6.1 ✅ shipped**（`list` 子命令 + 8 polish）；**M1.6.2 ✅ shipped**（`aggregate` 子命令，[ADR-0008](internals/adr-0008-aggregate-report-and-utilization.md)）；**M1.6.3 ✅ shipped 2026-06-01**（`watch` 子命令 + `aggregate --export tui` 激活，[ADR-0009](internals/adr-0009-watch-runner-and-notify.md)）；**M1.6.4 ✅ shipped 2026-06-02**（先 `--export speedscope\|html` ✅ shipped 2026-05-31, [ADR-0007](internals/adr-0007-speedscope-export.md)；再 tracing 基础设施 ✅ shipped 2026-06-02 — canonical observability across all 5 crates, 13 `eprintln!` → `tracing`, 全局 `--log-level` / `--log-file` + XDG state log + PII hash, 4-layer span topology, [ADR-0010](internals/adr-0010-tracing-infrastructure.md)）；M1.6.5 (MCP waste) / M1.7 (v0.1.0 release) 进行中 |
 | **Phase 2** 工程化 | + `agentprof-storage`（SQLite + 持久化）+ `ingest-otlp` 子命令（启用 `otlp` feature）+ tokenizer + ROI + waste estimation | 跨 session 数据库 + 实时 OTLP + 精确 token 成本 | ❌ 未开始 |
 | **Phase 3** 多 agent | + `agentprof-adapters::claude` + `agentprof-adapters::codex` (+ 可选 Gemini) | 三 agent 全支持 | ❌ 未开始 |
 

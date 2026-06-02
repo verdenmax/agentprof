@@ -34,6 +34,11 @@ use crate::copilot::event::CopilotEvent;
 /// let raw = parse_events_jsonl(std::path::Path::new("/tmp/events.jsonl"), false).unwrap();
 /// println!("{} events parsed", raw.events.len());
 /// ```
+#[tracing::instrument(
+    name = "adapter.parse",
+    skip_all,
+    fields(path = %agentprof_core::observability::pii::hash_path(path))
+)]
 pub fn parse_events_jsonl(
     path: &Path,
     is_live: bool,
@@ -87,6 +92,11 @@ pub fn parse_events_jsonl(
                 path: path.to_path_buf(),
             })?;
 
+    tracing::debug!(
+        events = events.len(),
+        warnings = warnings.len(),
+        "parsed events.jsonl"
+    );
     Ok(RawSession::new(meta, events, warnings))
 }
 
