@@ -91,8 +91,8 @@ agentprof-cli  ──▶  agentprof-tui
 | `agentprof-core` | lib | `model`, `tokenizer`, `analyzer` (+ `analyzer::aggregate` M1.6.2), `export` (M1.6.4: speedscope JSON + SVG flamegraph), `error` | `serde`, `serde_json`, `tiktoken-rs`, `chrono`, `thiserror`, `reqwest`(opt, feature `anthropic-api`) |
 | `agentprof-adapters` | lib | `claude`, `codex`, `copilot`, `registry`, `discovery` | `serde_json`, `walkdir`, `globset` |
 | `agentprof-storage` | lib | `sqlite::{schema, migrations, queries}`, `otlp`(feature) | `rusqlite`(bundled), `opentelemetry-otlp`(opt), `tonic`(opt) |
-| `agentprof-tui` | lib | `app` (with AppRunner) + `app::{terminal,event,state}`, `views::{flamegraph, roi, aggregate, format}`, `theme`, `error` — **shipped M1.5** ([`README`](../crates/agentprof-tui/README.md), [ADR-0006](internals/adr-0006-panic-safe-tui.md)) | `ratatui 0.29`, `crossterm 0.28` |
-| `agentprof-cli` | bin (`agentprof`) | `cmd::analyze` ✅ M1.4 + `--export tui` (M1.5) + `--export speedscope\|html` ✅ M1.6.4，`cmd::list` ✅ M1.6.1，`cmd::aggregate` ✅ M1.6.2 (--by tool\|mcp-server\|day\|model, --export md\|json\|csv\|html)，`cmd::{watch, ingest_otlp, config}` 规划中（M1.6.3 / Phase 2），`export` 已取消（与 `analyze --export` 重复），`config`, `main` | `clap`, `tracing`, `tracing-subscriber`, `anyhow`, `directories`, **`askama`**, **`csv`** |
+| `agentprof-tui` | lib | `app` (with `AppRunner`) + `app::{terminal,event,state}`, `views::{flamegraph, roi, aggregate, format}`, `theme`, `error` — **shipped M1.5** ([`README`](../crates/agentprof-tui/README.md), [ADR-0006](internals/adr-0006-panic-safe-tui.md)); + `watch::{WatchRunner, WatchData, RefreshKind, ReloadError, AggSortKey}` + cross-session arm in `views::aggregate` + `Event::Refresh` — **shipped M1.6.3** ([ADR-0009](internals/adr-0009-watch-runner-and-notify.md)) | `ratatui 0.29`, `crossterm 0.28` |
+| `agentprof-cli` | bin (`agentprof`) | `cmd::analyze` ✅ M1.4 + `--export tui` (M1.5) + `--export speedscope\|html` ✅ M1.6.4，`cmd::list` ✅ M1.6.1，`cmd::aggregate` ✅ M1.6.2 (--by tool\|mcp-server\|day\|model, --export md\|json\|csv\|html) + `--export tui` ✅ M1.6.3（deferred from M1.6.2），`cmd::watch` ✅ M1.6.3 (单 session + `watch aggregate ...` 子模式)，`cmd::{ingest_otlp, config}` 规划中（Phase 2），`export` 已取消（与 `analyze --export` 重复），`config`, `main` | `clap`, `tracing`, `tracing-subscriber`, `anyhow`, `directories`, **`askama`**, **`csv`**, **`notify-debouncer-mini`**（M1.6.3，含 `notify` v6.1.1 transitive） |
 | `xtask` | bin | `anonymize`, `dist-check`, `release-notes` | `xshell` |
 
 ---
@@ -327,7 +327,7 @@ M1.4 引入的纯函数 rollups，消费 `&Episodes` 产出 per-row 分析数据
 
 ## 8. CLI 协议（`agentprof <COMMAND>`）
 
-> **当前实现状态**（2026-06-01）：`analyze` ✅ M1.4 + `--export tui` M1.5 + `--export speedscope|html` M1.6.4 / `list` ✅ M1.6.1 / `aggregate` ✅ M1.6.2 已 ship；`watch` / `ingest-otlp` / `config` 规划中；`export` 已取消（与 `analyze --export` 100% 重复，CLI surface 已移除）。
+> **当前实现状态**（2026-06-01）：`analyze` ✅ M1.4 + `--export tui` M1.5 + `--export speedscope|html` M1.6.4 / `list` ✅ M1.6.1 / `aggregate` ✅ M1.6.2 + `--export tui` M1.6.3 / `watch` ✅ M1.6.3 已 ship；`ingest-otlp` / `config` 规划中（Phase 2）；`export` 已取消（与 `analyze --export` 100% 重复，CLI surface 已移除）。
 
 ```
 analyze [--agent copilot]                     # ✅ M1.4: copilot only; auto/claude/codex 留给 Phase 3
@@ -354,20 +354,36 @@ aggregate [--agent copilot]                  # ✅ M1.6.2: copilot only
           [--by <tool|mcp-server|day|model>] # REQUIRED — pick the group-by key
           [--since 30d]                      # filter by mtime; <N>d/h/m/s or all
           [--limit N]                        # cap bucket count; 0 = unlimited
-          [--export md|json|csv|html]        # tui deferred to M1.6.3
-          [--output <file>]                  # write to file instead of stdout
+          [--export md|json|csv|html|tui]    # ✅ M1.6.2 (md/json/csv/html) + ✅ M1.6.3 (tui, 静态跨 session 聚合 TUI)
+          [--output <file>]                  # write to file instead of stdout (ignored for tui)
           [--low-utilization-threshold 20]   # day bucket warn threshold (0-100)
     Cross-session aggregation:
       --by tool        — per-tool ranks (sum calls/duration; re-computed p50/p95 from pooled per-call data)
       --by mcp-server  — per-MCP-server stats (NOT a 'waste' analysis — see M1.6.5 future)
       --by day         — per-UTC-day with utilization_pct + auto warn rows
       --by model       — per-first-turn-model session counts + totals
+    --export tui 要求 stdin + stdout 都是 TTY；适合一次性快速查看，不带 live-refresh
+    （要 live-refresh 用 `watch aggregate ...`）。
     Sequential parse (rayon deferred to future perf milestone). Per-session
     failures fail-soft; stderr summary at end. `--since all` renders as "Window: all"
     in human-readable output. See [ADR-0008](internals/adr-0008-aggregate-report-and-utilization.md).
 
-watch   [--agent ...]                          # 🚧 规划中 — M1.6.3
-    监听 session 目录变化，实时刷新 TUI。
+watch   [--agent copilot]                     # ✅ M1.6.3: copilot only
+        [--session latest|previous|<uuid>|<path>]   # 默认 latest
+        [--root <dir>]                        # 覆盖 adapter 默认 session-state 根
+        [--debounce-ms 250]                   # notify-debouncer-mini 去抖窗口
+        [aggregate --by ... [...aggregate flags]]   # 子模式：跨 session 聚合 watch
+    实时刷新 TUI：
+      - 单 session（默认）：监听 <session>/events.jsonl，单次任何写入触发整 session 重 parse + 重 render。
+      - watch aggregate ...：监听 <root>/ 递归，任何 session 文件变化触发跨 session 重聚合。复用所有
+        `agentprof aggregate` 参数（`--by` / `--since` / `--limit` / `--low-utilization-threshold`）；
+        `--export` / `--output` 在此模式被显式拒绝（UserError = 1）—— 输出永远是 TUI。
+      - 默认 250 ms 去抖（D-6），通过 `notify-debouncer-mini`（含 `notify` v6.1.1）实现。
+      - --session latest（默认）：启动时锁定当前最新 session，后续新 session 不跟（D-5；`q` + 重启即可）。
+      - 要求 stdin + stdout 都是 TTY；不满足时退出 OutputError (3)。
+      - reload 失败显示 footer banner（红色单行），watch 循环不退出（D-13）。
+      - notify init 失败时退出 DataError (2) 并提示用 `--export md` 走 headless 一次性输出（无 polling fallback，D-15）。
+    见 [ADR-0009](internals/adr-0009-watch-runner-and-notify.md)。
 
 ingest-otlp [--listen 0.0.0.0:4317]            # 🚧 规划中 — Phase 2
     启动 OTLP receiver，订阅 Claude Code telemetry（feature: otlp）。
@@ -875,7 +891,7 @@ todo        = "warn"
 | Phase | 启用的 crate / feature | 里程碑 | 状态 |
 |---|---|---|---|
 | **Phase 0** prototype | `agentprof-core` + `agentprof-adapters::copilot` + `agentprof-cli`（只 `analyze --export md\|json`） | events.jsonl → markdown 报告跑通 | ✅ M1.1–M1.4 已交付 |
-| **Phase 1** MVP | + `agentprof-tui`（火焰图 + ROI 表）+ `analyze --export tui` + `list` / `aggregate` 子命令 + 多种 `--export` 格式 | TUI 可交互 + 跨 session 聚合 + 可分享报告 | 🟡 M1.5 ✅ shipped（[ADR-0006](internals/adr-0006-panic-safe-tui.md)）；**M1.6.1 ✅ shipped**（`list` 子命令 + 8 polish）；**M1.6.4 ✅ shipped**（`--export speedscope|html`，[ADR-0007](internals/adr-0007-speedscope-export.md)）；**M1.6.2 ✅ shipped**（`aggregate` 子命令，[ADR-0008](internals/adr-0008-aggregate-report-and-utilization.md)）；M1.6.3 (`watch`) / M1.6.5 (MCP waste) / M1.7 进行中 |
+| **Phase 1** MVP | + `agentprof-tui`（火焰图 + ROI 表）+ `analyze --export tui` + `list` / `aggregate` 子命令 + 多种 `--export` 格式 + `watch` 子命令 | TUI 可交互 + 跨 session 聚合 + 可分享报告 + 实时刷新 | 🟡 M1.5 ✅ shipped（[ADR-0006](internals/adr-0006-panic-safe-tui.md)）；**M1.6.1 ✅ shipped**（`list` 子命令 + 8 polish）；**M1.6.4 ✅ shipped**（`--export speedscope|html`，[ADR-0007](internals/adr-0007-speedscope-export.md)）；**M1.6.2 ✅ shipped**（`aggregate` 子命令，[ADR-0008](internals/adr-0008-aggregate-report-and-utilization.md)）；**M1.6.3 ✅ shipped 2026-06-01**（`watch` 子命令 + `aggregate --export tui` 激活，[ADR-0009](internals/adr-0009-watch-runner-and-notify.md)）；M1.6.5 (MCP waste) / M1.7 (v0.1.0 release) 进行中 |
 | **Phase 2** 工程化 | + `agentprof-storage`（SQLite + 持久化）+ `ingest-otlp` 子命令（启用 `otlp` feature）+ tokenizer + ROI + waste estimation | 跨 session 数据库 + 实时 OTLP + 精确 token 成本 | ❌ 未开始 |
 | **Phase 3** 多 agent | + `agentprof-adapters::claude` + `agentprof-adapters::codex` (+ 可选 Gemini) | 三 agent 全支持 | ❌ 未开始 |
 

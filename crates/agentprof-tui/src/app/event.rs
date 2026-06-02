@@ -11,17 +11,22 @@ use crossterm::event::{Event as CtEvent, KeyCode, KeyEvent, KeyModifiers};
 ///
 /// `Tick` is a placeholder for future periodic refresh (M1.5 only fires
 /// on keystrokes). `Resize` carries the new (columns, rows) from
-/// `crossterm::event::Event::Resize`.
+/// `crossterm::event::Event::Resize`. `Refresh` (M1.6.3) is produced by
+/// [`crate::watch::WatchRunner`] after a hit on its mpsc refresh channel
+/// — the static [`crate::AppRunner`] never emits it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event {
     /// Key pressed (any modifier set).
     Key(KeyEvent),
     /// Terminal resized to (columns, rows).
     Resize(u16, u16),
-    /// Periodic tick. Reserved for M2.x `watch` mode periodic refresh;
-    /// no producer in M1.5/M1.6.
+    /// Periodic tick. Reserved for M2.x; no producer in the static event loop.
     #[allow(dead_code)]
     Tick,
+    /// Watched session file changed (M1.6.3). Only emitted by
+    /// `WatchRunner::run` after a refresh-channel hit; `Event::from_crossterm`
+    /// never produces this variant.
+    Refresh,
 }
 
 impl Event {
@@ -129,5 +134,23 @@ mod tests {
         let k =
             KeyEvent::new_with_kind(KeyCode::Char('a'), KeyModifiers::NONE, KeyEventKind::Repeat);
         assert!(Event::from_crossterm(CtEvent::Key(k)).is_none());
+    }
+
+    #[test]
+    fn refresh_variant_distinct_from_tick() {
+        let r1 = Event::Refresh;
+        let r2 = Event::Refresh;
+        assert_eq!(r1, r2);
+        assert_ne!(Event::Refresh, Event::Tick);
+    }
+
+    #[test]
+    fn from_crossterm_never_produces_refresh() {
+        use crossterm::event::KeyEventKind;
+        let k =
+            KeyEvent::new_with_kind(KeyCode::Char('x'), KeyModifiers::NONE, KeyEventKind::Press);
+        let got = Event::from_crossterm(CtEvent::Key(k));
+        assert!(matches!(got, Some(Event::Key(_))));
+        assert_ne!(got, Some(Event::Refresh));
     }
 }

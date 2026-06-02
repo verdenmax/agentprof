@@ -16,7 +16,7 @@ use agentprof_core::episode::Mode;
 use chrono::Duration;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
-use ratatui::widgets::{Block, Borders, Cell, Row, Table};
+use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table};
 use ratatui::Frame;
 
 use crate::app::state::AppState;
@@ -178,6 +178,338 @@ fn render_by_hook(frame: &mut Frame<'_>, area: Rect, state: &AppState<'_>) {
     )
     .header(header)
     .block(block);
+    frame.render_widget(table, area);
+}
+
+/// Cross-session aggregate render (M1.6.3).
+///
+/// Renders an [`agentprof_core::analyzer::aggregate::AnyAggregateReport`]
+/// as a full-area bucket table preceded by a 3-line header. Selection
+/// highlighting is the inverted row at `selected`. Sort key cycles in
+/// the runner — this fn just applies the already-chosen sort.
+///
+/// # Examples
+///
+/// ```
+/// use agentprof_core::analyzer::aggregate::{
+///     AggregateKey, AggregateReport, AnyAggregateReport, ToolBucket,
+/// };
+/// use agentprof_tui::views::aggregate::render_cross_session;
+/// use agentprof_tui::watch::AggSortKey;
+/// use chrono::Duration;
+/// use ratatui::backend::TestBackend;
+/// use ratatui::Terminal;
+///
+/// let inner: AggregateReport<ToolBucket> = AggregateReport::new(
+///     AggregateKey::Tool, Duration::zero(), 0, 0, Duration::zero(), Vec::new(),
+/// );
+/// let any = AnyAggregateReport::Tool(inner);
+/// let mut term = Terminal::new(TestBackend::new(80, 10)).unwrap();
+/// term.draw(|f| render_cross_session(f, f.area(), &any, AggSortKey::TotalDuration, 0)).unwrap();
+/// ```
+pub fn render_cross_session(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    report: &agentprof_core::analyzer::aggregate::AnyAggregateReport,
+    sort: crate::watch::AggSortKey,
+    selected: usize,
+) {
+    use agentprof_core::analyzer::aggregate::AnyAggregateReport as A;
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(3), Constraint::Min(1)])
+        .split(area);
+
+    render_cross_header(frame, chunks[0], report);
+
+    match report {
+        A::Tool(r) => render_tool_buckets(frame, chunks[1], r, sort, selected),
+        A::McpServer(r) => render_mcp_buckets(frame, chunks[1], r, sort, selected),
+        A::Day(r) => render_day_buckets(frame, chunks[1], r, sort, selected),
+        A::Model(r) => render_model_buckets(frame, chunks[1], r, sort, selected),
+        _ => {
+            let p = Paragraph::new(
+                "This aggregate type is not supported by the current TUI build. \
+                 Please update agentprof.",
+            );
+            frame.render_widget(p, chunks[1]);
+        }
+    }
+}
+
+fn render_cross_header(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    r: &agentprof_core::analyzer::aggregate::AnyAggregateReport,
+) {
+    use agentprof_core::analyzer::aggregate::AnyAggregateReport as A;
+    let (by, sessions, since) = match r {
+        A::Tool(x) => ("tool", x.session_count, x.since),
+        A::McpServer(x) => ("mcp-server", x.session_count, x.since),
+        A::Day(x) => ("day", x.session_count, x.since),
+        A::Model(x) => ("model", x.session_count, x.since),
+        _ => ("?", 0_usize, Duration::zero()),
+    };
+    let block = Block::default().borders(Borders::ALL).title(format!(
+        " Aggregate watch — by {by} | {sessions} sessions | window {}d ",
+        since.num_days()
+    ));
+    let p = Paragraph::new("Keys: c/t/s/p sort  ↑/↓ select  q quit  ? help").block(block);
+    frame.render_widget(p, area);
+}
+
+fn render_tool_buckets(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    r: &agentprof_core::analyzer::aggregate::AggregateReport<
+        agentprof_core::analyzer::aggregate::ToolBucket,
+    >,
+    sort: crate::watch::AggSortKey,
+    selected: usize,
+) {
+    use crate::watch::AggSortKey as S;
+    let mut buckets: Vec<&_> = r.buckets.iter().collect();
+    match sort {
+        S::Calls => buckets.sort_by(|a, b| b.call_count.cmp(&a.call_count)),
+        S::TotalDuration => buckets.sort_by(|a, b| b.total_duration.cmp(&a.total_duration)),
+        S::Sessions => buckets.sort_by(|a, b| b.session_count.cmp(&a.session_count)),
+        S::Percentile50 => buckets.sort_by(|a, b| b.p50_duration.cmp(&a.p50_duration)),
+    }
+    let header = Row::new(vec![
+        Cell::from("Tool"),
+        Cell::from("Source"),
+        Cell::from("Calls"),
+        Cell::from("Total"),
+        Cell::from("p50"),
+        Cell::from("p95"),
+        Cell::from("Sess"),
+    ])
+    .style(Style::default().add_modifier(Modifier::BOLD));
+    let rows: Vec<Row<'_>> = buckets
+        .iter()
+        .enumerate()
+        .map(|(i, b)| {
+            let style = if i == selected {
+                Style::default().add_modifier(Modifier::REVERSED)
+            } else {
+                Style::default()
+            };
+            Row::new(vec![
+                Cell::from(b.name.clone()),
+                Cell::from(source_label(&b.source)),
+                Cell::from(format!("{}", b.call_count)),
+                Cell::from(human_short(b.total_duration)),
+                Cell::from(human_short(b.p50_duration)),
+                Cell::from(human_short(b.p95_duration)),
+                Cell::from(format!("{}", b.session_count)),
+            ])
+            .style(style)
+        })
+        .collect();
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(30),
+            Constraint::Length(12),
+            Constraint::Length(7),
+            Constraint::Length(10),
+            Constraint::Length(8),
+            Constraint::Length(8),
+            Constraint::Length(6),
+        ],
+    )
+    .header(header)
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Tool buckets "),
+    );
+    frame.render_widget(table, area);
+}
+
+fn source_label(s: &agentprof_core::model::ToolSource) -> String {
+    use agentprof_core::model::ToolSource;
+    match s {
+        ToolSource::Builtin => "builtin".to_string(),
+        ToolSource::Mcp { server } => format!("mcp:{server}"),
+        ToolSource::Skill { name } => format!("skill:{name}"),
+        _ => "?".to_string(),
+    }
+}
+
+fn render_mcp_buckets(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    r: &agentprof_core::analyzer::aggregate::AggregateReport<
+        agentprof_core::analyzer::aggregate::McpServerBucket,
+    >,
+    sort: crate::watch::AggSortKey,
+    selected: usize,
+) {
+    use crate::watch::AggSortKey as S;
+    let mut buckets: Vec<&_> = r.buckets.iter().collect();
+    match sort {
+        S::Calls => buckets.sort_by(|a, b| b.call_count.cmp(&a.call_count)),
+        S::Sessions => buckets.sort_by(|a, b| b.session_count.cmp(&a.session_count)),
+        _ => buckets.sort_by(|a, b| b.total_duration.cmp(&a.total_duration)),
+    }
+    let header = Row::new(vec![
+        Cell::from("Server"),
+        Cell::from("Calls"),
+        Cell::from("Total"),
+        Cell::from("Sess"),
+    ])
+    .style(Style::default().add_modifier(Modifier::BOLD));
+    let rows: Vec<Row<'_>> = buckets
+        .iter()
+        .enumerate()
+        .map(|(i, b)| {
+            let style = if i == selected {
+                Style::default().add_modifier(Modifier::REVERSED)
+            } else {
+                Style::default()
+            };
+            Row::new(vec![
+                Cell::from(b.server.clone()),
+                Cell::from(format!("{}", b.call_count)),
+                Cell::from(human_short(b.total_duration)),
+                Cell::from(format!("{}", b.session_count)),
+            ])
+            .style(style)
+        })
+        .collect();
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(30),
+            Constraint::Length(10),
+            Constraint::Length(12),
+            Constraint::Length(8),
+        ],
+    )
+    .header(header)
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" MCP server buckets "),
+    );
+    frame.render_widget(table, area);
+}
+
+fn render_day_buckets(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    r: &agentprof_core::analyzer::aggregate::AggregateReport<
+        agentprof_core::analyzer::aggregate::DayBucket,
+    >,
+    sort: crate::watch::AggSortKey,
+    selected: usize,
+) {
+    // Day buckets are intrinsically chronological — see AggSortKey doc.
+    let _ = sort;
+    let header = Row::new(vec![
+        Cell::from("Date"),
+        Cell::from("Sess"),
+        Cell::from("Wall"),
+        Cell::from("Tool"),
+        Cell::from("Util%"),
+        Cell::from("Low?"),
+    ])
+    .style(Style::default().add_modifier(Modifier::BOLD));
+    let rows: Vec<Row<'_>> = r
+        .buckets
+        .iter()
+        .enumerate()
+        .map(|(i, b)| {
+            let style = if i == selected {
+                Style::default().add_modifier(Modifier::REVERSED)
+            } else {
+                Style::default()
+            };
+            Row::new(vec![
+                Cell::from(b.date.to_string()),
+                Cell::from(format!("{}", b.session_count)),
+                Cell::from(human_short(b.total_wall_duration)),
+                Cell::from(human_short(b.total_tool_duration)),
+                Cell::from(format!("{:.1}", b.utilization_pct)),
+                Cell::from(if b.is_low_utilization { "yes" } else { "no" }),
+            ])
+            .style(style)
+        })
+        .collect();
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(12),
+            Constraint::Length(6),
+            Constraint::Length(10),
+            Constraint::Length(10),
+            Constraint::Length(7),
+            Constraint::Length(5),
+        ],
+    )
+    .header(header)
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Day buckets "),
+    );
+    frame.render_widget(table, area);
+}
+
+fn render_model_buckets(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    r: &agentprof_core::analyzer::aggregate::AggregateReport<
+        agentprof_core::analyzer::aggregate::ModelBucket,
+    >,
+    sort: crate::watch::AggSortKey,
+    selected: usize,
+) {
+    use crate::watch::AggSortKey as S;
+    let mut buckets: Vec<&_> = r.buckets.iter().collect();
+    match sort {
+        S::Sessions => buckets.sort_by(|a, b| b.session_count.cmp(&a.session_count)),
+        _ => buckets.sort_by(|a, b| b.total_duration.cmp(&a.total_duration)),
+    }
+    let header = Row::new(vec![
+        Cell::from("Model"),
+        Cell::from("Sess"),
+        Cell::from("Total"),
+    ])
+    .style(Style::default().add_modifier(Modifier::BOLD));
+    let rows: Vec<Row<'_>> = buckets
+        .iter()
+        .enumerate()
+        .map(|(i, b)| {
+            let style = if i == selected {
+                Style::default().add_modifier(Modifier::REVERSED)
+            } else {
+                Style::default()
+            };
+            Row::new(vec![
+                Cell::from(b.model.clone()),
+                Cell::from(format!("{}", b.session_count)),
+                Cell::from(human_short(b.total_duration)),
+            ])
+            .style(style)
+        })
+        .collect();
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(40),
+            Constraint::Length(6),
+            Constraint::Length(10),
+        ],
+    )
+    .header(header)
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Model buckets "),
+    );
     frame.render_widget(table, area);
 }
 

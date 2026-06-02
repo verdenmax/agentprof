@@ -28,7 +28,7 @@ identifiers**. The following content from the underlying session is
 | Reasoning traces (`reasoning_text`, `reasoning_opaque`) | wire `events.jsonl` | Not consumed at all |
 | Hook input payloads (e.g. `toolResult.textResultForLlm`) | wire `events.jsonl` | Hook rank uses `hook_type` + duration only |
 | MCP server URLs / auth tokens | wire `events.jsonl` headers | Not consumed |
-| Subagent prompts (`subagent.started.prompt`) | wire `events.jsonl` | Future M1.5 / M2 may surface counts; never text |
+| Subagent prompts (`subagent.started.prompt`) | wire `events.jsonl` | Future post-MVP work may surface counts; never text |
 
 If you're worried about a particular field, grep your report for it —
 if it's not literally in the JSON / md output, it's not there.
@@ -113,7 +113,11 @@ agentprof analyze --agent copilot --session <id> --export json \
 ## 4. Planned `--redact` / `--anonymize` flags (NOT YET IMPLEMENTED)
 
 A future release will add two opt-in flags to the `analyze` subcommand
-(and to `aggregate` once it lands in M1.5):
+(and to `aggregate`, which shipped in M1.6.2; both `--export md|json|csv|html|tui`
+report surfaces would inherit the same redaction rules since they all serialize
+the same underlying `meta.*` and `turn_summary[i].*` fields described in §2.
+The M1.6.4 `--export speedscope|html` and M1.6.3 `watch` views are also
+covered — they read the identical analyzer output):
 
 - `--redact` — strip the 🔴 HIGH tier fields by default. Replaces
   `meta.cwd` / `meta.branch` with `<redacted>`, replaces every UUID with
@@ -129,7 +133,7 @@ A future release will add two opt-in flags to the `analyze` subcommand
   default) so the user can locally cross-reference original ↔ anonymized
   values.
 
-Tracked in: future M1.5+ milestone (see `docs/plan.md` roadmap).
+Tracked in: future post-MVP milestone (likely 0.2.0+; see `docs/plan.md` roadmap).
 
 ## 5. Defense in depth — workspace conventions
 

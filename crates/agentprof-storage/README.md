@@ -1,24 +1,41 @@
 # agentprof-storage
 
 > SQLite persistence and (optional) OTLP receiver for agentprof.
+>
+> **Status (2026-06-01): STUB CRATE — no implementation has shipped.** The
+> 19-LOC `lib.rs` only contains `//!` module docs and the `[features]` /
+> dependency wiring. Every API described below is *planned*, not present.
+> Activated milestone: **Phase 2** (see [`docs/architecture.md`](../../docs/architecture.md)
+> §15.5 and [`docs/plan.md`](../../docs/plan.md) "Phase 2 engineering"); not on
+> the M1.7 v0.1.0 release path. The crate is kept in the workspace so the
+> dependency wiring (`rusqlite` bundled + optional OTLP stack) compiles end-to-end
+> and so the `storage:` CHANGELOG prefix is reserved.
 
 ## Position in the agentprof architecture
 
-Depends only on `agentprof-core`. Provides durable storage for analysis reports across sessions, plus an opt-in OpenTelemetry receiver for live Claude Code telemetry ingestion. See [`docs/architecture.md`](../../docs/architecture.md) §9 (SQLite schema) and §15.4 (feature flags).
+Depends only on `agentprof-core`. *Will* provide durable storage for analysis
+reports across sessions, plus an opt-in OpenTelemetry receiver for live
+telemetry ingestion. See [`docs/architecture.md`](../../docs/architecture.md)
+§9 (SQLite schema — normative) and §15.4 (feature flags). The MVP shipping
+surface (M1.1 – M1.6.4) operates entirely on filesystem session logs and does
+not touch this crate.
 
-## Public interface
+## Planned public interface
+
+These items are **not yet exported**. Once Phase 2 work begins, this section
+will become the L2 surface for the crate.
 
 - `sqlite::Db` — bundled SQLite handle, migration-aware
-- `sqlite::queries::*` — typed accessors for sessions / tools_loaded / turn_buckets
+- `sqlite::queries::*` — typed accessors for `sessions` / `tools_loaded` / `turn_buckets`
 - `otlp::Receiver` (feature `otlp`) — Tonic-based OTLP gRPC server
 
 ```rust
-// (will become a doctest once Phase 2 lands)
+// Planned shape (will become a real doctest once Phase 2 lands):
 // let db = agentprof_storage::sqlite::Db::open_default()?;
 // db.migrate()?;
 ```
 
-## Modules (planned)
+## Planned modules
 
 | Module | Purpose |
 |---|---|

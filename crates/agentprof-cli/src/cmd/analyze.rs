@@ -232,7 +232,7 @@ fn run_tui(report: &AnalysisReport, episodes: &Episodes) -> Result<()> {
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref)] // CopilotAdapter is a unit struct today but the Adapter trait API takes &self.
-fn resolve_session(
+pub fn resolve_session(
     adapter: &CopilotAdapter,
     root: Option<PathBuf>,
     sel: &SessionSelector,

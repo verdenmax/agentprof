@@ -5,6 +5,7 @@
 use std::path::PathBuf;
 
 use assert_cmd::Command;
+use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
 
 /// Root holding the 3 multi-sess-* fixtures plus other Copilot fixtures.
@@ -206,4 +207,27 @@ fn aggregate_html_snapshot_by_tool() {
         }
     }
     insta::assert_snapshot!("aggregate_html__by_tool", html);
+}
+
+#[test]
+fn aggregate_export_tui_requires_tty_not_unsupported() {
+    // M1.6.3: --export tui is now supported but requires a TTY.
+    // Piping stdin from /dev/null makes is_terminal() return false,
+    // so we should exit with OutputError (3) and a TTY-related message,
+    // NOT the M1.6.2 "tui not supported in M1.6.2" message.
+    let mut cmd = Command::cargo_bin("agentprof").unwrap();
+    cmd.args([
+        "aggregate",
+        "--by",
+        "tool",
+        "--since",
+        "30d",
+        "--export",
+        "tui",
+    ])
+    .write_stdin("");
+    cmd.assert()
+        .failure()
+        .code(3)
+        .stderr(contains("TTY").or(contains("tty")).or(contains("terminal")));
 }

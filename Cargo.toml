@@ -55,6 +55,9 @@ csv         = "1"
 # Templating (used by agentprof-cli for HTML export, M1.6.4)
 askama = "0.16"
 
+# File watcher (M1.6.3 — agentprof-cli only)
+notify-debouncer-mini = "0.4"
+
 # adapters
 walkdir = "2"
 globset = "0.4"

@@ -46,7 +46,7 @@ Derive-stage warnings: M
   NonMonotonicTimestamp / PayloadNameMissing
 ```
 
-All other subcommands (`watch` / `ingest-otlp` / `export` / `config`) remain **planned** for M1.6.3+.
+All other subcommands (`ingest-otlp` / `config`) remain **planned** for Phase 2.
 
 ## Quick start
 
@@ -159,8 +159,8 @@ agentprof aggregate --by tool --since all --export json | jq '.data.buckets | le
 | `--by` | (required) | Group-by key: `tool`, `mcp-server`, `day`, or `model` |
 | `--since` | `30d` | Filter by mtime; `<N>d/h/m/s` or `all` (renders as "all") |
 | `--limit` | `0` | Max bucket rows; `0` = unlimited |
-| `--export` | `md` | `md` / `json` / `csv` / `html`. TUI deferred to M1.6.3 |
-| `--output` | stdout | Write to file instead of stdout |
+| `--export` | `md` | `md` / `json` / `csv` / `html` / `tui` (✅ M1.6.3 activates `tui` — static cross-session aggregate TUI; for live-refresh use `agentprof watch aggregate ...` instead) |
+| `--output` | stdout | Write to file instead of stdout (ignored with `--export tui`) |
 | `--low-utilization-threshold` | `20.0` | Day bucket warn threshold; rows below are flagged |
 
 **Per-key output**:
@@ -177,11 +177,84 @@ agentprof aggregate --by tool --since all --export json | jq '.data.buckets | le
 - **Fail-soft**: per-session parse failures degrade gracefully — successful rows still rendered; failures summarized to stderr. All-failure case exits `DataError` (2).
 - **Empty window**: exits 0 with `no sessions matching --since=...` on stderr.
 - **Day bucket UTC**: dates use UTC midnight boundaries (matches event timestamps). Future `--timezone` flag is a non-MVP extension.
-- **TUI export**: deferred to M1.6.3 (combined with `watch` mode); `--export tui` is not a valid value today.
+- **TUI export**: ✅ shipped (M1.6.3) — `--export tui` opens a static cross-session aggregate TUI (no live refresh; one-shot view). For live-refresh use `agentprof watch aggregate --by ...` instead. Requires stdin + stdout to be TTYs.
 - **Percentile recomputation**: aggregate p50/p95 is re-computed from the pooled per-call durations across all sessions (NOT averaged from per-session p50s, which would be statistically wrong).
 - **failure_count caveat**: as of M1.6.2 the Copilot adapter doesn't propagate the `success: false` bit, so the Failures column may always be 0. Tracked upstream as a deferred fix.
 
 See [ADR-0008](../../docs/internals/adr-0008-aggregate-report-and-utilization.md) for the data model + utilization metric design.
+
+## `agentprof watch` (M1.6.3)
+
+Live-refresh TUI on top of a file-system watcher (kernel events via
+`notify-debouncer-mini`, not polling). Two sub-modes:
+
+### Single-session
+
+```sh
+agentprof watch                                   # latest session, 250 ms debounce
+agentprof watch --session latest
+agentprof watch --session <uuid>
+agentprof watch --session ./path/to/events.jsonl
+agentprof watch --debounce-ms 500
+```
+
+Watches one `events.jsonl` non-recursively. Locks to the initial session
+at startup ([ADR-0009 D-5](../../docs/internals/adr-0009-watch-runner-and-notify.md));
+newer sessions are NOT auto-followed (`q` + restart to switch). Auto-redraws
+within ~`--debounce-ms` of any append (default 250 ms).
+
+### Cross-session aggregate
+
+```sh
+agentprof watch aggregate --by tool                         # default --since 30d
+agentprof watch aggregate --by mcp-server --since 7d
+agentprof watch aggregate --by day --since 30d --low-utilization-threshold 25
+agentprof watch --debounce-ms 500 aggregate --by model      # debounce-ms BEFORE `aggregate`
+```
+
+Re-aggregates on any change recursively under `--root` (or the adapter
+default session-state root). Reuses every flag of `agentprof aggregate`
+(`--by` / `--since` / `--limit` / `--low-utilization-threshold`).
+
+> **Note:** `--export` / `--output` are **rejected** when used with
+> `watch aggregate` (exits `UserError` = 1). The watch output is always
+> the interactive TUI; if you want one-shot export, drop `watch` and use
+> `agentprof aggregate --by ... --export md|json|csv|html|tui` instead.
+>
+> Also: `agentprof`-level options (like `--debounce-ms`) MUST appear
+> **before** the `aggregate` subcommand on the command line. clap parses
+> them positionally.
+
+### Requirements
+
+- TTY on both stdin and stdout (exits `OutputError` = 3 if not).
+- A `notify`-supported platform (Linux / macOS / Windows). No polling
+  fallback — if notify init fails, exits `DataError` = 2 with an
+  actionable message suggesting `agentprof analyze --export md` for
+  headless one-shot output ([ADR-0009 D-15](../../docs/internals/adr-0009-watch-runner-and-notify.md)).
+
+### Behaviour
+
+- Reload failures (e.g. transient parse error during writer mid-flush)
+  populate a red footer banner; the watch loop continues
+  ([ADR-0009 D-13](../../docs/internals/adr-0009-watch-runner-and-notify.md)).
+- Cross-session reload blocks the TUI thread for the reload duration
+  (100+ sessions → multi-second pause; future perf milestone).
+
+### Manual smoke
+
+```sh
+agentprof watch --session latest
+# In another terminal:
+echo '{"id":"x","timestamp":"2026-06-01T19:00:00Z","type":"user.message","data":{"turnId":"99","text":"hi"}}' \
+    >> ~/.copilot/session-state/<workspace>/<session-uuid>/events.jsonl
+# Observe the watch terminal redraw within ~250 ms.
+```
+
+See [ADR-0009](../../docs/internals/adr-0009-watch-runner-and-notify.md)
+for the full architecture (`WatchRunner` + `WatchData` + `Event::Refresh`
++ watcher-thread-in-cli decision) and `crates/agentprof-tui/README.md`
+`## WatchRunner (M1.6.3)` for the runner contract.
 
 ## Public interface
 
@@ -194,9 +267,10 @@ agentprof list       [--agent copilot] [--root ...]
                      [--since <N>d|h|m|s|all] [--limit N]                 # ✓ shipped (M1.6.1)
 agentprof aggregate  [--agent copilot] [--root ...] [--by tool|mcp-server|day|model]
                      [--since <N>d|h|m|s|all] [--limit N]
-                     [--export md|json|csv|html] [--output ...]
-                     [--low-utilization-threshold 20]                       # ✓ shipped (M1.6.2)
-agentprof watch      [--agent ...]                                         # planned (M1.6.3)
+                     [--export md|json|csv|html|tui] [--output ...]
+                     [--low-utilization-threshold 20]                       # ✓ shipped (M1.6.2 + M1.6.3 tui)
+agentprof watch      [--agent copilot] [--session ...] [--root ...] [--debounce-ms 250]
+                     [aggregate --by ... [...all aggregate flags]]          # ✓ shipped (M1.6.3)
 agentprof ingest-otlp [--listen 0.0.0.0:4317]   # feature: otlp            # planned (Phase 2)
 agentprof config     [show | edit | path]                                  # planned (Phase 2)
 ```
@@ -213,10 +287,11 @@ See [`docs/architecture.md`](../../docs/architecture.md) §8 for the canonical s
 | `cmd::format::speedscope` | Speedscope evented JSON exporter (thin wrapper over `agentprof_core::export::speedscope`) | ✓ shipped (M1.6.4) |
 | `cmd::format::html` | Self-contained static HTML report (askama 0.16 template + embedded SVG flamegraph) | ✓ shipped (M1.6.4) |
 | `cmd::list` | The `list` subcommand: cheap session discovery + 7-column table | ✓ shipped (M1.6.1) |
-| `cmd::aggregate` | The `aggregate` subcommand: cross-session group-by (4 keys × 4 export formats) | ✓ shipped (M1.6.2) |
+| `cmd::aggregate` | The `aggregate` subcommand: cross-session group-by (4 keys × 4 export formats + `tui` since M1.6.3); exposes `pub fn compute_aggregate(&CopilotAdapter, &AggregateCmd) -> Result<(AnyAggregateReport, usize)>` so both `--export tui` and `watch aggregate` reload can share the load + compute pipeline (the second tuple element = total refs scanned, used by the empty-window warning). | ✓ shipped (M1.6.2 + M1.6.3 tui) |
 | `cmd::format::aggregate_md` / `aggregate_csv` / `aggregate_html` | Per-format renderers for `AnyAggregateReport` | ✓ shipped (M1.6.2) |
+| `cmd::watch` | The `watch` subcommand: single-session + `watch aggregate` cross-session live-refresh TUI. Owns the `notify-debouncer-mini` thread and drives `agentprof_tui::watch::WatchRunner` via an mpsc channel + reload closure. | ✓ shipped (M1.6.3) |
 | `exit` | `ExitKind` enum + `classify_error` downcast | ✓ shipped (M1.4) |
-| `cmd::{watch, ingest_otlp, export, config}` | One module per planned subcommand | planned (M1.6.3+) |
+| `cmd::{ingest_otlp, config}` | One module per planned subcommand | planned (Phase 2) |
 | `config` | TOML loader / writer for `~/.config/agentprof/config.toml` | planned (M1.5+) |
 | `report_html` | `askama` templates for the HTML report | planned (M1.5+) |
 | `main` | clap dispatch + tracing init + panic hook | ✓ shipped (M1.4) |
@@ -234,7 +309,7 @@ To build a minimal binary: `cargo build -p agentprof-cli --no-default-features`.
 ## Dependencies
 
 - Workspace internal: every other `agentprof-*` crate
-- External: `clap`, `anyhow`, `tracing`, `tracing-subscriber`, `serde`, `serde_json`, `chrono`, `directories`, `askama 0.16` (re-activated in M1.6.4 for the HTML report template; md renderer remains hand-rolled string-building), `csv` (added in M1.6.2 for `aggregate --export csv`)
+- External: `clap`, `anyhow`, `tracing`, `tracing-subscriber`, `serde`, `serde_json`, `chrono`, `directories`, `askama 0.16` (re-activated in M1.6.4 for the HTML report template; md renderer remains hand-rolled string-building), `csv` (added in M1.6.2 for `aggregate --export csv`), `notify-debouncer-mini 0.4` (added in M1.6.3 for the `watch` file watcher — pulls `notify` v6.1.1 transitively, see [ADR-0009 D-4](../../docs/internals/adr-0009-watch-runner-and-notify.md))
 
 ## Local commands
 

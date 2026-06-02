@@ -3,9 +3,13 @@
 > Perf flamegraph and ROI profiler for AI coding agents (Claude Code / Codex CLI / Copilot CLI).
 > Tell which tools earn their `tools_schema` tokens — and which ones you can safely kill.
 
-**Status: M1.4 — `analyze` subcommand shipped.** First user-facing release;
-Copilot CLI session analysis with markdown + JSON output works end-to-end.
-TUI, multi-session aggregation, Claude / Codex adapters land in M1.5+.
+**Status: M1.6.3 — `watch` + `aggregate --export tui` shipped.** MVP feature
+work complete (8/8 milestones); `analyze` / `list` / `aggregate` / `watch`
+all functional end-to-end against real Copilot CLI sessions, with five
+export formats (`md` / `json` / `csv` / `html` / `tui`) plus `speedscope`
+for single-session flamegraphs. Claude / Codex adapters remain Phase 3
+post-MVP. Next milestone: **M1.7 v0.1.0 release** (`cargo-dist` binaries +
+GitHub Release).
 See [`docs/plan.md`](docs/plan.md) for the roadmap and
 [`docs/architecture.md`](docs/architecture.md) for the architecture (L1).
 
@@ -38,7 +42,7 @@ given session.
 
 ---
 
-## Install (future)
+## Install (M1.7 — release pending)
 
 ```sh
 cargo install agentprof          # multi-platform binaries via cargo-dist
@@ -46,15 +50,17 @@ cargo install agentprof          # multi-platform binaries via cargo-dist
 cargo install --git https://github.com/agentprof/agentprof agentprof-cli
 ```
 
-The above are placeholders — release binaries will be wired up once the first
-prototype lands.
+The `cargo install agentprof` form is wired to `cargo-dist` but the v0.1.0
+release has not been tagged yet (planned milestone M1.7). Until then, use
+the `--git` form or `cargo install --path crates/agentprof-cli` from a
+local checkout (see `## Quick start` below).
 
 ---
 
-## Quick start (M1.4)
+## Quick start
 
-`agentprof analyze` is now shipped — it can read a real Copilot CLI session
-and produce a structured report:
+`agentprof analyze` / `list` / `aggregate` / `watch` all ship today. The
+quickest path on a fresh checkout:
 
 ```sh
 # From source (release binaries forthcoming)
@@ -122,19 +128,27 @@ full CLI documentation.
 - `agentprof analyze` — analyze a single session (`--export md|json|tui|speedscope|html`). See [`docs/architecture.md`](docs/architecture.md) §8.
   - M1.6.4 adds `--export speedscope` (for upload to <https://speedscope.app>) and `--export html` (self-contained static report, no JS).
 - `agentprof list` (M1.6.1) — discover recent sessions in a compact 7-column table. `--since 7d --limit 20` defaults keep the command snappy; per-session parse failures degrade gracefully. See [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) `## agentprof list`.
-- `agentprof aggregate` (M1.6.2) — cross-session aggregation reports (`--by tool|mcp-server|day|model`, `--export md|json|csv|html`). See [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) `## agentprof aggregate`.
+- `agentprof aggregate` (M1.6.2 + M1.6.3 tui) — cross-session aggregation reports (`--by tool|mcp-server|day|model`, `--export md|json|csv|html|tui`). See [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) `## agentprof aggregate`.
+- `agentprof watch` (M1.6.3) — live-refresh single-session TUI (kernel-event-driven via `notify-debouncer-mini`; default 250 ms debounce). See [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) `## agentprof watch` and [ADR-0009](docs/internals/adr-0009-watch-runner-and-notify.md).
+- `agentprof watch aggregate --by KEY` (M1.6.3) — live-refresh cross-session aggregate TUI; accepts every `aggregate` flag (except `--export` / `--output`, which are rejected because the output is always TUI).
 
 ---
 
-## Quick usage (future CLI surface)
+## Quick usage
 
 ```sh
-agentprof analyze    --agent claude --export tui          # interactive flamegraph
-agentprof analyze    --agent claude --export speedscope   # open in speedscope.app
-agentprof analyze    --agent claude --export html --out report.html
-agentprof aggregate  --by mcp-server --since 30d          # ROI leaderboard
-agentprof watch      --agent claude                       # live TUI
+agentprof analyze    --export tui                         # interactive flamegraph (shipped M1.5)
+agentprof analyze    --export speedscope                  # open in speedscope.app (shipped M1.6.4)
+agentprof analyze    --export html --output report.html   # self-contained static report (shipped M1.6.4)
+agentprof list       --since 7d                           # discover recent sessions (shipped M1.6.1)
+agentprof aggregate  --by mcp-server --since 30d          # ROI leaderboard (shipped M1.6.2)
+agentprof aggregate  --by tool --export tui               # static cross-session TUI (shipped M1.6.3)
+agentprof watch                                           # live single-session TUI (shipped M1.6.3)
+agentprof watch aggregate --by tool                       # live cross-session TUI (shipped M1.6.3)
 ```
+
+All commands default to `--agent copilot` (the only adapter shipped in MVP);
+`--agent claude|codex` are reserved for Phase 3 post-MVP.
 
 See [`docs/architecture.md`](docs/architecture.md) §8 for the canonical CLI
 protocol and exit codes.
