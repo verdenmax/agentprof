@@ -26,6 +26,7 @@ use crate::episode::Episodes;
 ///
 /// If `reports.len() != episodes_per_report.len()`.
 #[must_use]
+#[tracing::instrument(name = "aggregator.group_by", skip_all, fields(key = "model", sessions = reports.len()))]
 pub fn aggregate_by_model(
     reports: &[AnalysisReport],
     episodes_per_report: &[Episodes],
@@ -84,14 +85,16 @@ pub fn aggregate_by_model(
             .then_with(|| a.model.cmp(&b.model))
     });
 
-    AggregateReport::new(
+    let report = AggregateReport::new(
         AggregateKey::Model,
         Duration::zero(),
         reports.len(),
         0,
         total_wall,
         buckets,
-    )
+    );
+    tracing::debug!(buckets = report.buckets.len(), "aggregated");
+    report
 }
 
 struct TempModelAcc {

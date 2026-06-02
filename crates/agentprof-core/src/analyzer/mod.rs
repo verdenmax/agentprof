@@ -144,19 +144,26 @@ impl AnalysisReport {
 /// assert_eq!(report.parse_warnings.len(), 0);
 /// ```
 #[must_use]
+#[tracing::instrument(name = "analyzer.analyze", skip_all, fields(turns = episodes.turns.len()))]
 pub fn analyze(
     episodes: &Episodes,
     meta: &SessionMeta,
     parse_warnings: &[ParseWarning],
 ) -> AnalysisReport {
-    AnalysisReport {
+    let report = AnalysisReport {
         meta: meta.clone(),
         turn_summary: turn_summary(episodes),
         tool_rank: tool_rank(episodes),
         hook_rank: hook_rank(episodes),
         warnings: episodes.warnings.clone(),
         parse_warnings: parse_warnings.to_vec(),
-    }
+    };
+    tracing::debug!(
+        tool_count = report.tool_rank.len(),
+        hook_count = report.hook_rank.len(),
+        "produced analysis report"
+    );
+    report
 }
 
 // ---------- Duration <-> milliseconds serde helper ----------

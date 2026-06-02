@@ -37,6 +37,7 @@ use crate::model::ToolSource;
 ///
 /// If `reports.len() != episodes_per_report.len()`.
 #[must_use]
+#[tracing::instrument(name = "aggregator.group_by", skip_all, fields(key = "tool", sessions = reports.len()))]
 pub fn aggregate_by_tool(
     reports: &[AnalysisReport],
     episodes_per_report: &[Episodes],
@@ -105,14 +106,16 @@ pub fn aggregate_by_tool(
             .then_with(|| a.name.cmp(&b.name))
     });
 
-    AggregateReport::new(
+    let report = AggregateReport::new(
         AggregateKey::Tool,
         Duration::zero(),
         reports.len(),
         0,
         total_wall,
         buckets,
-    )
+    );
+    tracing::debug!(buckets = report.buckets.len(), "aggregated");
+    report
 }
 
 struct TempToolAcc {

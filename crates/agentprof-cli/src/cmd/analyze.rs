@@ -173,14 +173,11 @@ pub fn run(
 ) -> Result<()> {
     // Compute a redacted span field for the session selector. The `Path`
     // variant otherwise Display-formats the raw filesystem path, which
-    // is PII (rubber-duck Critical #2). We hash it here so the span's
-    // `session` field is safe to log.
-    //
-    // The hash is currently unconditional; T5 swaps to
-    // `maybe_hash_path(cfg, p)` once that helper exists, gated on
-    // `AGENTPROF_LOG_FULL_PATHS=1`. Documented in the T4 commit.
+    // is PII (rubber-duck Critical #2). We redact it via
+    // [`maybe_hash_path`] so the span's `session` field honours the
+    // `AGENTPROF_LOG_FULL_PATHS=1` opt-out (spec D-5).
     let session_field = match &cmd.session {
-        SessionSelector::Path(p) => agentprof_core::observability::pii::hash_path(p),
+        SessionSelector::Path(p) => crate::observability::maybe_hash_path(cfg, p),
         SessionSelector::Latest => "latest".to_string(),
         SessionSelector::Previous => "previous".to_string(),
         SessionSelector::Uuid(u) => u.clone(),
@@ -240,7 +237,7 @@ pub fn run(
     }
 
     let rendered = render_report(&report, &episodes, &raw.meta, &cmd)?;
-    write_output(&rendered, cmd.output.as_deref())?;
+    write_output(&rendered, cmd.output.as_deref(), cfg)?;
     Ok(())
 }
 
@@ -408,7 +405,7 @@ fn render_report(
             let (mut json, warnings) =
                 format::speedscope::render(episodes, meta, env!("CARGO_PKG_VERSION"));
             for w in &warnings {
-                tracing::warn!(category = "speedscope", "{w}");
+                tracing::warn!(category = "speedscope", warning = %w, "render warning");
             }
             // POSIX-final-newline + visual separation, mirroring json branch.
             json.push('\n');
@@ -424,7 +421,7 @@ fn render_report(
     }
 }
 
-fn write_output(content: &str, path: Option<&Path>) -> Result<()> {
+fn write_output(content: &str, path: Option<&Path>, cfg: &crate::cmd::LogConfig) -> Result<()> {
     match path {
         None => {
             print!("{content}");
@@ -436,7 +433,7 @@ fn write_output(content: &str, path: Option<&Path>) -> Result<()> {
             })?;
             tracing::info!(
                 bytes = content.len(),
-                path = %agentprof_core::observability::pii::hash_path(p),
+                path = %crate::observability::maybe_hash_path(cfg, p),
                 "wrote output file"
             );
             Ok(())

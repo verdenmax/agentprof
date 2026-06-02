@@ -164,7 +164,7 @@ pub fn run(
             "session(s) failed to parse (use `agentprof analyze --session <id>` for details)"
         );
         for (id, e) in &failures {
-            tracing::warn!(session = %id, error = %format_args!("{e:#}"), "parse failure detail");
+            tracing::warn!(session = %agentprof_core::observability::pii::hash_short(id), error = %format_args!("{e:#}"), "parse failure detail");
         }
     }
     Ok(())

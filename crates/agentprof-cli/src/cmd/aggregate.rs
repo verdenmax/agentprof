@@ -158,7 +158,7 @@ pub fn run(
     if refs_total == 0 {
         let root_label = cmd.root.as_ref().map_or_else(
             || "<adapter default>".to_string(),
-            |p| agentprof_core::observability::pii::hash_path(p),
+            |p| crate::observability::maybe_hash_path(cfg, p),
         );
         tracing::warn!(
             since = %cmd.since,
