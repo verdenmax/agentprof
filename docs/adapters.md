@@ -43,9 +43,17 @@ pub trait Adapter: Send + Sync {
    anonymizer, well-documented per-fixture READMEs).
 5. Add per-variant round-trip tests + per-fixture snapshot tests.
 6. Add an entry in `registry::adapter_for` and `registry::supported_agents`.
-7. Update this file's "Supported agents" matrix.
-8. Update `crates/agentprof-adapters/README.md`'s matrix.
-9. CHANGELOG entry: `feat(adapters): add <agent> adapter`.
+7. Wrap the `discover_sessions` / `load_session` hot paths in
+   `#[tracing::instrument(name = "adapter.discover", ...)]` and
+   `#[tracing::instrument(name = "adapter.parse", ...)]` spans, matching
+   the copilot adapter (`crates/agentprof-adapters/src/copilot/{paths,parser}.rs`).
+   Hash any session-state path attached as a span field via
+   `agentprof_core::observability::pii::hash_path` — see
+   [ADR-0010](../internals/adr-0010-tracing-infrastructure.md) Layer 2 +
+   D-3 / D-13 (PII redaction) and `docs/features/privacy.md` §7.
+8. Update this file's "Supported agents" matrix.
+9. Update `crates/agentprof-adapters/README.md`'s matrix.
+10. CHANGELOG entry: `feat(adapters): add <agent> adapter`.
 
 ## Supported agents (matrix duplicate; canonical in `crates/agentprof-adapters/README.md`)
 

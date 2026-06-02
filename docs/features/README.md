@@ -53,3 +53,14 @@ the affected crate READMEs, so no separate `docs/features/*.md` was needed.
   [ADR-0009](../internals/adr-0009-watch-runner-and-notify.md) plus
   `crates/agentprof-tui/README.md` (`watch` module) and
   `crates/agentprof-cli/README.md`.
+- **Tracing infrastructure** (global `--log-level` / `--log-file`, TUI
+  auto-redirect to `$XDG_STATE_HOME/agentprof/agentprof.log`, 4-layer
+  span topology `cmd.* → adapter.* → analyzer.* / aggregator.* →
+  events`, `sha256[..8]` PII path hash with `AGENTPROF_LOG_FULL_PATHS`
+  opt-out, M1.6.4) — covered by
+  [ADR-0010](../internals/adr-0010-tracing-infrastructure.md) plus the
+  `## Observability` section of `crates/agentprof-core/README.md`, the
+  `## Tracing & logging` section of `crates/agentprof-cli/README.md`,
+  the log-output PII model in
+  [`privacy.md` §7](./privacy.md#7-log-output-pii-model-m164), and
+  [`docs/architecture.md`](../architecture.md) §15.5.

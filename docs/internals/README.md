@@ -50,10 +50,14 @@ crate(s) it primarily binds.
 | [0007](./adr-0007-speedscope-export.md) | Speedscope evented format + frame naming + span-overlap adjustment | Accepted (M1.6.4) | `core::export` |
 | [0008](./adr-0008-aggregate-report-and-utilization.md) | `AggregateReport<B>` + `utilization_pct` metric for day buckets | Accepted (M1.6.2) | `core::analyzer::aggregate` + `cli::cmd::aggregate` |
 | [0009](./adr-0009-watch-runner-and-notify.md) | `WatchRunner` + `notify-debouncer-mini` file watcher | Accepted (M1.6.3) | `tui::watch` + `cli::cmd::watch` |
+| [0010](./adr-0010-tracing-infrastructure.md) | Tracing infrastructure (4-layer span topology + reload-Layer TUI auto-redirect + `sha256[..8]` PII hash + global `--log-level` / `--log-file`) | Accepted (M1.6.4) | `core::observability::pii` + `cli::observability` + `adapters::copilot::{parser,paths}` |
 
-No ADR is currently superseded; ADR-0009 builds on ADR-0006 (panic-safe lifecycle)
-and ADR-0008 (aggregate compute path) without invalidating them — they are
-complementary, not replaced.
+No ADR is currently superseded. ADR-0010 is additive: it builds on ADR-0006
+(panic-safe TUI lifecycle — the writer-swap fires inside the same
+`install_panic_hook` / `enter` / `leave` window) and on ADR-0009 (watch
+runner — the auto-redirect to `$XDG_STATE_HOME/agentprof/agentprof.log`
+is the canonical fix for the M1.6.3 T2 alt-screen-corruption pattern),
+without invalidating either.
 
 ## Planned files
 

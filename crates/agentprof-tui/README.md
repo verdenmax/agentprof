@@ -64,6 +64,28 @@ See [`docs/architecture.md`](../../docs/architecture.md) §3 (system layering) a
 
 **Hard rule:** TUI must never leave the terminal in raw mode. `install_panic_hook` wraps the default panic hook so any panic during `run()` first restores cooked mode + leaves the alternate screen, then re-emits the panic message. Full rationale + ratatui-pattern citation in [`docs/internals/adr-0006-panic-safe-tui.md`](../../docs/internals/adr-0006-panic-safe-tui.md).
 
+## Tracing & logging
+
+`agentprof-tui` is **intentionally outside** the M1.6.4 span topology — it
+emits no `#[tracing::instrument]` spans and currently no `tracing::*!`
+macro calls. The rationale is captured in
+[ADR-0010 D-4](../../docs/internals/adr-0010-tracing-infrastructure.md):
+the TUI runs after `terminal::enter()` puts the terminal into the
+alternate screen + raw mode, so any subscriber writing to `stderr` would
+corrupt the UI (the exact bug-class fixed in M1.6.3 T2). Instead,
+`agentprof-cli` swaps the tracing writer to
+`$XDG_STATE_HOME/agentprof/agentprof.log` via a reload-`Layer` for the
+duration of `AppRunner::run` / `WatchRunner::run` — see the
+"Tracing & logging" section of
+[`crates/agentprof-cli/README.md`](../agentprof-cli/README.md) and
+[`docs/architecture.md`](../../docs/architecture.md) §15.5.
+
+The `tracing` workspace dependency is retained in `Cargo.toml` because
+the crate is allowed to call `tracing::warn!` / `info!` for non-rendering
+diagnostics that the cli-side reload-`Layer` will then route to the log
+file — but no such call site exists today, and any future addition MUST
+respect the "no `eprintln!`, no direct stderr write" rule.
+
 ## Local commands
 
 ```sh

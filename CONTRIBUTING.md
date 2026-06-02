@@ -99,6 +99,21 @@ If any of these fail locally they will fail on CI — fix before opening the PR.
 - Don't break the dependency graph (lib crates must form a DAG; no lib
   crate may depend on `agentprof-cli`).
 - Don't merge `TODO: write docs` — write them now.
+- Don't add `eprintln!` for diagnostics anywhere outside of `main.rs`
+  bootstrap / `#[cfg(test)]`. Use `tracing::warn!` / `info!` / `debug!`
+  with structured fields. Global flags `--log-level <LEVEL>` and
+  `--log-file <PATH>` (also `AGENTPROF_LOG_LEVEL` / `AGENTPROF_LOG_FILE`
+  envs) control the subscriber; TUI subcommands auto-redirect to
+  `$XDG_STATE_HOME/agentprof/agentprof.log` to avoid corrupting the
+  alt-screen. See
+  [ADR-0010](docs/internals/adr-0010-tracing-infrastructure.md) and
+  `docs/architecture.md` §15.5.
+- Don't attach a raw filesystem session path to a `tracing` span field;
+  wrap it with
+  `agentprof_core::observability::pii::hash_path` so it renders as the
+  default 8-hex-char `sha256` short hash (opt-out via
+  `AGENTPROF_LOG_FULL_PATHS=1`). See
+  [`docs/features/privacy.md`](docs/features/privacy.md) §7.
 
 ---
 

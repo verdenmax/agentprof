@@ -28,8 +28,8 @@ for the M1.2 design.
 | Module | Responsibility |
 |---|---|
 | `copilot::event` | `CopilotEvent` enum + all payload structs + `impl Event` (含 4 个 payload-* override) |
-| `copilot::parser` | line-by-line JSONL parser + `MetaBuilder` |
-| `copilot::paths` | filesystem discovery + `inuse.<pid>.lock` detection |
+| `copilot::parser` | line-by-line JSONL parser + `MetaBuilder` (`adapter.parse` span — M1.6.4) |
+| `copilot::paths` | filesystem discovery + `inuse.<pid>.lock` detection (`adapter.discover` span — M1.6.4) |
 | `copilot::adapter` | `impl Adapter for CopilotAdapter` |
 | `registry` | `AgentKind` → adapter resolver |
 
@@ -90,7 +90,14 @@ informational and never committed.
 
 ## Adding a new adapter
 
-See `docs/adapters.md` for the contribution guide.
+See `docs/adapters.md` for the contribution guide. New adapters MUST
+mirror the copilot adapter's tracing spans (`adapter.discover` on the
+discovery path, `adapter.parse` on the per-session parse path) and
+hash any session-state `path` field via
+`agentprof_core::observability::pii::hash_path` before attaching it to a
+span — see [ADR-0010](../../docs/internals/adr-0010-tracing-infrastructure.md)
+(Layer 2 + D-3 / D-13) and
+[`docs/features/privacy.md`](../../docs/features/privacy.md) §7.
 
 ## Variant table for `CopilotEvent`
 

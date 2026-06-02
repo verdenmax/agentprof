@@ -8,10 +8,15 @@
 > disk; nothing is exfiltrated, sent over the network, or written outside
 > the user's chosen `--output` path.
 >
-> **Status.** Documentation-only. The planned `--redact` / `--anonymize`
-> CLI flags listed at the bottom are **not yet implemented**; until then,
-> users wishing to share reports must redact manually using the cheat
-> sheet in [§3](#3-manual-redaction-cheat-sheet).
+> **Status.** Documentation-only for the *report* surface. The planned
+> `--redact` / `--anonymize` CLI flags listed at the bottom are **not yet
+> implemented**; until then, users wishing to share reports must redact
+> manually using the cheat sheet in [§3](#3-manual-redaction-cheat-sheet).
+>
+> The separate *log output* surface (`tracing` stderr / `--log-file` /
+> TUI-mode `$XDG_STATE_HOME/agentprof/agentprof.log`) **does** carry a
+> shipped, default-on PII model since **M1.6.4** — see
+> [§7. Log output PII model](#7-log-output-pii-model-m164) below.
 
 ## 1. What `agentprof analyze` does NOT carry
 
@@ -178,3 +183,70 @@ doesn't account for (or any field that crosses the line from "ROI rollup"
 to "user content / tool output"), open a `[privacy]` issue on the
 repository. Such issues are P0 and will receive a fix + a new
 `PrivacyWarning` test fixture within one release cycle.
+
+## 7. Log output PII model (M1.6.4)
+
+`agentprof` emits structured `tracing` logs (see
+[ADR-0010](../internals/adr-0010-tracing-infrastructure.md) and
+[`docs/architecture.md`](../architecture.md) §15.5). This surface is
+**separate** from the analyzer report surface described in §1–§5: log
+output is for diagnostics (the `--log-level` / `--log-file` global flags
+and the TUI auto-redirect to `$XDG_STATE_HOME/agentprof/agentprof.log`),
+not for sharing analysis results.
+
+Because log output can land in bug-report attachments, `agentprof`
+applies a **default-on** PII redaction to one specific class of fields:
+**session paths** carried in span attributes (e.g. the `session = ...`
+field on `cmd.analyze` / `cmd.watch` / `adapter.discover` /
+`adapter.parse` spans).
+
+### What is redacted
+
+| Field shape | Default rendering | Implementation |
+|---|---|---|
+| `session = %path` (any span where a session-state path is attached) | First 8 hex chars of `sha256(path.to_string_lossy())` | [`agentprof_core::observability::pii::hash_path`](../../crates/agentprof-core/src/observability/pii.rs) |
+| Any other short string the caller chooses to hash | Same 8-hex shape | [`hash_short`](../../crates/agentprof-core/src/observability/pii.rs) |
+
+Hashing is **deterministic** within a process invocation and across
+invocations on the same host (no per-run salt), so a support reader can
+still cross-reference two `session = abc12345` lines as referring to the
+same session — without learning the underlying path.
+
+### Opt-out
+
+Set `AGENTPROF_LOG_FULL_PATHS=1` in the environment to bypass the hash
+and emit the raw path. Use this when reproducing a bug locally where you
+need to grep `~/.copilot/session-state/...` from the log itself; **do
+not** ship the resulting log unredacted.
+
+The opt-out is implemented in
+[`agentprof_cli::observability::maybe_hash_path`](../../crates/agentprof-cli/src/observability/init.rs)
+and is the **only** mechanism that disables the path hash — there is no
+config-file equivalent, by design (one-shot env var keeps the opt-out
+visible to ops on the command line).
+
+### What is NOT covered by this hashing
+
+The hash applies only to fields the call sites explicitly wrap. Plain
+log message text (`tracing::warn!("failed to parse {path}: ...")`) and
+error chain bodies are emitted verbatim — call sites must hash before
+formatting when needed. Coverage today:
+
+- ✅ `cmd.analyze` / `cmd.list` / `cmd.aggregate` / `cmd.watch` spans —
+  `session` attribute is hashed.
+- ✅ `adapter.discover` / `adapter.parse` spans — `session` attribute is hashed.
+- ⚠️ Free-form warning / error messages constructed via `format!`
+  inside the code path may still carry raw paths. Per the cheat sheet in
+  §3.1, redact log files with the same `sed` recipe used for `--export md`
+  output before sharing.
+
+The analyzer report fields enumerated in §2 are **unaffected** by this
+hashing — they are computed and serialized separately and are still
+governed by the (still-planned) `--redact` flag.
+
+## 8. Reporting a leak
+
+(Same as §6 above; preserved for direct linking. If you find a `tracing`
+span attribute that emits a raw session path or any other 🔴 HIGH
+content from §2 without going through `hash_path` / `hash_short`, file
+the same `[privacy]` issue.)
