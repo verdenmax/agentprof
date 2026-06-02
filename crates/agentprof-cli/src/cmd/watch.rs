@@ -89,7 +89,7 @@ pub enum WatchSub {
 /// agentprof watch aggregate --by tool --since 7d
 /// ```
 #[allow(clippy::needless_pass_by_value)]
-pub fn run(cmd: WatchCmd) -> Result<()> {
+pub fn run(cmd: WatchCmd, _cfg: &crate::cmd::LogConfig) -> Result<()> {
     // Validate sub-mode arguments BEFORE the TTY check so users get a
     // crisp UserError (exit 1) instead of an environment error (exit 3)
     // when they pass conflicting flags from a non-TTY shell or CI.

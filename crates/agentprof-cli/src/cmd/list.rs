@@ -71,7 +71,7 @@ struct ListRow {
 /// - Otherwise exits 0 even on partial per-session failures (summarized
 ///   to stderr).
 #[allow(clippy::needless_pass_by_value)]
-pub fn run(cmd: ListCmd) -> Result<()> {
+pub fn run(cmd: ListCmd, _cfg: &crate::cmd::LogConfig) -> Result<()> {
     let adapter = match cmd.agent {
         AgentKind::Copilot => CopilotAdapter,
         other => {

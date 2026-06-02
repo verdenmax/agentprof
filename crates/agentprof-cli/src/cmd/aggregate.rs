@@ -124,7 +124,7 @@ impl AggBy {
 /// - `OutputError` (3): I/O failure writing to stdout or `--output`;
 ///   TTY missing when `--export tui`.
 #[allow(clippy::needless_pass_by_value)]
-pub fn run(cmd: AggregateCmd) -> Result<()> {
+pub fn run(cmd: AggregateCmd, _cfg: &crate::cmd::LogConfig) -> Result<()> {
     // Resolve adapter (M1.6.3 = copilot only).
     let adapter = match cmd.agent {
         AgentKind::Copilot => CopilotAdapter,

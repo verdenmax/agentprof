@@ -166,7 +166,7 @@ impl ExitKind {
 /// Returns an `anyhow::Error` whose downcast target is `ExitKind`,
 /// signaling which process exit code `main()` should use.
 #[allow(clippy::needless_pass_by_value)] // main() owns the parsed Cli enum and moves the variant payload in.
-pub fn run(cmd: AnalyzeCmd) -> Result<()> {
+pub fn run(cmd: AnalyzeCmd, _cfg: &crate::cmd::LogConfig) -> Result<()> {
     let adapter = registry::adapter_for(cmd.agent).ok_or_else(|| {
         ExitKind::UserError.into_anyhow(format!(
             "{:?} adapter not yet implemented (M1.4 ships copilot only; \
