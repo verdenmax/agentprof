@@ -50,18 +50,25 @@ fn list_log_level_debug_emits_debug_events() {
         .clone();
 
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-    // T5 adds `#[instrument]` on cmd::list::run + cmd::list internals; at
-    // minimum the cmd.list span name should appear in debug-or-higher
-    // output. If T5 hasn't shipped yet this assertion is permissive: we
-    // accept any stderr at all (just not empty).
-    if stderr.is_empty() {
-        // T5 not yet shipped — allow.
-        return;
-    }
-    // Once T5 is in, this should hold:
+    // T5 added Layer-2/3 spans: `adapter.discover` (in
+    // `agentprof_adapters::copilot::paths`) emits a `debug!` "discovered
+    // sessions" line as it scans for sessions, and the surrounding span
+    // name appears in the formatted output. At `--log-level debug` we
+    // therefore expect BOTH:
+    //   - a level token (DEBUG / INFO / WARN), AND
+    //   - content from the adapter.discover span emission.
+    assert!(
+        !stderr.is_empty(),
+        "expected non-empty stderr at --log-level debug; got empty stderr"
+    );
     assert!(
         stderr.contains("DEBUG") || stderr.contains("INFO") || stderr.contains("WARN"),
         "expected some level token in stderr at debug filter; got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("adapter.discover") || stderr.contains("discovered sessions"),
+        "expected T5 Layer-2 `adapter.discover` span or its `discovered sessions` debug \
+         emission in stderr at --log-level debug; got:\n{stderr}"
     );
 }
 

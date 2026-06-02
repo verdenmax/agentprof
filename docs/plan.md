@@ -115,7 +115,7 @@ playwright.click   |   1240        |   0   |     ∞ (waste)   | ✗ kill
 
 ## 6. 实施路径
 
-> **进度同步（2026-06-01）**：MVP **8/8 milestone shippable surface 完成 ≈ 98%**（M1.1 ✅ skeleton / M1.2 ✅ Copilot adapter / M1.3 ✅ Episode aggregation / M1.4 ✅ CLI `analyze` 含 4 轮 followups / M1.5 ✅ TUI + ADR-0006 panic-safe / **M1.6.1 ✅ `list` 子命令 + 8 audit polish** / **M1.6.4 ✅ `--export speedscope|html` + ADR-0007** / **M1.6.2 ✅ `aggregate` 子命令 + ADR-0008** / **M1.6.3 ✅ `watch` 子命令 + `aggregate --export tui` 激活 + ADR-0009**）。MVP feature work 完成，剩 M1.7 v0.1.0 release。详见 [`tasks/ROADMAP.md`](../tasks/ROADMAP.md) 和 [`CHANGELOG.md`](../CHANGELOG.md)。
+> **进度同步（2026-06-02）**：MVP **8/8 milestone shippable surface 完成 ≈ 98%**（M1.1 ✅ skeleton / M1.2 ✅ Copilot adapter / M1.3 ✅ Episode aggregation / M1.4 ✅ CLI `analyze` 含 4 轮 followups / M1.5 ✅ TUI + ADR-0006 panic-safe / **M1.6.1 ✅ `list` 子命令 + 8 audit polish** / **M1.6.2 ✅ `aggregate` 子命令 + ADR-0008** / **M1.6.3 ✅ `watch` 子命令 + `aggregate --export tui` 激活 + ADR-0009** / **M1.6.4 ✅ `--export speedscope|html` + ADR-0007（2026-05-31）+ tracing 基础设施 + ADR-0010（2026-06-02 — 全工程 tracing canonicalisation：13 `eprintln!` → `tracing`，全局 `--log-level` / `--log-file`，TUI 自动 XDG state log，PII hash，4 层 span 拓扑）**）。MVP feature work 全部完成，剩 M1.7 v0.1.0 release。详见 [`tasks/ROADMAP.md`](../tasks/ROADMAP.md) 和 [`CHANGELOG.md`](../CHANGELOG.md)。
 >
 > **events-first pivot（ADR-0001）**：原 Phase 0 / 1 计划见下；实际路径有以下重大调整：
 >
@@ -143,6 +143,7 @@ playwright.click   |   1240        |   0   |     ∞ (waste)   | ✗ kill
 - [x] 跨 session 聚合视图 ✅ M1.6.2（`aggregate --by tool|mcp-server|day|model --export md|json|csv|html`，[ADR-0008](internals/adr-0008-aggregate-report-and-utilization.md)）
 - [x] Speedscope JSON + HTML 报告导出 ✅ M1.6.4（`analyze --export speedscope|html`，[ADR-0007](internals/adr-0007-speedscope-export.md)）
 - [x] 实时刷新 TUI ✅ M1.6.3（`agentprof watch` 单 session + `watch aggregate ...` 跨 session；`aggregate --export tui` 也一并激活，[ADR-0009](internals/adr-0009-watch-runner-and-notify.md)）
+- [x] 全工程结构化 tracing ✅ M1.6.4 (2026-06-02)（canonical observability across all 5 crates；13 `eprintln!` → `tracing::*!`；全局 `--log-level` / `--log-file` flags + `AGENTPROF_LOG_FULL_PATHS` env；TUI 模式自动重定向到 `$XDG_STATE_HOME/agentprof/agentprof.log`；4 层 span 拓扑 `cmd` → `adapter` → `analyzer`/`aggregator` → events；PII：session 路径默认 sha256[..8] hash；[ADR-0010](internals/adr-0010-tracing-infrastructure.md)）
 
 ### Phase 2：工程化（再 1 周）
 - [ ] 接入 OTLP（订阅 Claude Code 的 telemetry endpoint）
@@ -169,9 +170,9 @@ playwright.click   |   1240        |   0   |     ∞ (waste)   | ✗ kill
 
 ## 8. 下一步行动
 
-> **2026-06-01 更新**：MVP 8/8 shippable surface ≈ 98% 已交付（M1.1–M1.5 ✅ + M1.6.1 ✅ + M1.6.2 ✅ + M1.6.3 ✅ + M1.6.4 ✅）。MVP feature work 已完成；剩 M1.7 v0.1.0 release。M1.6.5（MCP waste）属于增量增强，可推到 0.2.0。
+> **2026-06-02 更新**：MVP 8/8 shippable surface ≈ 98% 已交付（M1.1–M1.5 ✅ + M1.6.1 ✅ + M1.6.2 ✅ + M1.6.3 ✅ + M1.6.4 ✅，含 tracing 基础设施 2026-06-02 ship）。MVP feature work 已完成；剩 M1.7 v0.1.0 release。M1.6.5（MCP waste）属于增量增强，可推到 0.2.0。
 
-**当前位置**：M1.6.3 ✅ 已 ship（`watch` 子命令 + `aggregate --export tui` 激活 + ADR-0009）→ 下一步推荐：
+**当前位置**：M1.6.4 ✅ 已 ship 2026-06-02（tracing 基础设施：13 `eprintln!` → `tracing`，全局 `--log-level` / `--log-file`，TUI 自动 XDG state log，PII hash，4 层 span 拓扑，ADR-0010）→ 下一步推荐：
 
 - **M1.7 v0.1.0 release**（推荐）：cargo-dist 多平台 binary + GitHub Release + CHANGELOG cut。走 `github-release` skill。
 - **M1.6.5 MCP server waste analysis**（post-MVP，可推到 0.2.0）：parse `.copilot/mcp.json` registration data + 计算 `loaded - called` 集合 per session；扩展 AggregateReport 加 `waste_score` 字段。

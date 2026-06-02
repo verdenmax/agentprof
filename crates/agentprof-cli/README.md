@@ -309,7 +309,7 @@ To build a minimal binary: `cargo build -p agentprof-cli --no-default-features`.
 ## Dependencies
 
 - Workspace internal: every other `agentprof-*` crate
-- External: `clap`, `anyhow`, `tracing`, `tracing-subscriber`, `serde`, `serde_json`, `chrono`, `directories`, `askama 0.16` (re-activated in M1.6.4 for the HTML report template; md renderer remains hand-rolled string-building), `csv` (added in M1.6.2 for `aggregate --export csv`), `notify-debouncer-mini 0.4` (added in M1.6.3 for the `watch` file watcher — pulls `notify` v6.1.1 transitively, see [ADR-0009 D-4](../../docs/internals/adr-0009-watch-runner-and-notify.md))
+- External: `clap`, `anyhow`, `tracing`, `tracing-subscriber`, `tracing-appender 0.2` (added in M1.6.4 for the TUI auto-redirect's rolling-file writer; see "Tracing & logging" below), `serde`, `serde_json`, `chrono`, `directories`, `askama 0.16` (re-activated in M1.6.4 for the HTML report template; md renderer remains hand-rolled string-building), `csv` (added in M1.6.2 for `aggregate --export csv`), `notify-debouncer-mini 0.4` (added in M1.6.3 for the `watch` file watcher — pulls `notify` v6.1.1 transitively, see [ADR-0009 D-4](../../docs/internals/adr-0009-watch-runner-and-notify.md))
 
 ## Local commands
 
@@ -320,6 +320,68 @@ cargo doc  -p agentprof-cli --no-deps --open
 ```
 
 Integration tests live under `tests/cli.rs` and use `assert_cmd` + `predicates`.
+
+## Tracing & logging (M1.6.4)
+
+`agentprof` uses `tracing` 0.1 as its **single canonical** diagnostic /
+warning / debug output channel (no more `eprintln!`). All configuration is
+resolved by `agentprof_cli::observability::LogConfig::resolve_from_env_and_flags`
+and applied by `init_tracing`, which installs a `tracing_subscriber::fmt`
+layer behind a `reload::Layer` so the writer can be swapped at runtime
+(used by the TUI auto-redirect path).
+
+### Global CLI flags
+
+```
+--log-level <LEVEL>    Tracing level filter (trace|debug|info|warn|error)
+                       or full env-filter syntax (e.g. "warn,agentprof_core=debug").
+                       Default: env AGENTPROF_LOG_LEVEL / AGENTPROF_LOG, then "warn".
+--log-file <PATH>      Trace events to file. "-" forces stderr (overrides TUI auto-redirect).
+                       Default: non-TUI = stderr; TUI = $XDG_STATE_HOME/agentprof/agentprof.log.
+```
+
+Both flags are clap `global = true` — they work on every subcommand
+(`analyze`, `list`, `aggregate`, `watch`, `watch aggregate`).
+
+### Env vars
+
+| Var | Effect |
+|---|---|
+| `AGENTPROF_LOG` | Backwards-compatible level filter (same syntax as `--log-level`). |
+| `AGENTPROF_LOG_LEVEL` | Alias for `--log-level`; flag wins. |
+| `AGENTPROF_LOG_FILE` | Alias for `--log-file`; flag wins. |
+| `AGENTPROF_LOG_FULL_PATHS` | If `1`, emit raw session paths instead of `hash_path` short-hashes (cli layer only — `agentprof-core` / `agentprof-adapters` always hash). |
+
+### TUI auto-redirect
+
+TUI mode (`analyze --export tui`, `watch`, `watch aggregate`) auto-switches
+the tracing writer to a rolling daily log file under
+`$XDG_STATE_HOME/agentprof/agentprof.log` (via `tracing-appender`'s
+non-blocking rolling appender). On clean exit the path is printed to
+stdout. This prevents the alt-screen corruption that motivated the M1.6.3
+`tracing::warn!` → `debug!` workaround in `watch.rs`.
+
+Pass `--log-file -` (or `AGENTPROF_LOG_FILE=-`) to force stderr even in
+TUI mode (you own the alt-screen pollution risk).
+
+### Soft-fall policy
+
+Any tracing init failure (file permission denied, XDG path not writable,
+env-filter syntax error, etc.) **soft-falls** to the default stderr
+writer — tracing **never** blocks CLI startup
+([ADR-0010 D-13](../../docs/internals/adr-0010-tracing-infrastructure.md)).
+
+### Span topology (4 layers, 13 spans)
+
+| Layer | Span | Emitted at |
+|---|---|---|
+| 1 (cli) | `cmd.{analyze, list, aggregate, watch}` (`info_span!`) | `agentprof-cli::cmd::*::run` |
+| 2 (adapters) | `adapter.{discover, parse, load_meta}` (`debug_span!`) | `agentprof-adapters` |
+| 3 (core) | `analyzer.{derive_episodes, analyze}`, `aggregator.group_by{tool,mcp,day,model}` (`debug_span!`) | `agentprof-core` |
+| 4 (events) | `tracing::{trace, debug, info, warn, error}!` | anywhere (replaces every `eprintln!`) |
+
+Full design + decision log: [ADR-0010](../../docs/internals/adr-0010-tracing-infrastructure.md)
++ [spec](../../docs/superpowers/specs/2026-06-02-tracing-design.md).
 
 ## Change history
 
