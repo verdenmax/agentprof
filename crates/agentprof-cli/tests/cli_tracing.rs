@@ -67,6 +67,10 @@ fn list_log_level_debug_emits_debug_events() {
 
 #[test]
 fn log_file_flag_writes_to_path() {
+    // Note: this test verifies the rolling appender CREATED the file, not
+    // that any event reached it (rolling appender opens eagerly). For
+    // content-level coverage of the reload-layer swap path, see
+    // `watch_run_writes_log_events_to_file` below.
     let tmp = tempfile::tempdir().expect("tempdir");
     let log_path = tmp.path().join("test.log");
 
@@ -157,46 +161,61 @@ fn dash_log_file_forces_stderr() {
 
 #[test]
 fn watch_run_writes_log_events_to_file() {
-    // Rubber-duck Critical #1 acceptance test.
+    // Rubber-duck Critical #1 acceptance test (FIXED in T3 fix-up).
     //
-    // Without the reload-layer architecture in T2.4/T2.5, this test
-    // would silently fail: the `tracing_subscriber::set_global_default`
-    // call inside the TUI guard would no-op (subscriber already
-    // installed in main), the file would be created (rolling appender
-    // opens eagerly), but it would be EMPTY because the live writer
-    // is still stderr.
+    // Setup:
+    //  - Invoke `agentprof analyze --export tui --root <real-fixture-path>`
+    //    so resolve_session succeeds and execution reaches run_tui.
+    //  - Stdin redirected to /dev/null so the TTY check inside run_tui
+    //    fails AFTER enter_tui_log_guard installs (today's ordering).
+    //  - Override XDG_STATE_HOME to a tempdir so the swap writes there.
+    //  - --log-level debug so tui_guard's success-swap debug emission
+    //    is enabled.
     //
-    // We invoke `agentprof analyze --export tui` against a real fixture
-    // session WITH stdin redirected (so the TUI immediately fails the
-    // TTY check and exits OutputError = 3), which still exercises
-    // the `enter_tui_log_guard` swap path before the TTY check fires.
+    // Without the reload-layer architecture (Critical #1 regression):
+    //  - swap_writer returns Err, takes the warn arm; file never gets
+    //    the post-swap debug line.
+    //  - Even if some events leak through, they go to the original
+    //    stderr subscriber (not the file).
+    //
+    // With reload-layer correctly wired:
+    //  - swap_writer Ok; the debug! immediately following the swap
+    //    lands in the file under XDG_STATE_HOME/agentprof/.
+    //
+    // The assertion: strict — the file must exist AND have non-zero
+    // size (no OR-clause escape hatch).
 
     use std::process::Stdio;
 
     let tmp = tempfile::tempdir().expect("tempdir");
-    let fixture_root = env!("CARGO_MANIFEST_DIR");
 
-    // Run analyze --export tui with stdin redirected to /dev/null;
-    // the TTY check in run_tui will refuse, but enter_tui_log_guard
-    // runs FIRST and swaps the writer.
+    // Use a real copilot fixture session so analyze::run reaches run_tui.
+    let fixture_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("CARGO_MANIFEST_DIR has parent")
+        .join("agentprof-adapters/tests/fixtures/copilot");
+
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_agentprof"))
         .env("XDG_STATE_HOME", tmp.path())
+        // Suppress the user's actual env so test is hermetic.
+        .env_remove("AGENTPROF_LOG_FILE")
+        .env_remove("AGENTPROF_LOG_LEVEL")
+        .env_remove("AGENTPROF_LOG")
         .args([
             "--log-level",
             "debug",
             "analyze",
-            "--root",
-            fixture_root,
             "--export",
             "tui",
+            "--root",
         ])
+        .arg(&fixture_root)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .output()
         .expect("run agentprof");
 
-    // The log file should exist under the per-test XDG_STATE_HOME.
     let log_dir = tmp.path().join("agentprof");
     let mut found_log_with_content = false;
     if let Ok(rd) = std::fs::read_dir(&log_dir) {
@@ -215,13 +234,14 @@ fn watch_run_writes_log_events_to_file() {
         }
     }
 
-    // EITHER the log was written with content (success path)
-    // OR the binary couldn't enter the TUI guard at all (test-env
-    // limitation; acceptable). At minimum no panic.
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
     assert!(
-        found_log_with_content || stderr.contains("agentprof:"),
-        "expected either log file with content OR a clean error on stderr; \
-         log_dir = {log_dir:?}, stderr = {stderr}"
+        found_log_with_content,
+        "Critical #1 acceptance failed: expected non-empty log file under \
+         XDG_STATE_HOME/agentprof/ (proving the reload-layer swap_writer \
+         correctly redirected emission to file). \
+         log_dir = {log_dir:?}, exit = {:?}, stderr = {stderr}",
+        output.status.code()
     );
 }

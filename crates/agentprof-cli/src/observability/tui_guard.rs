@@ -113,9 +113,20 @@ pub fn enter_tui_log_guard(cfg: &LogConfig, tracing_handle: &TracingHandle) -> T
     };
 
     match tracing_handle.swap_writer(writer, Some(guard)) {
-        Ok(()) => TuiLogGuard {
-            log_path: Some(path),
-        },
+        Ok(()) => {
+            // Emit an event AFTER the swap so the new writer (the file)
+            // sees at least one entry. This is the acceptance signal for
+            // the reload-layer Critical #1 path: if the swap silently
+            // no-op'd (regressed), the file would be created by the
+            // rolling appender but stay empty.
+            tracing::debug!(
+                path = %path.display(),
+                "tracing writer swapped to TUI log file"
+            );
+            TuiLogGuard {
+                log_path: Some(path),
+            }
+        }
         Err(e) => {
             tracing::warn!(
                 error = %e,
