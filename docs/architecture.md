@@ -409,7 +409,7 @@ config  [show | edit | path]                   # 🚧 规划中 — Phase 2
 `AGENTPROF_LOG_FULL_PATHS=1` — 关闭 session 路径默认的 sha256[..8] hash
 （仅影响 cli 层 emission；core / adapters 层固定 hash 以避免 PII 泄漏）。
 
-详见 [ADR-0010](internals/adr-0010-tracing-infrastructure.md) 与 §15.4 Observability。
+详见 [ADR-0010](internals/adr-0010-tracing-infrastructure.md) 与 §15.5 Observability。
 
 > **export 子命令已取消**：原 spec 包含 `export <session> --format speedscope|html|md|csv`，但与 `analyze --session X --export <fmt> --output Y` 功能完全重叠。M1.6.1 decomposition 决定取消该 surface；Speedscope / HTML 导出走 `analyze --export speedscope|html`（M1.6.4 ✅ 已 ship）；CSV 推迟到 M1.6.5。
 
