@@ -63,9 +63,9 @@ fn main() -> ExitCode {
         cli.log_level.clone(),
         cli.log_file.clone(),
     );
-    let _tracing_handle = observability::init_tracing(&cfg);
+    let tracing_handle = observability::init_tracing(&cfg);
 
-    match run(cli, &cfg) {
+    match run(cli, &cfg, &tracing_handle) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             // D-7 exception: the user-facing final error message MUST reach
@@ -76,12 +76,16 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(cli: Cli, cfg: &observability::LogConfig) -> Result<()> {
+fn run(
+    cli: Cli,
+    cfg: &observability::LogConfig,
+    tracing_handle: &observability::TracingHandle,
+) -> Result<()> {
     match cli.cmd {
-        SubCmd::Analyze(c) => cmd::analyze::run(c, cfg),
-        SubCmd::List(c) => cmd::list::run(c, cfg),
-        SubCmd::Aggregate(c) => cmd::aggregate::run(c, cfg),
-        SubCmd::Watch(c) => cmd::watch::run(c, cfg),
+        SubCmd::Analyze(c) => cmd::analyze::run(c, cfg, tracing_handle),
+        SubCmd::List(c) => cmd::list::run(c, cfg, tracing_handle),
+        SubCmd::Aggregate(c) => cmd::aggregate::run(c, cfg, tracing_handle),
+        SubCmd::Watch(c) => cmd::watch::run(c, cfg, tracing_handle),
     }
 }
 

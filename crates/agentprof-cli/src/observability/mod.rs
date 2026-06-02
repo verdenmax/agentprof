@@ -9,10 +9,10 @@
 //! - [`TracingHandle`] / [`init_tracing`]
 //! - [`TuiLogGuard`] / [`enter_tui_log_guard`]
 
-// `enter_tui_log_guard` / `TuiLogGuard` / `TracingHandle::swap_writer` are
-// constructed in T2 but only consumed in T3 (TUI entry-site wiring). Allow
-// dead_code + unused_imports here so T2 lands clean — T3 removes the
-// allow by call-site usage.
+// `LogWriter` and `TuiLogGuard` are part of the documented public surface
+// of this module but are referenced through full paths inside the crate;
+// the re-exports exist so external readers of `agentprof_cli::observability`
+// see a complete API. `TracingHandle::empty_for_test` is unit-test-only.
 #![allow(dead_code, unused_imports)]
 
 pub mod config;

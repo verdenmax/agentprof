@@ -166,7 +166,11 @@ impl ExitKind {
 /// Returns an `anyhow::Error` whose downcast target is `ExitKind`,
 /// signaling which process exit code `main()` should use.
 #[allow(clippy::needless_pass_by_value)] // main() owns the parsed Cli enum and moves the variant payload in.
-pub fn run(cmd: AnalyzeCmd, _cfg: &crate::cmd::LogConfig) -> Result<()> {
+pub fn run(
+    cmd: AnalyzeCmd,
+    cfg: &crate::cmd::LogConfig,
+    tracing_handle: &crate::cmd::TracingHandle,
+) -> Result<()> {
     let adapter = registry::adapter_for(cmd.agent).ok_or_else(|| {
         ExitKind::UserError.into_anyhow(format!(
             "{:?} adapter not yet implemented (M1.4 ships copilot only; \
@@ -194,7 +198,7 @@ pub fn run(cmd: AnalyzeCmd, _cfg: &crate::cmd::LogConfig) -> Result<()> {
         if cmd.section != AnalysisSection::all_vec() {
             eprintln!("agentprof: warning: --section is ignored with --export tui");
         }
-        return run_tui(&report, &episodes);
+        return run_tui(&report, &episodes, cfg, tracing_handle);
     }
 
     if cmd.export == ExportFormat::Speedscope && cmd.section != AnalysisSection::all_vec() {
@@ -212,8 +216,19 @@ pub fn run(cmd: AnalyzeCmd, _cfg: &crate::cmd::LogConfig) -> Result<()> {
     Ok(())
 }
 
-fn run_tui(report: &AnalysisReport, episodes: &Episodes) -> Result<()> {
+fn run_tui(
+    report: &AnalysisReport,
+    episodes: &Episodes,
+    cfg: &crate::cmd::LogConfig,
+    tracing_handle: &crate::cmd::TracingHandle,
+) -> Result<()> {
     use std::io::IsTerminal as _;
+
+    // Swap the tracing writer to a rolling file BEFORE entering the
+    // alt-screen so subsequent emissions don't visually corrupt the TUI.
+    // The named binding holds the guard for the whole TUI session; on
+    // Drop (after `terminal::leave` below) it prints the log path.
+    let _log_guard = crate::observability::enter_tui_log_guard(cfg, tracing_handle);
 
     if !std::io::stdout().is_terminal() || !std::io::stdin().is_terminal() {
         return Err(ExitKind::OutputError.into_anyhow(

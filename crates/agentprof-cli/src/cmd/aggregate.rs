@@ -124,7 +124,11 @@ impl AggBy {
 /// - `OutputError` (3): I/O failure writing to stdout or `--output`;
 ///   TTY missing when `--export tui`.
 #[allow(clippy::needless_pass_by_value)]
-pub fn run(cmd: AggregateCmd, _cfg: &crate::cmd::LogConfig) -> Result<()> {
+pub fn run(
+    cmd: AggregateCmd,
+    cfg: &crate::cmd::LogConfig,
+    tracing_handle: &crate::cmd::TracingHandle,
+) -> Result<()> {
     // Resolve adapter (M1.6.3 = copilot only).
     let adapter = match cmd.agent {
         AgentKind::Copilot => CopilotAdapter,
@@ -153,7 +157,7 @@ pub fn run(cmd: AggregateCmd, _cfg: &crate::cmd::LogConfig) -> Result<()> {
 
     // Dispatch TUI before the renderers (it needs the raw report).
     if matches!(cmd.export, AggExportFormat::Tui) {
-        return run_tui_for_aggregate(any_report);
+        return run_tui_for_aggregate(any_report, cfg, tracing_handle);
     }
 
     // Render.
@@ -333,8 +337,17 @@ pub fn compute_aggregate(
     Ok((any_report, refs_total))
 }
 
-fn run_tui_for_aggregate(any_report: AnyAggregateReport) -> Result<()> {
+fn run_tui_for_aggregate(
+    any_report: AnyAggregateReport,
+    cfg: &crate::cmd::LogConfig,
+    tracing_handle: &crate::cmd::TracingHandle,
+) -> Result<()> {
     use std::io::IsTerminal as _;
+
+    // Swap the tracing writer to a rolling file BEFORE entering the
+    // alt-screen — see `cmd::analyze::run_tui` for the rationale.
+    let _log_guard = crate::observability::enter_tui_log_guard(cfg, tracing_handle);
+
     if !std::io::stdout().is_terminal() || !std::io::stdin().is_terminal() {
         return Err(ExitKind::OutputError.into_anyhow(
             "agentprof aggregate --export tui requires both stdin and stdout to be TTYs; \
