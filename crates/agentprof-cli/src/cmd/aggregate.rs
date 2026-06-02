@@ -124,6 +124,17 @@ impl AggBy {
 /// - `OutputError` (3): I/O failure writing to stdout or `--output`;
 ///   TTY missing when `--export tui`.
 #[allow(clippy::needless_pass_by_value)]
+#[tracing::instrument(
+    name = "cmd.aggregate",
+    skip_all,
+    fields(
+        agent = "copilot",
+        by = ?cmd.by,
+        since = %cmd.since,
+        limit = cmd.limit,
+        export = ?cmd.export,
+    )
+)]
 pub fn run(
     cmd: AggregateCmd,
     cfg: &crate::cmd::LogConfig,
@@ -147,11 +158,12 @@ pub fn run(
     if refs_total == 0 {
         let root_label = cmd.root.as_ref().map_or_else(
             || "<adapter default>".to_string(),
-            |p| p.display().to_string(),
+            |p| agentprof_core::observability::pii::hash_path(p),
         );
-        eprintln!(
-            "agentprof: no sessions matching --since={} under {}",
-            cmd.since, root_label,
+        tracing::warn!(
+            since = %cmd.since,
+            root = %root_label,
+            "no sessions matching window under root"
         );
     }
 
@@ -280,9 +292,10 @@ pub fn compute_aggregate(
                 episodes_vec.push(episodes);
             }
             Err(e) => {
-                eprintln!(
-                    "agentprof: warning: failed to parse session {}: {e:#}",
-                    sref.id
+                tracing::warn!(
+                    session = %agentprof_core::observability::pii::hash_short(&sref.id),
+                    error = %format_args!("{e:#}"),
+                    "failed to parse session"
                 );
                 failure_count += 1;
             }
@@ -326,11 +339,11 @@ pub fn compute_aggregate(
     // Stderr summary on partial failures.
     if failure_count > 0 {
         let total = reports.len() + failure_count;
-        eprintln!(
-            "agentprof: aggregated {} of {} sessions ({} failed)",
-            reports.len(),
-            total,
-            failure_count
+        tracing::warn!(
+            sessions_ok = reports.len(),
+            sessions_total = total,
+            failure_count,
+            "partial aggregate: some sessions failed"
         );
     }
 

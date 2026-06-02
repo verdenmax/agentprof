@@ -89,6 +89,15 @@ pub enum WatchSub {
 /// agentprof watch aggregate --by tool --since 7d
 /// ```
 #[allow(clippy::needless_pass_by_value)]
+#[tracing::instrument(
+    name = "cmd.watch",
+    skip_all,
+    fields(
+        agent = "copilot",
+        sub = if cmd.sub.is_some() { "aggregate" } else { "single" },
+        debounce_ms = cmd.debounce_ms,
+    )
+)]
 pub fn run(
     cmd: WatchCmd,
     cfg: &crate::cmd::LogConfig,
@@ -212,7 +221,11 @@ fn run_cross(
     // mode — it's ignored here, and surfacing this even when the spawn
     // later fails helps users diagnose a likely typo.
     if !matches!(cmd.session, SessionSelector::Latest) {
-        eprintln!("agentprof: warning: --session is ignored in `watch aggregate` mode");
+        tracing::warn!(
+            flag = "--session",
+            sub = "aggregate",
+            "flag ignored in watch aggregate mode"
+        );
     }
 
     let (tx, rx) = channel::<RefreshKind>();

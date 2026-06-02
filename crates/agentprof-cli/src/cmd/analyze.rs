@@ -171,6 +171,30 @@ pub fn run(
     cfg: &crate::cmd::LogConfig,
     tracing_handle: &crate::cmd::TracingHandle,
 ) -> Result<()> {
+    // Compute a redacted span field for the session selector. The `Path`
+    // variant otherwise Display-formats the raw filesystem path, which
+    // is PII (rubber-duck Critical #2). We hash it here so the span's
+    // `session` field is safe to log.
+    //
+    // The hash is currently unconditional; T5 swaps to
+    // `maybe_hash_path(cfg, p)` once that helper exists, gated on
+    // `AGENTPROF_LOG_FULL_PATHS=1`. Documented in the T4 commit.
+    let session_field = match &cmd.session {
+        SessionSelector::Path(p) => agentprof_core::observability::pii::hash_path(p),
+        SessionSelector::Latest => "latest".to_string(),
+        SessionSelector::Previous => "previous".to_string(),
+        SessionSelector::Uuid(u) => u.clone(),
+    };
+    // Manual `info_span!` (NOT `#[tracing::instrument]`) so the runtime
+    // `cfg`-aware redaction above can populate `session`.
+    let _cmd_span = tracing::info_span!(
+        "cmd.analyze",
+        agent = "copilot",
+        export = ?cmd.export,
+        session = %session_field,
+    )
+    .entered();
+
     let adapter = registry::adapter_for(cmd.agent).ok_or_else(|| {
         ExitKind::UserError.into_anyhow(format!(
             "{:?} adapter not yet implemented (M1.4 ships copilot only; \
@@ -193,21 +217,25 @@ pub fn run(
         // dispatch ignores. Documented in ExportFormat::Tui doc-comment
         // but worth surfacing at runtime so silent ignore doesn't confuse.
         if cmd.output.is_some() {
-            eprintln!("agentprof: warning: --output is ignored with --export tui");
+            tracing::warn!(flag = "--output", with = "--export tui", "flag ignored");
         }
         if cmd.section != AnalysisSection::all_vec() {
-            eprintln!("agentprof: warning: --section is ignored with --export tui");
+            tracing::warn!(flag = "--section", with = "--export tui", "flag ignored");
         }
         return run_tui(&report, &episodes, cfg, tracing_handle);
     }
 
     if cmd.export == ExportFormat::Speedscope && cmd.section != AnalysisSection::all_vec() {
-        eprintln!("agentprof: warning: --section is ignored with --export speedscope");
+        tracing::warn!(
+            flag = "--section",
+            with = "--export speedscope",
+            "flag ignored"
+        );
     }
     if cmd.export == ExportFormat::Html && cmd.output.is_none() {
-        eprintln!(
-            "agentprof: warning: writing HTML to stdout; pass --output report.html for \
-             a saved file"
+        tracing::warn!(
+            export = "html",
+            "writing HTML to stdout; pass --output report.html for a saved file"
         );
     }
 
@@ -380,7 +408,7 @@ fn render_report(
             let (mut json, warnings) =
                 format::speedscope::render(episodes, meta, env!("CARGO_PKG_VERSION"));
             for w in &warnings {
-                eprintln!("agentprof: warning: {w}");
+                tracing::warn!(category = "speedscope", "{w}");
             }
             // POSIX-final-newline + visual separation, mirroring json branch.
             json.push('\n');
@@ -406,7 +434,11 @@ fn write_output(content: &str, path: Option<&Path>) -> Result<()> {
             std::fs::write(p, content).map_err(|e| {
                 ExitKind::OutputError.into_anyhow(format!("writing {}: {e}", p.display()))
             })?;
-            eprintln!("wrote {} bytes to {}", content.len(), p.display());
+            tracing::info!(
+                bytes = content.len(),
+                path = %agentprof_core::observability::pii::hash_path(p),
+                "wrote output file"
+            );
             Ok(())
         }
     }
