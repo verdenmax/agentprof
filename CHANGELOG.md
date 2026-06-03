@@ -15,6 +15,8 @@ prefix used in commit messages).
 
 ### Added
 
+- `agentprof-adapters`: `CopilotEvent::payload_model_metrics()` override extracts per-model token rollup from the `Shutdown` variant's `model_metrics: BTreeMap<String, serde_json::Value>` tree. Free-form `Value` walking (`.get("usage")?.get("<key>").and_then(as_u64).unwrap_or(0)`) — robust against Copilot wire schema drift; new fields don't break parsing, renames produce `0` instead of failing. Skips models whose `usage` subtree is absent; returns `None` if no models have usage data. `ModelUsage` instances constructed via `::new()` + field assignment (required because `#[non_exhaustive]` blocks struct-literal construction from outside `agentprof-core`). See [ADR-0012](docs/internals/adr-0012-session-model-metrics-and-models-view.md) D-7.
+
 - `agentprof-core`: `Event::payload_model_metrics()` trait method (default `None`). Extension point for adapters to expose per-model token rollups; consumed by `derive_episodes` to populate `Episodes.model_metrics`. Non-breaking: default impl means existing trait impls compile unchanged. See [ADR-0012](docs/internals/adr-0012-session-model-metrics-and-models-view.md) D-4.
 
 - `agentprof-core`: `ModelUsage` public struct in `analyzer` module — 4 `u64` fields (`input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`) + `pub const fn new()` zero-ctor + `pub const fn total()` saturating sum. `#[non_exhaustive]`. Foundation for F1.7 session-level token totals (populated by `Event::payload_model_metrics`, surfaced in TUI Models view). See [ADR-0012](docs/internals/adr-0012-session-model-metrics-and-models-view.md) D-8.

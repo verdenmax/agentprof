@@ -1347,6 +1347,65 @@ impl CopilotEvent {
             _ => None,
         }
     }
+
+    /// Returns per-model token-usage rollup for [`Self::Shutdown`]
+    /// (the only Copilot wire event carrying it). Walks the existing
+    /// free-form `model_metrics: BTreeMap<String, serde_json::Value>`
+    /// tree, reading `.get("usage")?.get("<key>").and_then(as_u64).unwrap_or(0)`
+    /// for each token field.
+    ///
+    /// Models whose `usage` subtree is absent are skipped (not
+    /// converted to zero-init [`agentprof_core::analyzer::ModelUsage`]).
+    /// Returns `None` if no model has a `usage` subtree.
+    ///
+    /// Free-form `Value` walking (rather than a typed intermediate
+    /// struct deserialization) is robust against Copilot wire schema
+    /// drift — new fields under `usage` don't break parsing; field
+    /// renames just produce `0` instead of failing.
+    /// Non-integer or negative `Number` values (not observed on the
+    /// Copilot wire per spec §1) also coerce to `0` rather than failing —
+    /// `serde_json::Value::as_u64()` returns `None` for `f64` payloads,
+    /// negative ints, or unrepresentable u64 values, all of which the
+    /// `unwrap_or(0)` then masks consistent with the schema-drift default.
+    /// See ADR-0012 D-7.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_adapters::copilot::CopilotEvent;
+    /// assert!(CopilotEvent::Unknown.payload_model_metrics().is_none());
+    /// ```
+    #[must_use]
+    pub fn payload_model_metrics(
+        &self,
+    ) -> Option<std::collections::BTreeMap<String, agentprof_core::analyzer::ModelUsage>> {
+        let Self::Shutdown(env) = self else {
+            return None;
+        };
+        let mut out = std::collections::BTreeMap::new();
+        for (model, metrics_value) in &env.data.model_metrics {
+            let Some(usage) = metrics_value.get("usage") else {
+                continue;
+            };
+            let read_u64 = |key: &str| -> u64 {
+                usage
+                    .get(key)
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(0)
+            };
+            let mut usage_rollup = agentprof_core::analyzer::ModelUsage::new();
+            usage_rollup.input_tokens = read_u64("inputTokens");
+            usage_rollup.output_tokens = read_u64("outputTokens");
+            usage_rollup.cache_read_tokens = read_u64("cacheReadTokens");
+            usage_rollup.cache_write_tokens = read_u64("cacheWriteTokens");
+            out.insert(model.clone(), usage_rollup);
+        }
+        if out.is_empty() {
+            None
+        } else {
+            Some(out)
+        }
+    }
 }
 
 impl agentprof_core::adapter::Event for CopilotEvent {
@@ -1379,6 +1438,11 @@ impl agentprof_core::adapter::Event for CopilotEvent {
     }
     fn tool_call_id(&self) -> Option<&str> {
         self.tool_call_id()
+    }
+    fn payload_model_metrics(
+        &self,
+    ) -> Option<std::collections::BTreeMap<String, agentprof_core::analyzer::ModelUsage>> {
+        self.payload_model_metrics()
     }
 }
 
@@ -1646,5 +1710,136 @@ mod payload_metadata_tests {
         // ModelChange ALSO doesn't carry payload_model — only
         // AssistantMessage does. ModelChange just announces a switch.
         assert_eq!(ev.payload_model(), None);
+    }
+
+    #[test]
+    fn payload_model_metrics_session_shutdown_multi_model() {
+        use std::collections::BTreeMap;
+        let mut metrics: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+        metrics.insert(
+            "claude-opus-4.7-1m-internal".into(),
+            serde_json::json!({
+                "requests": {"count": 27, "cost": 5},
+                "usage": {
+                    "inputTokens": 781_437_u64,
+                    "outputTokens": 17_664_u64,
+                    "cacheReadTokens": 499_072_u64,
+                    "cacheWriteTokens": 0_u64,
+                }
+            }),
+        );
+        metrics.insert(
+            "gpt-5-mini".into(),
+            serde_json::json!({
+                "requests": {"count": 5, "cost": 1},
+                "usage": {
+                    "inputTokens": 100_u64,
+                    "outputTokens": 50_u64,
+                    "cacheReadTokens": 0_u64,
+                    "cacheWriteTokens": 25_u64,
+                }
+            }),
+        );
+        let env = envelope(ShutdownData {
+            shutdown_type: "normal".into(),
+            total_premium_requests: 32,
+            total_api_duration_ms: 12345,
+            session_start_time: 1_000_000_000,
+            code_changes: CodeChanges {
+                lines_added: 0,
+                lines_removed: 0,
+                files_modified: vec![],
+            },
+            model_metrics: metrics,
+            current_model: "claude-opus-4.7-1m-internal".into(),
+        });
+        let ev = CopilotEvent::Shutdown(env);
+        let Some(rollup) = ev.payload_model_metrics() else {
+            panic!("expected multi-model rollup");
+        };
+        assert_eq!(rollup.len(), 2);
+        let Some(claude) = rollup.get("claude-opus-4.7-1m-internal") else {
+            panic!("missing claude rollup");
+        };
+        assert_eq!(claude.input_tokens, 781_437);
+        assert_eq!(claude.output_tokens, 17_664);
+        assert_eq!(claude.cache_read_tokens, 499_072);
+        assert_eq!(claude.cache_write_tokens, 0);
+        let Some(gpt) = rollup.get("gpt-5-mini") else {
+            panic!("missing gpt rollup");
+        };
+        assert_eq!(gpt.input_tokens, 100);
+        assert_eq!(gpt.output_tokens, 50);
+        assert_eq!(gpt.cache_read_tokens, 0);
+        assert_eq!(gpt.cache_write_tokens, 25);
+    }
+
+    #[test]
+    fn payload_model_metrics_session_shutdown_skips_model_without_usage() {
+        use std::collections::BTreeMap;
+        let mut metrics: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+        metrics.insert(
+            "model-with-usage".into(),
+            serde_json::json!({"usage": {"inputTokens": 10_u64}}),
+        );
+        metrics.insert(
+            "model-without-usage".into(),
+            serde_json::json!({"requests": {"count": 1}}),
+        );
+        let env = envelope(ShutdownData {
+            shutdown_type: "normal".into(),
+            total_premium_requests: 1,
+            total_api_duration_ms: 100,
+            session_start_time: 0,
+            code_changes: CodeChanges {
+                lines_added: 0,
+                lines_removed: 0,
+                files_modified: vec![],
+            },
+            model_metrics: metrics,
+            current_model: "model-with-usage".into(),
+        });
+        let ev = CopilotEvent::Shutdown(env);
+        let Some(rollup) = ev.payload_model_metrics() else {
+            panic!("expected usage-bearing rollup");
+        };
+        assert_eq!(rollup.len(), 1, "model-without-usage skipped");
+        assert!(rollup.contains_key("model-with-usage"));
+        assert!(!rollup.contains_key("model-without-usage"));
+    }
+
+    #[test]
+    fn payload_model_metrics_session_shutdown_all_models_no_usage_returns_none() {
+        use std::collections::BTreeMap;
+        let mut metrics: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+        metrics.insert(
+            "only-model".into(),
+            serde_json::json!({"requests": {"count": 0}}),
+        );
+        let env = envelope(ShutdownData {
+            shutdown_type: "normal".into(),
+            total_premium_requests: 0,
+            total_api_duration_ms: 0,
+            session_start_time: 0,
+            code_changes: CodeChanges {
+                lines_added: 0,
+                lines_removed: 0,
+                files_modified: vec![],
+            },
+            model_metrics: metrics,
+            current_model: "only-model".into(),
+        });
+        let ev = CopilotEvent::Shutdown(env);
+        assert!(
+            ev.payload_model_metrics().is_none(),
+            "all-empty should normalize to None per ADR-0012 D-15"
+        );
+    }
+
+    #[test]
+    fn payload_model_metrics_other_variants_return_none() {
+        let ev = assistant_message("any", 0);
+        assert!(ev.payload_model_metrics().is_none());
+        assert!(CopilotEvent::Unknown.payload_model_metrics().is_none());
     }
 }

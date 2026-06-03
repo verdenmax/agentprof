@@ -17,7 +17,7 @@ for the M1.2 design.
 ## Public interface
 
 - [`copilot::CopilotAdapter`] — GitHub Copilot CLI adapter
-- [`copilot::CopilotEvent`] — 28-variant event enum (+ `Unknown` fallthrough)；`impl Event` 提供 6 个 payload-/lookup 方法 (`payload_name` / `payload_model` / `payload_output_tokens` / `payload_mode` / `payload_tool_requests` / `tool_call_id`) 让 `derive_episodes` / `analyze` 直接读 turn metadata 而无需 downcast
+- [`copilot::CopilotEvent`] — 28-variant event enum (+ `Unknown` fallthrough)；`impl Event` 提供 7 个 payload-/lookup 方法 (`payload_name` / `payload_model` / `payload_output_tokens` / `payload_mode` / `payload_tool_requests` / `payload_model_metrics` / `tool_call_id`) 让 `derive_episodes` / `analyze` 直接读 turn metadata 而无需 downcast
 - [`copilot::parser::parse_events_jsonl`] — JSONL → `RawSession<CopilotEvent>`（含 `parse_warnings` 收集 + live-mode 末行截断容忍）
 - [`copilot::paths::discover_sessions`] — walk session-state directory，按 mtime 倒序
 - [`registry::adapter_for`] — `AgentKind → Option<Adapter>` resolver
@@ -27,7 +27,7 @@ for the M1.2 design.
 
 | Module | Responsibility |
 |---|---|
-| `copilot::event` | `CopilotEvent` enum + all payload structs + `impl Event` (含 4 个 payload-* override) |
+| `copilot::event` | `CopilotEvent` enum + all payload structs + `impl Event` (含 5 个 payload-* override) |
 | `copilot::parser` | line-by-line JSONL parser + `MetaBuilder` (`adapter.parse` span — M1.6.4) |
 | `copilot::paths` | filesystem discovery + `inuse.<pid>.lock` detection (`adapter.discover` span — M1.6.4) |
 | `copilot::adapter` | `impl Adapter for CopilotAdapter` |
