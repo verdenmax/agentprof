@@ -21,7 +21,7 @@ See [`docs/architecture.md`](../../docs/architecture.md) §3 (system layering) a
 | `app::terminal::install_panic_hook` | Idempotent (`Once`); MUST be called before `enter()` |
 | `app::terminal::enter() -> Result<TuiTerminal>` | Refuses non-tty with `TuiError::NotATerminal` |
 | `app::terminal::leave(&mut TuiTerminal)` | Best-effort restore; idempotent |
-| `views::View` | `Flamegraph` / `Roi` / `Aggregate` |
+| `views::View` | `Flamegraph` / `Roi` / `Aggregate` / `Models` |
 
 ```rust
 // CLI usage shape (see crates/agentprof-cli/src/cmd/analyze.rs::run_tui):
@@ -44,6 +44,7 @@ See [`docs/architecture.md`](../../docs/architecture.md) §3 (system layering) a
 | `views::flamegraph` | Per-turn horizontal gantt + `segment_layout` + `build_gantt_cells` (3-state row: `█` tool / `░` LLM thinking / `·` padding) + `build_styled_cells_with_source` (colors `█` by [`ToolSource`](../agentprof-core/src/model/tool_source.rs): Builtin=cyan, MCP=magenta, Skill=yellow; reuses `theme::tool_source_color`) + Blue `T-id` prefix marks thinking-only turns (empty `tool_calls`) + 5-char output-tokens column between duration and gantt (via `format_tokens_short`; `None` → centered dash) + `selected_turn_footer_line` (footer beneath the gantt listing the selected turn's tool calls with per-call durations, e.g. `T3 selected:  bash(120ms) +2 more`; appends `· thinking only` when the selected turn has no tool calls) |
 | `views::roi` | Interactive tool rank with sort cycling + `recent_calls` |
 | `views::aggregate` | By-Mode + By-Hook tables (single session) + `group_by_mode`; M1.6.3 adds a cross-session arm rendering `AnyAggregateReport` for `aggregate --export tui` and `watch aggregate ...` |
+| `views::models` (F1.7) | Session-level per-model token rollup table (input / output / cache_read / cache_write); sorted by input desc with bold-cyan totals footer row. Falls back to a centered placeholder + explanation when `report.model_metrics` is `None` / empty (session has not emitted `session.shutdown`). `format_token_u64_short(u64)` helper caps cells at 5 chars (k/M/G/T/P abbreviations) for `u64` totals exceeding `u32::MAX`. j/k/↑/↓/G/gg navigate; `Esc` returns to Flamegraph |
 | `views::format` | Shared display helpers — `human_short` (duration), `format_tokens_short` (5-char-capped token count for FlamegraphView prefix), `format_tokens_detailed` (uncapped token count for TurnDetailView header) |
 | `views::turn_detail` (F1) | `TurnDetailState` state struct + pure formatters (`format_args_preview`, `wrap_args_full`, `status_sigil`) + `render_turn_detail(frame, area, &TurnDetailState, &AppState)` full-screen renderer; wired into `AppRunner` via `AppState.detail_view: Option<TurnDetailState>` — `Enter` on a Flamegraph turn opens it, `Esc` returns, `j`/`k`/`G`/`gg` navigate, `Enter` toggles args expand, `1`/`2`/`3` pop and switch view |
 | `theme` | `ToolSource → Color` + status modifiers |
@@ -54,7 +55,8 @@ See [`docs/architecture.md`](../../docs/architecture.md) §3 (system layering) a
 | Key | Action |
 |---|---|
 | `q` / Ctrl-C | Quit (clean leave + exit 0) |
-| `1` / `2` / `3` | Switch view |
+| `1` / `2` / `3` / `4` | Switch view (Flamegraph / Roi / Aggregate / Models) |
+| `Esc` (in Models / TurnDetail) | Return to previous top-level view |
 | `Tab` / Shift-Tab | Cycle views |
 | `↑` / `↓` or `k` / `j` | Scroll / select (vim aliases) |
 | `G` | Jump to last row |

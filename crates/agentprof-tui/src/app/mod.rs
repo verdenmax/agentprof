@@ -127,11 +127,7 @@ impl<'a> AppRunner<'a> {
                 View::Flamegraph => flamegraph::render(frame, area, &self.state),
                 View::Roi => roi::render(frame, area, &self.state),
                 View::Aggregate => aggregate::render(frame, area, &self.state),
-                View::Models => {
-                    // F1.7 Task 8 wires the real render here.
-                    use ratatui::widgets::Paragraph;
-                    frame.render_widget(Paragraph::new("(models view — Task 8 pending)"), area);
-                }
+                View::Models => crate::views::models::render(frame, area, &self.state),
             }
         }
         if self.state.help_open {

@@ -93,6 +93,10 @@ pub struct AppState<'a> {
     /// See [`crate::views::turn_detail::TurnDetailState`] for the inner
     /// per-detail-view state (selected tool index, expand set, pending-gg).
     pub detail_view: Option<crate::views::turn_detail::TurnDetailState>,
+    /// Selected row index in the Models view (F1.7). `0` when the
+    /// session has 0 or 1 models. Clamped to `model_metrics.len() - 1`
+    /// in [`dispatch`].
+    pub models_selected: usize,
     /// Source report (turn / tool / hook rollups).
     pub report: &'a AnalysisReport,
     /// Source episodes (per-call timing for `FlamegraphView`).
@@ -132,6 +136,7 @@ impl<'a> AppState<'a> {
             roi_viewport_top: std::cell::Cell::new(0),
             pending_gg: false,
             detail_view: None,
+            models_selected: 0,
             report,
             episodes,
         }
@@ -249,6 +254,17 @@ pub fn dispatch(state: &mut AppState<'_>, event: Event) -> Action {
             };
             state.roi_selected = 0;
             return Action::None;
+        }
+    }
+
+    // Models view (F1.7): j/k/↑/↓/G navigate model rows; Esc returns to
+    // Flamegraph (parity with TurnDetailView). Lowercase `g` is
+    // intentionally NOT handled here — it falls through to the global
+    // gg/G block above (handled earlier in this function) so the vim
+    // two-key sequence stays consistent with other views.
+    if state.view == View::Models {
+        if let Some(action) = dispatch_models_view_key(state, &k) {
+            return action;
         }
     }
 
@@ -390,6 +406,39 @@ fn dispatch_detail(state: &mut AppState<'_>, k: &crossterm::event::KeyEvent) -> 
     }
 }
 
+/// Dispatch for keys consumed by the Models view (F1.7).
+///
+/// Returns `Some(action)` when the key was handled (caller returns
+/// immediately); returns `None` to fall through to the generic
+/// dispatcher (Tab / help / etc.).
+fn dispatch_models_view_key(
+    state: &mut AppState<'_>,
+    k: &crossterm::event::KeyEvent,
+) -> Option<Action> {
+    let count = state
+        .report
+        .model_metrics
+        .as_ref()
+        .map_or(0, std::collections::BTreeMap::len);
+    match k.code {
+        KeyCode::Esc => {
+            state.view = View::Flamegraph;
+            Some(Action::None)
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            state.models_selected = state.models_selected.saturating_sub(1);
+            Some(Action::None)
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            if count > 0 && state.models_selected + 1 < count {
+                state.models_selected += 1;
+            }
+            Some(Action::None)
+        }
+        _ => None,
+    }
+}
+
 fn scroll_up(state: &mut AppState<'_>) {
     match state.view {
         View::Roi => state.roi_selected = state.roi_selected.saturating_sub(1),
@@ -444,11 +493,11 @@ fn scroll_to_top(state: &mut AppState<'_>) {
     match state.view {
         View::Roi => state.roi_selected = 0,
         View::Flamegraph => state.flame_selected = 0,
-        View::Aggregate | View::Models => {
+        View::Aggregate => {
             // Mirrors scroll_up/scroll_down: Aggregate has no scrollable
             // element in M1.5, so jump-to-top is a no-op.
-            // F1.7 Models view handler lands in Task 9.
         }
+        View::Models => state.models_selected = 0,
     }
 }
 
@@ -468,9 +517,16 @@ fn scroll_to_bottom(state: &mut AppState<'_>) {
         View::Flamegraph => {
             state.flame_selected = state.report.turn_summary.len().saturating_sub(1);
         }
-        View::Aggregate | View::Models => {
+        View::Aggregate => {
             // No scrollable element in M1.5; no-op.
-            // F1.7 Models view handler lands in Task 9.
+        }
+        View::Models => {
+            let count = state
+                .report
+                .model_metrics
+                .as_ref()
+                .map_or(0, std::collections::BTreeMap::len);
+            state.models_selected = count.saturating_sub(1);
         }
     }
 }
@@ -1211,5 +1267,119 @@ mod detail_view_dispatch_tests {
         // k at 0 → still 0.
         let _ = dispatch(&mut s, key(KeyCode::Char('k')));
         assert_eq!(s.detail_view.as_ref().unwrap().selected_tool_idx, 0);
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod models_view_dispatch_tests {
+    use super::*;
+    use crate::app::Event;
+    use crate::views::View;
+    use agentprof_core::adapter::AgentKind;
+    use agentprof_core::analyzer::{AnalysisReport, ModelUsage};
+    use agentprof_core::episode::Episodes;
+    use agentprof_core::model::SessionMeta;
+    use chrono::Utc;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::collections::BTreeMap;
+
+    fn fixture() -> (AnalysisReport, Episodes) {
+        let meta = SessionMeta::new("s".into(), AgentKind::Copilot, Utc::now(), false);
+        let mut report = AnalysisReport::new(meta);
+        let mut m = BTreeMap::new();
+        for i in 0..3u64 {
+            let mut u = ModelUsage::new();
+            u.input_tokens = 100 - i * 10;
+            m.insert(format!("model-{i}"), u);
+        }
+        report.model_metrics = Some(m);
+        (report, Episodes::default())
+    }
+
+    fn k(code: KeyCode) -> Event {
+        Event::Key(KeyEvent::new(code, KeyModifiers::empty()))
+    }
+
+    #[test]
+    fn models_selected_starts_at_zero() {
+        let (r, e) = fixture();
+        let s = AppState::new(&r, &e);
+        assert_eq!(s.models_selected, 0);
+    }
+
+    #[test]
+    fn key_4_switches_to_models_view() {
+        let (r, e) = fixture();
+        let mut s = AppState::new(&r, &e);
+        s.view = View::Flamegraph;
+        let _ = dispatch(&mut s, k(KeyCode::Char('4')));
+        assert_eq!(s.view, View::Models);
+    }
+
+    #[test]
+    fn key_1_from_models_returns_to_flamegraph() {
+        let (r, e) = fixture();
+        let mut s = AppState::new(&r, &e);
+        s.view = View::Models;
+        let _ = dispatch(&mut s, k(KeyCode::Char('1')));
+        assert_eq!(s.view, View::Flamegraph);
+    }
+
+    #[test]
+    fn esc_in_models_returns_to_flamegraph() {
+        let (r, e) = fixture();
+        let mut s = AppState::new(&r, &e);
+        s.view = View::Models;
+        let _ = dispatch(&mut s, k(KeyCode::Esc));
+        assert_eq!(s.view, View::Flamegraph);
+    }
+
+    #[test]
+    fn j_in_models_advances_selection() {
+        let (r, e) = fixture();
+        let mut s = AppState::new(&r, &e);
+        s.view = View::Models;
+        let _ = dispatch(&mut s, k(KeyCode::Char('j')));
+        assert_eq!(s.models_selected, 1);
+    }
+
+    #[test]
+    fn k_in_models_saturates_at_zero() {
+        let (r, e) = fixture();
+        let mut s = AppState::new(&r, &e);
+        s.view = View::Models;
+        let _ = dispatch(&mut s, k(KeyCode::Char('k')));
+        assert_eq!(s.models_selected, 0);
+    }
+
+    #[test]
+    fn j_in_models_clamps_at_last() {
+        let (r, e) = fixture();
+        let mut s = AppState::new(&r, &e);
+        s.view = View::Models;
+        s.models_selected = 2; // last (fixture has 3 models)
+        let _ = dispatch(&mut s, k(KeyCode::Char('j')));
+        assert_eq!(s.models_selected, 2, "j must clamp at last");
+    }
+
+    #[test]
+    fn capital_g_in_models_jumps_to_last() {
+        let (r, e) = fixture();
+        let mut s = AppState::new(&r, &e);
+        s.view = View::Models;
+        let _ = dispatch(&mut s, k(KeyCode::Char('G')));
+        assert_eq!(s.models_selected, 2); // count=3 → last idx 2
+    }
+
+    #[test]
+    fn tab_cycles_through_models() {
+        let (r, e) = fixture();
+        let mut s = AppState::new(&r, &e);
+        s.view = View::Aggregate;
+        let _ = dispatch(&mut s, k(KeyCode::Tab));
+        assert_eq!(s.view, View::Models, "Aggregate → Models via Tab");
+        let _ = dispatch(&mut s, k(KeyCode::Tab));
+        assert_eq!(s.view, View::Flamegraph, "Models → Flamegraph via Tab");
     }
 }

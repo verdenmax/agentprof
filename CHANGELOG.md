@@ -15,7 +15,7 @@ prefix used in commit messages).
 
 ### Added
 
-- `agentprof-tui`: `View::Models` enum variant (key `4`) + `pub mod views::models` (scaffold; render fn lands in Task 8). `View::next()` / `View::prev()` cycle updated: Aggregate → Models → Flamegraph. Number-key dispatch extends `1`/`2`/`3` to `1`/`2`/`3`/`4` (placeholder behavior in this commit; real render in Task 9). See [ADR-0012](docs/internals/adr-0012-session-model-metrics-and-models-view.md) D-9 + D-10.
+- `agentprof-tui`: NEW Models view (key `4`) showing session-level per-model token rollup (input / output / cache_read / cache_write). Sorted by input desc; totals footer row + 1-line status hint. Centered placeholder + multi-line explanation when session has not emitted `session.shutdown` yet. j/k/↑/↓/G/gg navigation; `Esc` returns to Flamegraph (view 1). `Tab` / `Shift-Tab` cycle includes Models. `pub fn views::models::render(frame, area, &AppState)` + `pub fn views::models::format_token_u64_short(u64) -> String` (5-char cap, k/M/G/T/P abbreviations; sibling to F1.6's `format_tokens_short` which takes `Option<u32>`). `AppState.models_selected: usize` field tracks selection; `scroll_to_top` / `scroll_to_bottom` extended to drive it for `gg` / `G`. See [ADR-0012](docs/internals/adr-0012-session-model-metrics-and-models-view.md) D-9 / D-10 / D-11 / D-12.
 
 - `agentprof-core`: `AnalysisReport.model_metrics: Option<BTreeMap<String, ModelUsage>>` field — cloned from `Episodes.model_metrics` by `analyze()`. Surfaces session-level per-model token rollup to all `AnalysisReport` consumers (TUI Models view, JSON / HTML / Markdown / CSV exports automatically). `#[serde(skip_serializing_if = "Option::is_none")]` keeps archives clean when absent.
 
