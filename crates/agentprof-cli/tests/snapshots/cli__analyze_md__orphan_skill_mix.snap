@@ -1,0 +1,40 @@
+---
+source: crates/agentprof-cli/tests/cli.rs
+assertion_line: 493
+expression: s
+---
+# agentprof analyze — 00000000-0000-0000-0000-00000000c300
+
+## Session
+- Agent: Copilot (v1.0.54)
+- Started: 2026-06-03 10:00:00 UTC
+- CWD: /tmp/agentprof-fixture/orphan-skill-mix
+- Live: no
+- Turns: 1
+- Tools tracked: 2
+- Hooks tracked: 0
+- Derive warnings: 1
+- Parse warnings: 0
+
+## Turn Summary
+| # | Turn ID | Status | Duration | Model | Mode | Tools | Hooks | Skills | Out-Tokens |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | 00000000-0000-0000-0000-00000000c302 | Completed | 4.00s | gpt-5-mini | interactive | 1 | 0 | 0 | 10 |
+
+## Tool Rank (by total duration)
+| Tool | Source | Calls | OK | Fail | Orphan | User-req | Total | p50 | p95 | Max |
+|---|---|---|---|---|---|---|---|---|---|---|
+| bash | Builtin | 1 | 1 | 0 | 0 | 0 | 1.00s | 1.00s | 1.00s | 1.00s |
+| <orphan> | Builtin | 1 | 0 | 0 | 1 | 0 | 0ms | 0ms | 0ms | 0ms |
+
+## Hook Rank (by total duration)
+| Hook | Calls | OK | Fail | Synth | Total | p50 | p95 |
+|---|---|---|---|---|---|---|---|
+
+## Warnings
+Derive-stage warnings: 1
+- SynthesizedStart: 1
+- OpenAtEndOfSession: 0
+- AbortWithoutOpenElement: 0
+- NonMonotonicTimestamp: 0
+- PayloadNameMissing: 0

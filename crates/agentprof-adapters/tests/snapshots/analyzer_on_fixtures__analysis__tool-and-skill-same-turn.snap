@@ -1,0 +1,79 @@
+---
+source: crates/agentprof-adapters/tests/analyzer_on_fixtures.rs
+assertion_line: 62
+expression: report
+---
+{
+  "meta": {
+    "id": "00000000-0000-0000-0000-00000000c100",
+    "agent": "copilot",
+    "producer": "copilot-agent",
+    "agent_version": "1.0.54",
+    "started_at": "2026-06-01T10:00:00Z",
+    "cwd": "/tmp/agentprof-fixture/tool-and-skill-same-turn",
+    "is_live": false
+  },
+  "turn_summary": [
+    {
+      "turn_id": "00000000-0000-0000-0000-00000000c102",
+      "started_at": "2026-06-01T10:00:02Z",
+      "duration": 2000,
+      "status": "Completed",
+      "model": "gpt-5-mini",
+      "mode": "Interactive",
+      "output_tokens": 5,
+      "tool_call_count": 0,
+      "hook_call_count": 0,
+      "skill_call_count": 0
+    },
+    {
+      "turn_id": "00000000-0000-0000-0000-00000000c112",
+      "started_at": "2026-06-01T10:00:12Z",
+      "duration": 6000,
+      "status": "Completed",
+      "model": "gpt-5-mini",
+      "mode": "Interactive",
+      "output_tokens": 20,
+      "tool_call_count": 2,
+      "hook_call_count": 0,
+      "skill_call_count": 0
+    }
+  ],
+  "tool_rank": [
+    {
+      "name": "bash",
+      "source": {
+        "kind": "builtin"
+      },
+      "call_count": 1,
+      "success_count": 1,
+      "failure_count": 0,
+      "orphan_count": 0,
+      "user_requested_count": 0,
+      "total_duration": 1000,
+      "p50_duration": 1000,
+      "p95_duration": 1000,
+      "max_duration": 1000,
+      "is_user_blocking": false
+    },
+    {
+      "name": "skill__code-reviewer__run",
+      "source": {
+        "kind": "skill",
+        "name": "code-reviewer"
+      },
+      "call_count": 1,
+      "success_count": 1,
+      "failure_count": 0,
+      "orphan_count": 0,
+      "user_requested_count": 0,
+      "total_duration": 1000,
+      "p50_duration": 1000,
+      "p95_duration": 1000,
+      "max_duration": 1000,
+      "is_user_blocking": false
+    }
+  ],
+  "hook_rank": [],
+  "warnings": []
+}

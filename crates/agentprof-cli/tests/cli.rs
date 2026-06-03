@@ -428,3 +428,73 @@ fn analyze_html_snapshot_with_skill_invoked() {
     }
     insta::assert_snapshot!("analyze_html__with_skill_invoked", html);
 }
+
+// ============== B-6 (M1.6.4 follow-up M-3) ====================
+// Markdown + HTML snapshots for the three combinatorial fixtures
+// (tool+skill same turn, two skills one turn, orphan tool+skill mix).
+// Locks renderer output across the ToolSource::Skill Display path
+// (B-5) and the orphan-section ordering for post-turn events.
+
+fn normalize_html_for_snapshot(mut html: String) -> String {
+    let real_version = env!("CARGO_PKG_VERSION");
+    html = html.replace(real_version, "0.0.0");
+    let marker = "v0.0.0 on ";
+    if let Some(idx) = html.find(marker) {
+        let tail_start = idx + marker.len();
+        if let Some(end_rel) = html[tail_start..].find('<') {
+            let end = tail_start + end_rel;
+            html.replace_range(tail_start..end, "<DATE>");
+        }
+    }
+    html
+}
+
+fn run_export(fixture: &str, format: &str) -> String {
+    let out = Command::cargo_bin("agentprof")
+        .unwrap()
+        .args(["analyze", "--session"])
+        .arg(fixtures_root().join(fixture))
+        .args(["--export", format])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    String::from_utf8(out).unwrap()
+}
+
+#[test]
+fn analyze_md_snapshot_tool_and_skill_same_turn() {
+    let s = run_export("tool-and-skill-same-turn", "md");
+    insta::assert_snapshot!("analyze_md__tool_and_skill_same_turn", s);
+}
+
+#[test]
+fn analyze_html_snapshot_tool_and_skill_same_turn() {
+    let html = normalize_html_for_snapshot(run_export("tool-and-skill-same-turn", "html"));
+    insta::assert_snapshot!("analyze_html__tool_and_skill_same_turn", html);
+}
+
+#[test]
+fn analyze_md_snapshot_two_skills_one_turn() {
+    let s = run_export("two-skills-one-turn", "md");
+    insta::assert_snapshot!("analyze_md__two_skills_one_turn", s);
+}
+
+#[test]
+fn analyze_html_snapshot_two_skills_one_turn() {
+    let html = normalize_html_for_snapshot(run_export("two-skills-one-turn", "html"));
+    insta::assert_snapshot!("analyze_html__two_skills_one_turn", html);
+}
+
+#[test]
+fn analyze_md_snapshot_orphan_skill_mix() {
+    let s = run_export("orphan-skill-mix", "md");
+    insta::assert_snapshot!("analyze_md__orphan_skill_mix", s);
+}
+
+#[test]
+fn analyze_html_snapshot_orphan_skill_mix() {
+    let html = normalize_html_for_snapshot(run_export("orphan-skill-mix", "html"));
+    insta::assert_snapshot!("analyze_html__orphan_skill_mix", html);
+}

@@ -1,0 +1,36 @@
+---
+source: crates/agentprof-cli/tests/cli.rs
+assertion_line: 469
+expression: s
+---
+# agentprof analyze — 00000000-0000-0000-0000-00000000c100
+
+## Session
+- Agent: Copilot (v1.0.54)
+- Started: 2026-06-01 10:00:00 UTC
+- CWD: /tmp/agentprof-fixture/tool-and-skill-same-turn
+- Live: no
+- Turns: 2
+- Tools tracked: 2
+- Hooks tracked: 0
+- Derive warnings: 0
+- Parse warnings: 0
+
+## Turn Summary
+| # | Turn ID | Status | Duration | Model | Mode | Tools | Hooks | Skills | Out-Tokens |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | 00000000-0000-0000-0000-00000000c102 | Completed | 2.00s | gpt-5-mini | interactive | 0 | 0 | 0 | 5 |
+| 2 | 00000000-0000-0000-0000-00000000c112 | Completed | 6.00s | gpt-5-mini | interactive | 2 | 0 | 0 | 20 |
+
+## Tool Rank (by total duration)
+| Tool | Source | Calls | OK | Fail | Orphan | User-req | Total | p50 | p95 | Max |
+|---|---|---|---|---|---|---|---|---|---|---|
+| bash | Builtin | 1 | 1 | 0 | 0 | 0 | 1.00s | 1.00s | 1.00s | 1.00s |
+| skill__code-reviewer__run | Skill { name: "code-reviewer" } | 1 | 1 | 0 | 0 | 0 | 1.00s | 1.00s | 1.00s | 1.00s |
+
+## Hook Rank (by total duration)
+| Hook | Calls | OK | Fail | Synth | Total | p50 | p95 |
+|---|---|---|---|---|---|---|---|
+
+## Warnings
+(none)

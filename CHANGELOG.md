@@ -33,6 +33,7 @@ prefix used in commit messages).
   - **Panic-safe terminal lifecycle**: `install_panic_hook` (Once-guarded) → `enter` → `run` → best-effort `leave`. See [ADR-0006](docs/internals/adr-0006-panic-safe-tui.md).
   - **TTY required**: piping yields `OutputError` (exit 3) with a helpful message; use `--export md` or `--export json` for headless.
   - References: spec [`2026-05-30-m1.5-tui-design.md`](docs/superpowers/specs/2026-05-30-m1.5-tui-design.md), plan [`2026-05-30-m1.5-tui.md`](docs/superpowers/plans/2026-05-30-m1.5-tui.md).
+- B-6 (M1.6.4 follow-up M-3): 3 new copilot fixtures covering combinations the existing single-feature fixture set did not exercise — `tool-and-skill-same-turn/` (one turn calls both `bash` and `skill__code-reviewer__run`), `two-skills-one-turn/` (single turn invokes `code-reviewer` + `git-flow`, locking 2 distinct `ToolSource::Skill { name }` rows in `tool_rank`), `orphan-skill-mix/` (turn closes cleanly, then an orphan `tool.execution_complete` + orphan `skill.invoked` arrive post-turn). 6 new snapshot tests in `agentprof-cli` (md + html per fixture) and 3 new analyzer snapshots in `agentprof-adapters` lock the renderer/analyzer behaviour for these combinatorial cases. Cross-session aggregate snapshots refreshed to reflect the 3 added sessions.
 
 ### Changed
 

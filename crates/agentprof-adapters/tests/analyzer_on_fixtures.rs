@@ -59,3 +59,9 @@ analyzer_test!(
     analysis_with_post_tool_use_hooks,
     "with-post-tool-use-hooks"
 );
+analyzer_test!(
+    analysis_tool_and_skill_same_turn,
+    "tool-and-skill-same-turn"
+);
+analyzer_test!(analysis_two_skills_one_turn, "two-skills-one-turn");
+analyzer_test!(analysis_orphan_skill_mix, "orphan-skill-mix");

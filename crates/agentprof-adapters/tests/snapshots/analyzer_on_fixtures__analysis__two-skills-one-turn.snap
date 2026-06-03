@@ -1,0 +1,68 @@
+---
+source: crates/agentprof-adapters/tests/analyzer_on_fixtures.rs
+assertion_line: 63
+expression: report
+---
+{
+  "meta": {
+    "id": "00000000-0000-0000-0000-00000000c200",
+    "agent": "copilot",
+    "producer": "copilot-agent",
+    "agent_version": "1.0.54",
+    "started_at": "2026-06-02T10:00:00Z",
+    "cwd": "/tmp/agentprof-fixture/two-skills-one-turn",
+    "is_live": false
+  },
+  "turn_summary": [
+    {
+      "turn_id": "00000000-0000-0000-0000-00000000c204",
+      "started_at": "2026-06-02T10:00:04Z",
+      "duration": 6000,
+      "status": "Completed",
+      "model": "gpt-5-mini",
+      "mode": "Interactive",
+      "output_tokens": 18,
+      "tool_call_count": 2,
+      "hook_call_count": 0,
+      "skill_call_count": 0
+    }
+  ],
+  "tool_rank": [
+    {
+      "name": "skill__code-reviewer__run",
+      "source": {
+        "kind": "skill",
+        "name": "code-reviewer"
+      },
+      "call_count": 1,
+      "success_count": 1,
+      "failure_count": 0,
+      "orphan_count": 0,
+      "user_requested_count": 0,
+      "total_duration": 1000,
+      "p50_duration": 1000,
+      "p95_duration": 1000,
+      "max_duration": 1000,
+      "is_user_blocking": false
+    },
+    {
+      "name": "skill__git-flow__release",
+      "source": {
+        "kind": "skill",
+        "name": "git-flow"
+      },
+      "call_count": 1,
+      "success_count": 1,
+      "failure_count": 0,
+      "orphan_count": 0,
+      "user_requested_count": 0,
+      "total_duration": 1000,
+      "p50_duration": 1000,
+      "p95_duration": 1000,
+      "max_duration": 1000,
+      "is_user_blocking": false
+    }
+  ],
+  "hook_rank": [],
+  "warnings": []
+}

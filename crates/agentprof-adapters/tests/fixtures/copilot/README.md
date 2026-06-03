@@ -28,6 +28,9 @@ sessions. Per `docs/internals/adr-0003-synthetic-fixture-strategy.md`.
 | `orphan-events/` | Test `derive_episodes` orphan synthesis + abort-without-open paths (M1.3 Phase C) | FR-2.5, FR-2.8 |
 | `cross-turn-tool/` | Lock in ADR-0005 D-2 commit-call-turn-divergence fix: tool spans turn boundary, back-ref lands in start-time turn | FR-1.5, FR-1.6 |
 | `with-post-tool-use-hooks/` | Lock in three real-world Copilot CLI 1.0.x schema-mismatch parser fixes (HookInput.source, UserMessageData.source, AssistantMessageData.turn_id — all now `Option<String>`). Pre-fix dropped ~17% of events in real local sessions | FR-1.8, FR-2.5 |
+| `tool-and-skill-same-turn/` | B-6 (M1.6.4 follow-up M-3): one turn calls both `bash` and `skill__code-reviewer__run` so renderers must display heterogeneous child frames under the same turn | FR-2.3, FR-2.6 |
+| `two-skills-one-turn/` | B-6 (M1.6.4 follow-up M-3): one turn invokes two distinct skills (`code-reviewer`, `git-flow`) — locks `tool_rank` aggregation as 2 separate `Skill { name }` rows | FR-2.3, FR-2.6 |
+| `orphan-skill-mix/` | B-6 (M1.6.4 follow-up M-3): turn closes, then an orphan `tool.execution_complete` plus an orphan `skill.invoked` arrive post-turn | FR-2.5, FR-2.6 |
 
 ## Local smoke tests (developers only)
 

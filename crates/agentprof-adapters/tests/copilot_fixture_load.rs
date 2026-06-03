@@ -64,6 +64,9 @@ fn every_fixture_line_parses_as_copilot_event() {
         "multi-sess-a",
         "multi-sess-b",
         "multi-sess-c",
+        "tool-and-skill-same-turn",
+        "two-skills-one-turn",
+        "orphan-skill-mix",
         // NOTE: "corrupt" intentionally contains an unparseable line.
         // NOTE: "live-truncated" intentionally has a truncated tail.
     ];
@@ -145,4 +148,116 @@ fn live_truncated_with_is_live_false_emits_warning_for_partial_tail() {
         1,
         "closed session reports tail as broken"
     );
+}
+
+// ============== B-6 (M1.6.4 follow-up M-3) =====================
+// Combinatorial fixtures: tool + skill in one turn, two skills in one
+// turn, and orphan tool + skill after turn end. These fixtures lock in
+// renderer + analyzer behaviour for cross-cases the per-feature fixture
+// set did not cover.
+
+#[test]
+fn tool_and_skill_same_turn_fixture_loads() {
+    let raw = parse_events_jsonl(&fixture_path("tool-and-skill-same-turn"), false).expect("parse");
+    assert_eq!(raw.parse_warnings.len(), 0);
+    assert_eq!(raw.events.len(), 15);
+    let skills = raw
+        .events
+        .iter()
+        .filter(|e| {
+            matches!(
+                e,
+                agentprof_adapters::copilot::CopilotEvent::SkillInvoked(_)
+            )
+        })
+        .count();
+    assert_eq!(skills, 1, "one skill.invoked event");
+    let tool_starts: Vec<&str> = raw
+        .events
+        .iter()
+        .filter_map(|e| match e {
+            agentprof_adapters::copilot::CopilotEvent::ToolExecStart(env) => {
+                Some(env.data.tool_name.as_str())
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(tool_starts.len(), 2);
+    assert!(tool_starts.contains(&"bash"));
+    assert!(tool_starts.contains(&"skill__code-reviewer__run"));
+}
+
+#[test]
+fn two_skills_one_turn_fixture_loads() {
+    let raw = parse_events_jsonl(&fixture_path("two-skills-one-turn"), false).expect("parse");
+    assert_eq!(raw.parse_warnings.len(), 0);
+    assert_eq!(raw.events.len(), 12);
+    let skill_names: Vec<&str> = raw
+        .events
+        .iter()
+        .filter_map(|e| match e {
+            agentprof_adapters::copilot::CopilotEvent::SkillInvoked(env) => {
+                Some(env.data.name.as_str())
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(skill_names, vec!["code-reviewer", "git-flow"]);
+    let tool_starts: Vec<&str> = raw
+        .events
+        .iter()
+        .filter_map(|e| match e {
+            agentprof_adapters::copilot::CopilotEvent::ToolExecStart(env) => {
+                Some(env.data.tool_name.as_str())
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(tool_starts.len(), 2);
+    assert!(tool_starts.iter().all(|n| n.starts_with("skill__")));
+}
+
+#[test]
+fn orphan_skill_mix_fixture_loads_with_post_turn_orphans() {
+    let raw = parse_events_jsonl(&fixture_path("orphan-skill-mix"), false).expect("parse");
+    assert_eq!(raw.parse_warnings.len(), 0);
+    assert_eq!(raw.events.len(), 10);
+
+    let starts = raw
+        .events
+        .iter()
+        .filter(|e| {
+            matches!(
+                e,
+                agentprof_adapters::copilot::CopilotEvent::ToolExecStart(_)
+            )
+        })
+        .count();
+    let completes = raw
+        .events
+        .iter()
+        .filter(|e| {
+            matches!(
+                e,
+                agentprof_adapters::copilot::CopilotEvent::ToolExecComplete(_)
+            )
+        })
+        .count();
+    assert_eq!(starts, 1, "one tool.execution_start (in-turn bash)");
+    assert_eq!(
+        completes, 2,
+        "two tool.execution_complete (in-turn + orphan)"
+    );
+
+    let skills = raw
+        .events
+        .iter()
+        .filter(|e| {
+            matches!(
+                e,
+                agentprof_adapters::copilot::CopilotEvent::SkillInvoked(_)
+            )
+        })
+        .count();
+    assert_eq!(skills, 1, "one orphan skill.invoked event after turn_end");
 }

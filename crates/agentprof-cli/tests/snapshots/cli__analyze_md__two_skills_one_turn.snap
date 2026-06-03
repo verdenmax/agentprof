@@ -1,0 +1,35 @@
+---
+source: crates/agentprof-cli/tests/cli.rs
+assertion_line: 481
+expression: s
+---
+# agentprof analyze — 00000000-0000-0000-0000-00000000c200
+
+## Session
+- Agent: Copilot (v1.0.54)
+- Started: 2026-06-02 10:00:00 UTC
+- CWD: /tmp/agentprof-fixture/two-skills-one-turn
+- Live: no
+- Turns: 1
+- Tools tracked: 2
+- Hooks tracked: 0
+- Derive warnings: 0
+- Parse warnings: 0
+
+## Turn Summary
+| # | Turn ID | Status | Duration | Model | Mode | Tools | Hooks | Skills | Out-Tokens |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | 00000000-0000-0000-0000-00000000c204 | Completed | 6.00s | gpt-5-mini | interactive | 2 | 0 | 0 | 18 |
+
+## Tool Rank (by total duration)
+| Tool | Source | Calls | OK | Fail | Orphan | User-req | Total | p50 | p95 | Max |
+|---|---|---|---|---|---|---|---|---|---|---|
+| skill__code-reviewer__run | Skill { name: "code-reviewer" } | 1 | 1 | 0 | 0 | 0 | 1.00s | 1.00s | 1.00s | 1.00s |
+| skill__git-flow__release | Skill { name: "git-flow" } | 1 | 1 | 0 | 0 | 0 | 1.00s | 1.00s | 1.00s | 1.00s |
+
+## Hook Rank (by total duration)
+| Hook | Calls | OK | Fail | Synth | Total | p50 | p95 |
+|---|---|---|---|---|---|---|---|
+
+## Warnings
+(none)
