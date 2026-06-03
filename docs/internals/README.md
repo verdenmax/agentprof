@@ -52,6 +52,7 @@ crate(s) it primarily binds.
 | [0009](./adr-0009-watch-runner-and-notify.md) | `WatchRunner` + `notify-debouncer-mini` file watcher | Accepted (M1.6.3) | `tui::watch` + `cli::cmd::watch` |
 | [0010](./adr-0010-tracing-infrastructure.md) | Tracing infrastructure (4-layer span topology + reload-Layer TUI auto-redirect + `sha256[..8]` PII hash + global `--log-level` / `--log-file`) | Accepted (M1.6.4) | `core::observability::pii` + `cli::observability` + `adapters::copilot::{parser,paths}` |
 | [0011](./adr-0011-turn-detail-and-args-plumbing.md) | Tool arguments plumbing (`Event::payload_tool_requests` + `ToolCall.arguments`) + TurnDetailView state model (full-screen, Enter = drill deeper, vim keys, reload-safe) | Accepted (M1.6.4 follow-up wave Phase 2) | `core::{adapter, episode::tool, episode::derive, analyzer}` + `adapters::copilot::event` + `tui::views::turn_detail` + `tui::app::state` |
+| [0012](./adr-0012-session-model-metrics-and-models-view.md) | Session-level model metrics (`Event::payload_model_metrics` + `ModelUsage` struct + `AnalysisReport.model_metrics` + `Episodes.model_metrics`) + Models view (key `4`, sorted by input desc, centered empty-state) | Accepted (M1.6.4 follow-up wave Phase 3) | `core::{adapter, analyzer, episode::derive, episode::episodes}` + `adapters::copilot::event` + `tui::views::models` + `tui::app::state` |
 
 No ADR is currently superseded. ADR-0011 extends ADR-0004 (the
 `derive_episodes` algorithm gains a PASS 0 args-map collection) and
@@ -59,6 +60,12 @@ ADR-0005 (uses the `Event::payload_*` extension-method pattern for
 the new `payload_tool_requests` method); inherits the red-banner-footer
 reload-error UX from ADR-0009 D-13 and uses ADR-0010's
 `tracing::debug!` for D-4 conflict detection.
+
+ADR-0012 extends ADR-0004 (derive_episodes gains a `Episodes.model_metrics`
+population arm on `EventKind::SessionShutdown`) and ADR-0005 (uses the
+`payload_*` pattern for the new `payload_model_metrics` method); inherits
+ADR-0011 D-7's centered-placeholder empty-state UX convention for the
+"no shutdown event yet" Models view branch.
 
 ## Planned files
 
