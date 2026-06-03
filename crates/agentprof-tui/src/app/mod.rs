@@ -127,6 +127,11 @@ impl<'a> AppRunner<'a> {
                 View::Flamegraph => flamegraph::render(frame, area, &self.state),
                 View::Roi => roi::render(frame, area, &self.state),
                 View::Aggregate => aggregate::render(frame, area, &self.state),
+                View::Models => {
+                    // F1.7 Task 8 wires the real render here.
+                    use ratatui::widgets::Paragraph;
+                    frame.render_widget(Paragraph::new("(models view — Task 8 pending)"), area);
+                }
             }
         }
         if self.state.help_open {
@@ -147,7 +152,7 @@ fn draw_help_overlay(frame: &mut Frame<'_>, full: Rect) {
         .style(Style::default().fg(Color::Yellow));
     let text = [
         "q / Ctrl-C       Quit",
-        "1 / 2 / 3        Switch view (Flamegraph / Roi / Aggregate)",
+        "1 / 2 / 3 / 4    Switch view (Flamegraph / Roi / Aggregate / Models)",
         "Tab / S-Tab      Cycle views forward / backward",
         "↑ / ↓ or k / j   Scroll / select (viewport follows cursor)",
         "G                Jump to last row",
@@ -159,7 +164,7 @@ fn draw_help_overlay(frame: &mut Frame<'_>, full: Rect) {
         "  Enter           Toggle args expand",
         "  Esc             Return to flamegraph",
         "  j / k / G / gg  Navigate tool calls",
-        "  1 / 2 / 3       Pop detail + switch view",
+        "  1 / 2 / 3 / 4   Pop detail + switch view",
         "",
         "Flamegraph cell legend:",
         "  █ (colored)     Tool / hook / skill executing (color = ToolSource:",

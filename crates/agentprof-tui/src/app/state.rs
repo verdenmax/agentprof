@@ -225,11 +225,12 @@ pub fn dispatch(state: &mut AppState<'_>, event: Event) -> Action {
     // Number keys ALWAYS switch view (no Roi exception).
     // (Previously 1-4 re-sorted in Roi per spec §7; user reported that as
     // a discoverability bug. Sort keys are now t/c/s/p, see below.)
-    if let KeyCode::Char(c @ ('1' | '2' | '3')) = k.code {
+    if let KeyCode::Char(c @ ('1' | '2' | '3' | '4')) = k.code {
         state.view = match c {
             '1' => View::Flamegraph,
             '2' => View::Roi,
             '3' => View::Aggregate,
+            '4' => View::Models,
             _ => state.view, // unreachable; appeases match
         };
         return Action::None;
@@ -367,7 +368,7 @@ fn dispatch_detail(state: &mut AppState<'_>, k: &crossterm::event::KeyEvent) -> 
             }
             DetailFlow::Handled
         }
-        KeyCode::Char('1' | '2' | '3') => {
+        KeyCode::Char('1' | '2' | '3' | '4') => {
             // Pop detail; let the top-level number-key block switch view.
             state.detail_view = None;
             state.pending_gg = false;
@@ -393,11 +394,12 @@ fn scroll_up(state: &mut AppState<'_>) {
     match state.view {
         View::Roi => state.roi_selected = state.roi_selected.saturating_sub(1),
         View::Flamegraph => state.flame_selected = state.flame_selected.saturating_sub(1),
-        View::Aggregate => {
+        View::Aggregate | View::Models => {
             // M1.5 Aggregate is a fixed 50/50 By-Mode + By-Hook split with
             // no scrollable element; ↑/↓ are intentionally no-ops here.
             // M1.6 may add a focused-pane concept allowing scroll within
             // the (potentially long) hook table.
+            // F1.7 Models view scroll handler lands in Task 9.
         }
     }
 }
@@ -428,11 +430,12 @@ fn scroll_down(state: &mut AppState<'_>) {
                 state.flame_selected += 1;
             }
         }
-        View::Aggregate => {
+        View::Aggregate | View::Models => {
             // M1.5 Aggregate is a fixed 50/50 By-Mode + By-Hook split with
             // no scrollable element; ↑/↓ are intentionally no-ops here.
             // M1.6 may add a focused-pane concept allowing scroll within
             // the (potentially long) hook table.
+            // F1.7 Models view scroll handler lands in Task 9.
         }
     }
 }
@@ -441,9 +444,10 @@ fn scroll_to_top(state: &mut AppState<'_>) {
     match state.view {
         View::Roi => state.roi_selected = 0,
         View::Flamegraph => state.flame_selected = 0,
-        View::Aggregate => {
+        View::Aggregate | View::Models => {
             // Mirrors scroll_up/scroll_down: Aggregate has no scrollable
             // element in M1.5, so jump-to-top is a no-op.
+            // F1.7 Models view handler lands in Task 9.
         }
     }
 }
@@ -464,8 +468,9 @@ fn scroll_to_bottom(state: &mut AppState<'_>) {
         View::Flamegraph => {
             state.flame_selected = state.report.turn_summary.len().saturating_sub(1);
         }
-        View::Aggregate => {
+        View::Aggregate | View::Models => {
             // No scrollable element in M1.5; no-op.
+            // F1.7 Models view handler lands in Task 9.
         }
     }
 }
@@ -512,7 +517,7 @@ mod tests {
     }
 
     #[test]
-    fn view_switch_via_number_keys_1_2_3() {
+    fn view_switch_via_number_keys_1_2_3_4() {
         let r = empty_report();
         let e = Episodes::new();
         let mut s = AppState::new(&r, &e);
@@ -526,6 +531,8 @@ mod tests {
         assert_eq!(s.view, View::Aggregate);
         dispatch(&mut s, key(KeyCode::Char('2')));
         assert_eq!(s.view, View::Roi);
+        dispatch(&mut s, key(KeyCode::Char('4')));
+        assert_eq!(s.view, View::Models);
     }
 
     #[test]
@@ -538,9 +545,11 @@ mod tests {
         dispatch(&mut s, key(KeyCode::Tab));
         assert_eq!(s.view, View::Aggregate);
         dispatch(&mut s, key(KeyCode::Tab));
+        assert_eq!(s.view, View::Models);
+        dispatch(&mut s, key(KeyCode::Tab));
         assert_eq!(s.view, View::Flamegraph);
         dispatch(&mut s, key(KeyCode::BackTab));
-        assert_eq!(s.view, View::Aggregate);
+        assert_eq!(s.view, View::Models);
     }
 
     #[test]
@@ -1011,8 +1020,19 @@ mod detail_view_dispatch_tests {
         s.view = View::Flamegraph;
         s.detail_view = Some(crate::views::turn_detail::TurnDetailState::new("T1"));
         let _ = dispatch(&mut s, key(KeyCode::Char('2')));
-        assert!(s.detail_view.is_none(), "1/2/3 pops detail");
+        assert!(s.detail_view.is_none(), "1/2/3/4 pops detail");
         assert_eq!(s.view, View::Roi, "and switches view");
+    }
+
+    #[test]
+    fn number_key_4_pops_detail_then_switches_to_models() {
+        let (r, e) = build_state_with_turn();
+        let mut s = AppState::new(&r, &e);
+        s.view = View::Flamegraph;
+        s.detail_view = Some(crate::views::turn_detail::TurnDetailState::new("T1"));
+        let _ = dispatch(&mut s, key(KeyCode::Char('4')));
+        assert!(s.detail_view.is_none(), "4 pops detail");
+        assert_eq!(s.view, View::Models, "and switches to Models");
     }
 
     #[test]

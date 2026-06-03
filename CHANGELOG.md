@@ -15,6 +15,8 @@ prefix used in commit messages).
 
 ### Added
 
+- `agentprof-tui`: `View::Models` enum variant (key `4`) + `pub mod views::models` (scaffold; render fn lands in Task 8). `View::next()` / `View::prev()` cycle updated: Aggregate → Models → Flamegraph. Number-key dispatch extends `1`/`2`/`3` to `1`/`2`/`3`/`4` (placeholder behavior in this commit; real render in Task 9). See [ADR-0012](docs/internals/adr-0012-session-model-metrics-and-models-view.md) D-9 + D-10.
+
 - `agentprof-core`: `AnalysisReport.model_metrics: Option<BTreeMap<String, ModelUsage>>` field — cloned from `Episodes.model_metrics` by `analyze()`. Surfaces session-level per-model token rollup to all `AnalysisReport` consumers (TUI Models view, JSON / HTML / Markdown / CSV exports automatically). `#[serde(skip_serializing_if = "Option::is_none")]` keeps archives clean when absent.
 
 - `agentprof-core`: `Episodes.model_metrics: Option<BTreeMap<String, ModelUsage>>` field — populated by `derive_episodes` from `Event::payload_model_metrics()` on `EventKind::Shutdown` events (last-wins per ADR-0012 D-6). `#[serde(skip_serializing_if = "Option::is_none")]` keeps older archives forward-compatible. See [ADR-0012](docs/internals/adr-0012-session-model-metrics-and-models-view.md) D-3 + D-6.
