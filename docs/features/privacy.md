@@ -247,7 +247,58 @@ The analyzer report fields enumerated in §2 are **unaffected** by this
 hashing — they are computed and serialized separately and are still
 governed by the (still-planned) `--redact` flag.
 
-## 8. Reporting a leak
+## 8. Tool arguments in `ToolCall.arguments` (F1)
+
+As of F1 (2026-06-03), `agentprof_core::episode::ToolCall` carries an
+optional `arguments: serde_json::Value` field populated from
+`Event::payload_tool_requests()`. For the Copilot CLI adapter this
+includes the raw JSON args of every `tool_request` and `tool.user_requested`
+event — e.g.:
+
+- `bash` calls carry `{ "command": "rg pattern --type rust" }`
+- `read_file` carries `{ "path": "/home/user/project/src/main.rs" }`
+- `mcp:postgres::execute_query` carries `{ "query": "SELECT * FROM ..." }`
+- `ask_user` carries the prompt + choice list the agent presented
+  (user replies are tracked separately as `tool_result`, not
+  `arguments` — so the user's typed response is NOT in args)
+
+**No redaction is performed in v1.** The args data is passed through
+as-is to:
+
+1. The TUI `TurnDetailView` (shown to anyone viewing the report).
+2. **Args do NOT currently appear in the JSON export** (`analyze --export
+   json`). The JSON export serializes `AnalysisReport`, which aggregates
+   tool data into `tool_rank` (per-tool-name rollups) without per-call
+   args. The `ToolCall.arguments` field IS populated end-to-end in the
+   in-memory `Episodes` (consumed by `TurnDetailView`), but is not
+   surfaced by any export format in F1. Adding per-call args to JSON
+   export is reserved for a future enhancement (likely via a new
+   `--export episodes-json` surface or by extending `AnalysisReport`
+   with raw episode access).
+
+This matches the existing posture on tool names, raw event content, and
+turn timing data: agentprof trusts whatever the adapter emits and does
+not introspect payload contents to scrub sensitive substrings.
+**This posture is recorded in [ADR-0011](../internals/adr-0011-turn-detail-and-args-plumbing.md) D-13.**
+
+**Note**: the `AGENTPROF_LOG_FULL_PATHS` environment variable governs
+*logging fields* (e.g. `session = %hash`), NOT payload data. It has no
+effect on `ToolCall.arguments` rendering or serialization.
+
+**Future**: a `--show-results` / args-redaction feature is reserved for
+a future privacy RFC. Until then, users should be aware that:
+
+- Sharing `analyze --export json` output is safe regarding args (they
+  are not in the JSON export today — see item 2 above). It WILL expose
+  tool names, durations, success/failure rates, and turn timing, which
+  may be sensitive in their own right.
+- Recording a `watch` TUI session on screen captures args.
+- HTML / Markdown / CSV / Speedscope exports do NOT include args (those
+  format exports are tool-aggregated or frame-named, not per-call —
+  Speedscope frame names already convey tool identity; args would
+  multiply file size dramatically. See ADR-0011 D-12.)
+
+## 9. Reporting a leak
 
 (Same as §6 above; preserved for direct linking. If you find a `tracing`
 span attribute that emits a raw session path or any other 🔴 HIGH

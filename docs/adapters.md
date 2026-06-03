@@ -84,3 +84,35 @@ committing data:
 export AGENTPROF_LOCAL_FIXTURES_DIR=~/.<agent>/<path>
 cargo test -p agentprof-adapters --test <agent>_smoke -- --include-ignored
 ```
+
+## Optional `Event` overrides (F1)
+
+These trait methods on `agentprof_core::adapter::Event` have safe
+default impls (empty `Vec` / `None`) so existing adapters compile
+unchanged. New adapters wishing to enable the TUI `TurnDetailView`'s
+args preview SHOULD implement both as a pair.
+
+### `Event::payload_tool_requests`
+
+Adapters that want their users to benefit from the TUI
+`TurnDetailView`'s args preview SHOULD implement this method. Return a
+`Vec<(String, serde_json::Value)>` of `(tool_call_id, arguments)` pairs
+declared by the event. Default impl returns empty `Vec`; adapters
+without an override silently ship the `(not captured)` placeholder in
+the TUI detail view.
+
+Example (Copilot adapter): see `crates/agentprof-adapters/src/copilot/event.rs`
+for the canonical impl across `AssistantMessage` (multi-pair) and
+`ToolUserRequested` (single-pair) variants.
+
+See ADR-0011 D-2 for rationale on the method shape (returns `Vec` not
+`Option<...>` because some events carry multiple tool requests).
+
+### `Event::tool_call_id`
+
+Companion to `payload_tool_requests`. Adapters that emit args via the
+above MUST also implement this so `derive_episodes` can look up args
+at tool-close time. Returns `Option<&str>` — `Some` for variants whose
+payload carries `tool_call_id` (typically `ToolExecStart`,
+`ToolExecComplete`, `ToolUserRequested`), `None` otherwise. See
+ADR-0011 D-3 + D-6-revised for rationale.

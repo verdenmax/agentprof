@@ -191,11 +191,11 @@ For repository structure and crate boundaries, see
 
 ---
 
-## TUI (M1.5)
+## TUI (M1.5 + F1)
 
 `agentprof analyze --export tui` opens an interactive ratatui terminal UI on top of the same `AnalysisReport` the markdown / JSON exporters consume. Three views, all driven from one session:
 
-**FlamegraphView (`1`):** Per-turn horizontal gantt; each row is one turn. Three cell types: `█` colored by [`ToolSource`](crates/agentprof-core/src/model/tool_source.rs) (Builtin / MCP / Skill) = tool execution, `░` = LLM thinking time (in-turn, no tool running), `·` = padding (turn ended; shorter than the longest non-user-blocking turn). Selected turn shows a footer line with its tool call breakdown (e.g. `T3 selected: bash(120ms) read_file(85ms) +2 more · Enter for detail`); press `Enter` to open a full-screen detail view listing every tool call in the turn.
+**FlamegraphView (`1`):** Per-turn horizontal gantt; each row is one turn. Three cell types: `█` colored by [`ToolSource`](crates/agentprof-core/src/model/tool_source.rs) (Builtin / MCP / Skill) = tool execution, `░` = LLM thinking time (in-turn, no tool running), `·` = padding (turn ended; shorter than the longest non-user-blocking turn). Selected turn shows a footer line with its tool call breakdown (e.g. `T3 selected: bash(120ms) read_file(85ms) +2 more · Enter for detail`); press `Enter` to open a full-screen detail view listing every tool call in the turn. Args are populated for Copilot CLI sessions; other adapters show `(not captured)` until they implement `Event::payload_tool_requests`.
 
 ```
 ┌─ Flamegraph (1/3) ───────────────────────────────────────────────┐
