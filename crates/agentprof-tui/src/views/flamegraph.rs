@@ -421,7 +421,10 @@ fn build_row<'a>(
 ///   because every `█` originates from a tool segment that has a known
 ///   [`ToolSource`]).
 /// - `░` → [`Modifier::DIM`] gray (thinking time).
-/// - `·` → dark-gray + [`Modifier::DIM`] (padding past the turn's wall-time).
+/// - `·` → dark-gray (padding past the turn's wall-time). No `DIM` modifier
+///   because on dark terminal themes `DarkGray + DIM` collapses to invisible
+///   against a black background; plain `DarkGray` keeps padding visible but
+///   subtle.
 ///
 /// Consecutive cells with the same style are merged into a single
 /// [`TextSpan`] to keep the rendered output compact.
@@ -481,9 +484,7 @@ fn cell_style(ch: char, source: Option<&ToolSource>) -> Style {
             |s| Style::default().fg(tool_source_color(s)),
         ),
         '░' => Style::default().add_modifier(Modifier::DIM),
-        '·' => Style::default()
-            .fg(Color::DarkGray)
-            .add_modifier(Modifier::DIM),
+        '·' => Style::default().fg(Color::DarkGray),
         _ => Style::default(),
     }
 }
@@ -894,7 +895,7 @@ mod tests {
         //   "█"  magenta (Mcp)
         //   "█"  yellow (Skill)
         //   "░"  dim
-        //   "·"  dark gray + dim
+        //   "·"  dark gray (no DIM — invisible on black terminals)
         assert_eq!(spans.len(), 6, "spans: {spans:?}");
         assert_eq!(spans[0].content, "░");
         assert!(
@@ -910,6 +911,11 @@ mod tests {
         assert_eq!(spans[4].content, "░");
         assert_eq!(spans[5].content, "·");
         assert_eq!(spans[5].style.fg, Some(Color::DarkGray));
+        assert!(
+            !spans[5].style.add_modifier.contains(Modifier::DIM),
+            "padding · must NOT use DIM — DarkGray + DIM is invisible on \
+             dark terminal themes (see regression: 2026-06-03 user report)"
+        );
     }
 
     #[test]
@@ -920,13 +926,18 @@ mod tests {
         let buf = ['░', '░', '░', '·', '·'];
         let sources = [None, None, None, None, None];
         let spans = build_styled_cells_with_source(&buf, &sources);
-        // Expect 2 spans: "░░░" (dim, no fg) + "··" (DarkGray + dim).
+        // Expect 2 spans: "░░░" (dim, no fg) + "··" (DarkGray, no DIM).
         assert_eq!(spans.len(), 2);
         assert_eq!(spans[0].content, "░░░");
         assert_eq!(spans[0].style.fg, None, "thinking has no fg override");
         assert!(spans[0].style.add_modifier.contains(Modifier::DIM));
         assert_eq!(spans[1].content, "··");
         assert_eq!(spans[1].style.fg, Some(Color::DarkGray));
+        assert!(
+            !spans[1].style.add_modifier.contains(Modifier::DIM),
+            "padding · must NOT use DIM (see test \
+             build_styled_cells_handles_all_cell_types)"
+        );
     }
 
     #[test]
