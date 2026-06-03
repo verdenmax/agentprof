@@ -65,3 +65,67 @@ analyzer_test!(
 );
 analyzer_test!(analysis_two_skills_one_turn, "two-skills-one-turn");
 analyzer_test!(analysis_orphan_skill_mix, "orphan-skill-mix");
+
+// ============== B-7 (M1.6.4 follow-up wave, 2026-06-03) ========
+// Regression-lock for the `b5c1429` FlamegraphView fix. Snapshots
+// the analyzer output (so `tool_rank.ask_user.is_user_blocking`
+// stays flagged) and asserts the derived-episode invariants that
+// the renderer's `max_dur` filter relies on (exactly 1 turn
+// is_user_blocking + duration ratio).
+analyzer_test!(
+    analysis_with_ask_user_mid_session,
+    "with-ask-user-mid-session"
+);
+
+#[test]
+fn with_ask_user_mid_session_episode_invariants() {
+    let adapter = CopilotAdapter;
+    let root = fixture("with-ask-user-mid-session")
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    let sessions = adapter.discover_sessions(&root).expect("discover");
+    let sref = sessions
+        .into_iter()
+        .find(|s| {
+            s.path
+                .parent()
+                .unwrap()
+                .ends_with("with-ask-user-mid-session")
+        })
+        .expect("fixture discovered");
+    let raw = adapter.load_session(&sref).expect("load_session");
+    let episodes = derive_episodes(&raw.events, &raw.meta);
+
+    assert_eq!(episodes.turns.len(), 3, "fixture has 3 turns");
+    let blocking: Vec<&_> = episodes
+        .turns
+        .iter()
+        .filter(|t| t.is_user_blocking())
+        .collect();
+    assert_eq!(
+        blocking.len(),
+        1,
+        "exactly one turn must be is_user_blocking (the ask_user one)"
+    );
+
+    // Duration ratio: blocking turn >= 10× the longest non-blocking
+    // turn. Actual fixture is ~121× — the loose bound keeps the
+    // assertion robust against small future adjustments.
+    let dur_ms = |t: &agentprof_core::episode::Turn| -> i64 {
+        t.ended_at
+            .map_or(0, |e| (e - t.started_at).num_milliseconds())
+    };
+    let blocking_dur = dur_ms(blocking[0]);
+    let non_blocking_max = episodes
+        .turns
+        .iter()
+        .filter(|t| !t.is_user_blocking())
+        .map(dur_ms)
+        .max()
+        .expect("at least one non-blocking turn");
+    assert!(
+        blocking_dur >= non_blocking_max * 10,
+        "blocking turn duration {blocking_dur} ms must be >= 10× non-blocking max {non_blocking_max} ms"
+    );
+}

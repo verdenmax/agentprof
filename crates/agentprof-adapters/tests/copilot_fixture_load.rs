@@ -67,6 +67,7 @@ fn every_fixture_line_parses_as_copilot_event() {
         "tool-and-skill-same-turn",
         "two-skills-one-turn",
         "orphan-skill-mix",
+        "with-ask-user-mid-session",
         // NOTE: "corrupt" intentionally contains an unparseable line.
         // NOTE: "live-truncated" intentionally has a truncated tail.
     ];
@@ -260,4 +261,55 @@ fn orphan_skill_mix_fixture_loads_with_post_turn_orphans() {
         })
         .count();
     assert_eq!(skills, 1, "one orphan skill.invoked event after turn_end");
+}
+
+// ============== B-7 (M1.6.4 follow-up wave, 2026-06-03) ========
+// Regression-lock for the `b5c1429` FlamegraphView fix: a session
+// with a ~10-minute `ask_user` turn between two ~5-second normal
+// turns. The 120× wall-time ratio is the bug-triggering scenario.
+
+#[test]
+fn with_ask_user_mid_session_fixture_loads() {
+    let raw = parse_events_jsonl(&fixture_path("with-ask-user-mid-session"), false).expect("parse");
+    assert_eq!(raw.parse_warnings.len(), 0, "no parse warnings expected");
+    assert_eq!(raw.events.len(), 20, "fixture has 20 events");
+
+    let ask_user_starts = raw
+        .events
+        .iter()
+        .filter_map(|e| match e {
+            agentprof_adapters::copilot::CopilotEvent::ToolExecStart(env) => {
+                Some(env.data.tool_name.as_str())
+            }
+            _ => None,
+        })
+        .filter(|n| *n == "ask_user")
+        .count();
+    assert_eq!(
+        ask_user_starts, 1,
+        "exactly one ask_user tool.execution_start"
+    );
+
+    let bash_starts = raw
+        .events
+        .iter()
+        .filter_map(|e| match e {
+            agentprof_adapters::copilot::CopilotEvent::ToolExecStart(env) => {
+                Some(env.data.tool_name.as_str())
+            }
+            _ => None,
+        })
+        .filter(|n| *n == "bash")
+        .count();
+    assert_eq!(
+        bash_starts, 2,
+        "two bash tool.execution_start events (turns 0 + 2)"
+    );
+
+    let turn_ends = raw
+        .events
+        .iter()
+        .filter(|e| matches!(e, agentprof_adapters::copilot::CopilotEvent::TurnEnd(_)))
+        .count();
+    assert_eq!(turn_ends, 3, "three assistant.turn_end events");
 }

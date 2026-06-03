@@ -1,20 +1,20 @@
 ---
 source: crates/agentprof-cli/tests/aggregate.rs
-assertion_line: 166
 expression: s
 ---
 # agentprof aggregate
 
 - By: tool
 - Window: all
-- Sessions: 19
-- Total wall-clock time: 3.8 min
+- Sessions: 20
+- Total wall-clock time: 14.3 min
 
 ## By tool
 
 | Tool | Source | Calls | Success | Fail | Total | p50 | p95 | Sessions |
 |---|---|---:|---:|---:|---:|---:|---:|---:|
-| `bash` | builtin | 14 | 13 | 1 | 20.0 s | 1.0 s | 5.0 s | 11 |
+| `ask_user` | builtin | 1 | 1 | 0 | 10.0 min | 10.0 min | 10.0 min | 1 |
+| `bash` | builtin | 16 | 15 | 1 | 20.7 s | 1.0 s | 5.0 s | 12 |
 | `mcp__github__create_pr` | mcp:github | 1 | 1 | 0 | 2.0 s | 2.0 s | 2.0 s | 1 |
 | `mcp__github__list_pulls` | mcp:github | 1 | 1 | 0 | 2.0 s | 2.0 s | 2.0 s | 1 |
 | `skill__code-reviewer__run` | skill:code-reviewer | 2 | 2 | 0 | 2.0 s | 1.0 s | 1.0 s | 2 |

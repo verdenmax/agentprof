@@ -1,0 +1,89 @@
+---
+source: crates/agentprof-adapters/tests/analyzer_on_fixtures.rs
+expression: report
+---
+{
+  "meta": {
+    "id": "00000000-0000-0000-0000-00000000c700",
+    "agent": "copilot",
+    "producer": "copilot-agent",
+    "agent_version": "1.0.54",
+    "started_at": "2026-06-03T10:00:00Z",
+    "cwd": "/tmp/agentprof-fixture/with-ask-user-mid-session",
+    "is_live": false
+  },
+  "turn_summary": [
+    {
+      "turn_id": "00000000-0000-0000-0000-00000000c702",
+      "started_at": "2026-06-03T10:00:00.600Z",
+      "duration": 4400,
+      "status": "Completed",
+      "model": "gpt-5-mini",
+      "mode": "Interactive",
+      "output_tokens": 10,
+      "tool_call_count": 1,
+      "hook_call_count": 0,
+      "skill_call_count": 0
+    },
+    {
+      "turn_id": "00000000-0000-0000-0000-00000000c711",
+      "started_at": "2026-06-03T10:00:10.500Z",
+      "duration": 604500,
+      "status": "Completed",
+      "model": "gpt-5-mini",
+      "mode": "Interactive",
+      "output_tokens": 12,
+      "tool_call_count": 1,
+      "hook_call_count": 0,
+      "skill_call_count": 0
+    },
+    {
+      "turn_id": "00000000-0000-0000-0000-00000000c721",
+      "started_at": "2026-06-03T10:10:30.500Z",
+      "duration": 4500,
+      "status": "Completed",
+      "model": "gpt-5-mini",
+      "mode": "Interactive",
+      "output_tokens": 10,
+      "tool_call_count": 1,
+      "hook_call_count": 0,
+      "skill_call_count": 0
+    }
+  ],
+  "tool_rank": [
+    {
+      "name": "ask_user",
+      "source": {
+        "kind": "builtin"
+      },
+      "call_count": 1,
+      "success_count": 1,
+      "failure_count": 0,
+      "orphan_count": 0,
+      "user_requested_count": 0,
+      "total_duration": 600000,
+      "p50_duration": 600000,
+      "p95_duration": 600000,
+      "max_duration": 600000,
+      "is_user_blocking": true
+    },
+    {
+      "name": "bash",
+      "source": {
+        "kind": "builtin"
+      },
+      "call_count": 2,
+      "success_count": 2,
+      "failure_count": 0,
+      "orphan_count": 0,
+      "user_requested_count": 0,
+      "total_duration": 700,
+      "p50_duration": 500,
+      "p95_duration": 500,
+      "max_duration": 500,
+      "is_user_blocking": false
+    }
+  ],
+  "hook_rank": [],
+  "warnings": []
+}

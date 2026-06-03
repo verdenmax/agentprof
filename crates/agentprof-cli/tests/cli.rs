@@ -498,3 +498,24 @@ fn analyze_html_snapshot_orphan_skill_mix() {
     let html = normalize_html_for_snapshot(run_export("orphan-skill-mix", "html"));
     insta::assert_snapshot!("analyze_html__orphan_skill_mix", html);
 }
+
+// ============== B-7 (M1.6.4 follow-up wave, 2026-06-03) ========
+// Regression-lock for the `b5c1429` FlamegraphView fix. Markdown +
+// HTML snapshots of the 3-turn `with-ask-user-mid-session` fixture
+// (10-minute ask_user wait between two 5-second normal turns). The
+// HTML snapshot in particular locks the rendered SVG flamegraph
+// widths — a future PR that reverts the user-blocking filter in
+// FlamegraphView max_dur would visibly fail this snapshot because
+// the normal turns would shrink to ~0 px.
+
+#[test]
+fn analyze_md_snapshot_with_ask_user_mid_session() {
+    let s = run_export("with-ask-user-mid-session", "md");
+    insta::assert_snapshot!("analyze_md__with_ask_user_mid_session", s);
+}
+
+#[test]
+fn analyze_html_snapshot_with_ask_user_mid_session() {
+    let html = normalize_html_for_snapshot(run_export("with-ask-user-mid-session", "html"));
+    insta::assert_snapshot!("analyze_html__with_ask_user_mid_session", html);
+}

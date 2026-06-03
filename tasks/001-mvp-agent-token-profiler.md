@@ -184,7 +184,7 @@ agentprof-adapters             agentprof-tui                   agentprof-storage
 > | FR-6 导出 | 2/4 (md + json) | 0/1 | — | **50%** | speedscope / html / csv 计划 M1.6 |
 > | FR-7 配置 + 存储 | 0/3 | 0/2 | 0/1 | **0%** | 计划 Phase 2 (M2.1 SQLite) |
 
-> **FR-1 已交付清单（Copilot adapter）**：`Adapter` trait + `CopilotAdapter` + `agentprof_adapters::copilot::*`（28 named CopilotEvent variants + WithEnvelope + Unknown）+ 4 个 payload-* trait method（name / model / output_tokens / mode）+ **19 个 fixture**（含 2026-06-03 M1.6.4 follow-up wave B-6 加的 3 个 combination fixtures：`tool-and-skill-same-turn` / `two-skills-one-turn` / `orphan-skill-mix`）+ 60+ unit/round-trip/path tests。详见 `CHANGELOG.md [Unreleased]` 中各 sub-section（M1.2 / M1.3 / M1.4 / audit followups / turn-metadata / mode-vocab / post-output-audit / M1.6.x / 2026-06-03 follow-up wave）。
+> **FR-1 已交付清单（Copilot adapter）**：`Adapter` trait + `CopilotAdapter` + `agentprof_adapters::copilot::*`（28 named CopilotEvent variants + WithEnvelope + Unknown）+ 4 个 payload-* trait method（name / model / output_tokens / mode）+ **20 个 fixture**（含 2026-06-03 M1.6.4 follow-up wave B-6 加的 3 个 combination fixtures：`tool-and-skill-same-turn` / `two-skills-one-turn` / `orphan-skill-mix`；以及 B-7 加的 `with-ask-user-mid-session` 锁 `b5c1429` FlamegraphView 修复）+ 60+ unit/round-trip/path tests。详见 `CHANGELOG.md [Unreleased]` 中各 sub-section（M1.2 / M1.3 / M1.4 / audit followups / turn-metadata / mode-vocab / post-output-audit / M1.6.x / 2026-06-03 follow-up wave）。
 
 ### FR-1：适配器（agentprof-adapters）
 

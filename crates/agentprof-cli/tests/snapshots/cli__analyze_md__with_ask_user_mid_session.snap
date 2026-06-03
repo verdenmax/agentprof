@@ -1,0 +1,41 @@
+---
+source: crates/agentprof-cli/tests/cli.rs
+expression: s
+---
+# agentprof analyze — 00000000-0000-0000-0000-00000000c700
+
+## Session
+- Agent: Copilot (v1.0.54)
+- Started: 2026-06-03 10:00:00 UTC
+- CWD: /tmp/agentprof-fixture/with-ask-user-mid-session
+- Live: no
+- Turns: 3
+- Tools tracked: 2
+- Hooks tracked: 0
+- Derive warnings: 0
+- Parse warnings: 0
+
+## Turn Summary
+| # | Turn ID | Status | Duration | Model | Mode | Tools | Hooks | Skills | Out-Tokens |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | 00000000-0000-0000-0000-00000000c702 | Completed | 4.40s | gpt-5-mini | interactive | 1 | 0 | 0 | 10 |
+| 2 | 00000000-0000-0000-0000-00000000c711 | Completed | 10.1m | gpt-5-mini | interactive | 1 | 0 | 0 | 12 |
+| 3 | 00000000-0000-0000-0000-00000000c721 | Completed | 4.50s | gpt-5-mini | interactive | 1 | 0 | 0 | 10 |
+
+## Tool Rank (by total duration)
+| Tool | Source | Calls | OK | Fail | Orphan | User-req | Total | p50 | p95 | Max |
+|---|---|---|---|---|---|---|---|---|---|---|
+| bash | Builtin | 2 | 2 | 0 | 0 | 0 | 700ms | 500ms | 500ms | 500ms |
+
+## User-blocking tools (wall-clock includes user think time)
+These tools block on the human, not on agent or machine work; their `Total` reflects how long the user took to respond, not engineering cost.
+| Tool | Source | Calls | OK | Fail | Orphan | User-req | Total | p50 | p95 | Max |
+|---|---|---|---|---|---|---|---|---|---|---|
+| ask_user | Builtin | 1 | 1 | 0 | 0 | 0 | 10.0m | 10.0m | 10.0m | 10.0m |
+
+## Hook Rank (by total duration)
+| Hook | Calls | OK | Fail | Synth | Total | p50 | p95 |
+|---|---|---|---|---|---|---|---|
+
+## Warnings
+(none)
