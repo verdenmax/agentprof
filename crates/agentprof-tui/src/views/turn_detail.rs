@@ -449,15 +449,72 @@ mod formatter_tests {
         assert_eq!(status_sigil(&ToolCallStatus::OrphanSynthesizedStart), "↯");
         assert_eq!(status_sigil(&ToolCallStatus::OpenAtEndOfSession), "⊘");
     }
+
+    #[test]
+    fn turn_header_text_includes_tokens_and_model_when_both_some() {
+        use chrono::{TimeZone, Utc};
+        let base = Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap();
+        let mut turn = agentprof_core::episode::Turn::new("T1".into(), base);
+        turn.ended_at = Some(base + chrono::Duration::seconds(5));
+        turn.status = agentprof_core::episode::TurnStatus::Completed;
+        turn.output_tokens = Some(1234);
+        turn.model = Some("claude-sonnet-4.6".to_string());
+
+        let lines = turn_header_text(&turn);
+        assert_eq!(lines.len(), 2, "expected 2 lines when both present");
+        assert_eq!(lines[1], "1.2k output tokens · claude-sonnet-4.6");
+    }
+
+    #[test]
+    fn turn_header_text_omits_tokens_line_when_both_none() {
+        use chrono::{TimeZone, Utc};
+        let base = Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap();
+        let mut turn = agentprof_core::episode::Turn::new("T1".into(), base);
+        turn.ended_at = Some(base + chrono::Duration::seconds(5));
+        turn.status = agentprof_core::episode::TurnStatus::Completed;
+        // Both output_tokens and model left None.
+
+        let lines = turn_header_text(&turn);
+        assert_eq!(
+            lines.len(),
+            1,
+            "expected 1 line when both tokens and model are None"
+        );
+    }
+
+    #[test]
+    fn turn_header_text_omits_tokens_segment_when_only_tokens_none() {
+        use chrono::{TimeZone, Utc};
+        let base = Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap();
+        let mut turn = agentprof_core::episode::Turn::new("T1".into(), base);
+        turn.ended_at = Some(base + chrono::Duration::seconds(5));
+        turn.status = agentprof_core::episode::TurnStatus::Completed;
+        turn.model = Some("gpt-5-mini".to_string());
+
+        let lines = turn_header_text(&turn);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[1], "gpt-5-mini");
+    }
 }
 
-/// Compose the one-line turn-level header rendered at the top of
+/// Compose the turn-level header rendered at the top of
 /// [`render_turn_detail`].
 ///
-/// Discriminates on [`agentprof_core::episode::TurnStatus`] so an
-/// in-progress (`Open`) turn is rendered as `(ongoing)` rather than the
-/// misleading `0ms wall` that the raw `ended_at`-based calculation
-/// would produce, and so `Aborted` turns surface the abort reason.
+/// Returns 1–2 lines:
+///
+/// - **Line 1** — wall-clock + tool-call count, discriminated on
+///   [`agentprof_core::episode::TurnStatus`] so an in-progress (`Open`)
+///   turn is rendered as `(ongoing)` rather than the misleading
+///   `0ms wall` that the raw `ended_at`-based calculation would
+///   produce, and so `Aborted` turns surface the abort reason.
+/// - **Line 2** — `<tokens> output tokens · <model>` (either segment
+///   omitted if its source field is `None`; the line is skipped
+///   entirely when both `turn.output_tokens` and `turn.model` are
+///   `None`).
+///
+/// Token formatting goes through
+/// [`crate::views::format::format_tokens_detailed`] (no width cap,
+/// `k`/`M` abbreviations).
 ///
 /// # Examples
 ///
@@ -467,13 +524,13 @@ mod formatter_tests {
 /// use chrono::{TimeZone, Utc};
 ///
 /// let turn = Turn::new("T1".into(), Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap());
-/// // Newly-constructed turn is `Open` with no tool calls.
-/// assert_eq!(turn_header_text(&turn), "(ongoing) · 0 tool calls");
+/// // Newly-constructed turn is `Open` with no tool calls or model.
+/// assert_eq!(turn_header_text(&turn), vec!["(ongoing) · 0 tool calls".to_string()]);
 /// ```
 #[must_use]
-pub fn turn_header_text(turn: &agentprof_core::episode::Turn) -> String {
+pub fn turn_header_text(turn: &agentprof_core::episode::Turn) -> Vec<String> {
     let tool_count = turn.tool_calls.len();
-    match &turn.status {
+    let line1 = match &turn.status {
         TurnStatus::Open => format!("(ongoing) · {tool_count} tool calls"),
         TurnStatus::Aborted(info) => {
             let total_ms = turn
@@ -490,7 +547,25 @@ pub fn turn_header_text(turn: &agentprof_core::episode::Turn) -> String {
                 .map_or(0, |e| (e - turn.started_at).num_milliseconds().max(0));
             format!("{total_ms}ms wall · {tool_count} tool calls")
         }
+    };
+
+    // Line 2: tokens + model. Either segment omitted when its source is
+    // None; the whole line is skipped if both are None (avoids a stray
+    // blank/punctuation-only line).
+    let tokens_str = crate::views::format::format_tokens_detailed(turn.output_tokens);
+    let model_str = turn.model.as_deref();
+    let line2 = match (tokens_str, model_str) {
+        (Some(t), Some(m)) => Some(format!("{t} output tokens · {m}")),
+        (Some(t), None) => Some(format!("{t} output tokens")),
+        (None, Some(m)) => Some(m.to_string()),
+        (None, None) => None,
+    };
+
+    let mut header_lines = vec![line1];
+    if let Some(l2) = line2 {
+        header_lines.push(l2);
     }
+    header_lines
 }
 
 /// Render the full-screen detail view for the turn referenced by
@@ -602,8 +677,11 @@ pub fn render_turn_detail(
 
     // I-4: turn-level header. Discriminate open / completed / aborted
     // turns via `turn.status` so an in-progress turn isn't misrendered as
-    // "0ms wall · N tool calls" (which reads as instantaneous).
-    lines.push(Line::from(turn_header_text(turn)));
+    // "0ms wall · N tool calls" (which reads as instantaneous). Header
+    // is 1–2 lines: wall + tool count, then optional tokens + model.
+    for hl in turn_header_text(turn) {
+        lines.push(Line::from(hl));
+    }
     lines.push(Line::from(""));
 
     for (idx, (name, source, call)) in resolved.iter().enumerate() {

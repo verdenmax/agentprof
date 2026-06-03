@@ -54,7 +54,23 @@ use ratatui::Frame;
 
 use crate::app::state::AppState;
 use crate::theme::tool_source_color;
-use crate::views::format::human_short;
+use crate::views::format::{format_tokens_short, human_short};
+
+/// Width in chars of the flamegraph row prefix.
+///
+/// Composed of:
+/// - 5 chars right-padded turn label (e.g. `"  T39"`)
+/// - 1 space
+/// - 10 chars right-padded duration (e.g. `"      9.6s"`)
+/// - 1 space
+/// - 5 chars right-padded tokens column (e.g. `" 2.3k"`)
+/// - 2 trailing spaces (visual gutter before gantt)
+///
+/// MUST match the `format!("{:>5} {:>10} {:>5}  ", ...)` literal in
+/// `build_row`. Use this constant in `render` for gantt-width
+/// computation; the `build_row_prefix_width_matches_layout_constant`
+/// test enforces the invariant.
+pub const PREFIX_WIDTH: u16 = 24;
 
 /// Pure-math layout helper for `render`.
 ///
@@ -123,9 +139,9 @@ pub fn segment_layout(
 
 /// Render the `FlamegraphView` into the given area.
 ///
-/// Layout: vertical list of rows; each row has an 18-cell prefix
-/// (5-char turn label like `T1234` + 1 space + 10-char duration like
-/// `12.4h` + 2 trailing spaces) followed by the gantt strip. The selected
+/// Layout: vertical list of rows; each row has a fixed-width
+/// [`PREFIX_WIDTH`]-cell prefix (turn label + duration + tokens columns)
+/// followed by the gantt strip filling the remaining width. The selected
 /// turn (`state.flame_selected`) is highlighted with reverse-video.
 ///
 /// **Viewport (edge-triggered)**: `state.flame_viewport_top` is persisted
@@ -147,7 +163,7 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState<'_>) {
     let inner = block.inner(chunks[0]);
     frame.render_widget(block, chunks[0]);
 
-    let prefix_width: u16 = 18;
+    let prefix_width: u16 = PREFIX_WIDTH;
     let gantt_width = inner.width.saturating_sub(prefix_width);
 
     // Reserve 1 line at the bottom of `inner` for the selected-turn footer
@@ -332,7 +348,17 @@ fn build_row<'a>(
     episodes: &'a Episodes,
 ) -> Line<'a> {
     let dur_str = duration.map_or_else(|| "—".to_string(), human_short);
-    let prefix = format!("{:>5} {:>10}  ", format!("T{}", idx + 1), dur_str);
+    // 5-char fixed-width tokens column inserted between duration and the
+    // gantt. Renders the per-turn `output_tokens` sum (assistant.message
+    // outputTokens). `None` → centered dash so it's distinguishable from
+    // "0 reported". See `format_tokens_short` for bucket details.
+    let tokens_str = format_tokens_short(turn.and_then(|t| t.output_tokens));
+    let prefix = format!(
+        "{:>5} {:>10} {:>5}  ",
+        format!("T{}", idx + 1),
+        dur_str,
+        tokens_str,
+    );
     let mut spans: Vec<TextSpan<'_>> = Vec::new();
     // Thinking-only turns (no tool calls — e.g. pure text replies,
     // plan-then-execute breakpoints, summary turns) are marked with a
@@ -1333,6 +1359,77 @@ mod tests {
         assert!(
             first.style.add_modifier.contains(Modifier::UNDERLINED),
             "UNDERLINED must survive Blue + REVERSED"
+        );
+    }
+
+    #[test]
+    fn build_row_includes_tokens_column_when_some() {
+        let base = Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap();
+        let mut turn = Turn::new("T1".into(), base);
+        turn.ended_at = Some(base + Duration::seconds(2));
+        turn.output_tokens = Some(1234);
+        let episodes = Episodes::default();
+        let line = build_row(
+            0,
+            false,
+            Some(Duration::seconds(2)),
+            2000,
+            40,
+            Some(&turn),
+            &episodes,
+        );
+        let prefix = line.spans[0].content.as_ref();
+        assert!(
+            prefix.contains("1.2k"),
+            "prefix must contain abbreviated token count, got {prefix:?}"
+        );
+    }
+
+    #[test]
+    fn build_row_tokens_column_dash_when_none() {
+        let base = Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap();
+        let mut turn = Turn::new("T1".into(), base);
+        turn.ended_at = Some(base + Duration::seconds(2));
+        // turn.output_tokens defaults to None on Turn::new.
+        let episodes = Episodes::default();
+        let line = build_row(
+            0,
+            false,
+            Some(Duration::seconds(2)),
+            2000,
+            40,
+            Some(&turn),
+            &episodes,
+        );
+        let prefix = line.spans[0].content.as_ref();
+        // Centered dash from format_tokens_short(None) == "  -  ".
+        assert!(
+            prefix.contains("  -  "),
+            "prefix must contain centered dash for None tokens, got {prefix:?}"
+        );
+    }
+
+    #[test]
+    fn build_row_prefix_width_matches_layout_constant() {
+        // Critical invariant: the prefix produced by build_row MUST be
+        // exactly PREFIX_WIDTH chars wide, else render() over-allocates
+        // gantt cells and ratatui silently clips the rightmost edge.
+        // See F1.6 critical code-review fix.
+        let episodes = Episodes::default();
+        let line = build_row(
+            0,
+            false,
+            Some(Duration::seconds(1)),
+            1000,
+            50,   // gantt_width
+            None, // turn (None → no gantt cells rendered, but prefix still produced)
+            &episodes,
+        );
+        let prefix_chars = line.spans[0].content.chars().count();
+        assert_eq!(
+            prefix_chars, PREFIX_WIDTH as usize,
+            "PREFIX_WIDTH constant must match actual build_row prefix width — \
+             if you change the format!() in build_row, update PREFIX_WIDTH too"
         );
     }
 }
