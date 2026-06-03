@@ -160,7 +160,7 @@ pub enum AggSortKey {
 /// assert!(!s.pending_gg);
 /// assert!(s.detail_view.is_none());
 /// ```
-#[derive(Debug, Default)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub struct WatchViewState {
     /// Sort key for the cross-session aggregate view.
@@ -178,6 +178,30 @@ pub struct WatchViewState {
     /// `WatchRunner::do_reload` when the cached `turn_id` is no
     /// longer present in the reloaded [`Episodes`] (see ADR-0011 D-14).
     pub detail_view: Option<crate::views::turn_detail::TurnDetailState>,
+    /// Mirrors [`crate::app::state::AppState::models_selected`] across
+    /// `WatchRunner`'s transient `AppState` reconstruction. F1.7.
+    pub models_selected: usize,
+    /// Currently selected view in watch mode. Round-tripped across
+    /// the transient `AppState` every key dispatch + render. Defaults
+    /// to [`crate::views::View::Aggregate`] for backward compat with
+    /// M1.6.3 (watch mode originally shipped aggregate-only). F1.7
+    /// enables view switching via keys `1`/`2`/`3`/`4` once `view`
+    /// persists across events.
+    pub view: crate::views::View,
+}
+
+impl Default for WatchViewState {
+    fn default() -> Self {
+        Self {
+            agg_sort: AggSortKey::default(),
+            agg_selected: 0,
+            help_overlay: false,
+            pending_gg: false,
+            detail_view: None,
+            models_selected: 0,
+            view: crate::views::View::Aggregate,
+        }
+    }
 }
 
 /// Owned-data live-refresh TUI runner.
@@ -404,6 +428,8 @@ impl WatchRunner {
             } => {
                 let mut transient = AppState::new(report, episodes);
                 transient.help_open = self.view_state.help_overlay;
+                transient.models_selected = self.view_state.models_selected;
+                transient.view = self.view_state.view;
                 // Read `detail_view` directly from the persistent
                 // `view_state` — render is read-only so no clone-in
                 // round trip is needed (unlike `dispatch`, which mutates
@@ -413,7 +439,14 @@ impl WatchRunner {
                         frame, body_area, detail, &transient,
                     );
                 } else {
-                    views::aggregate::render(frame, body_area, &transient);
+                    match transient.view {
+                        crate::views::View::Models => {
+                            crate::views::models::render(frame, body_area, &transient);
+                        }
+                        _ => {
+                            views::aggregate::render(frame, body_area, &transient);
+                        }
+                    }
                 }
             }
             WatchData::Cross(any) => {
@@ -476,11 +509,15 @@ impl WatchRunner {
                         transient
                             .detail_view
                             .clone_from(&self.view_state.detail_view);
+                        transient.models_selected = self.view_state.models_selected;
+                        transient.view = self.view_state.view;
                         match dispatch(&mut transient, ev) {
                             Action::Quit => return Ok(()),
                             Action::None => {
                                 self.view_state.help_overlay = transient.help_open;
                                 self.view_state.detail_view = transient.detail_view;
+                                self.view_state.models_selected = transient.models_selected;
+                                self.view_state.view = transient.view;
                             }
                         }
                     } else if ev.is_ctrl_c()
@@ -719,9 +756,9 @@ impl WatchRunner {
     /// path that [`WatchRunner::run`] uses for keystrokes (test helper).
     ///
     /// Mirrors the clone-in / write-back round trip of `run`: builds a
-    /// transient [`AppState`], seeds `help_open` + `detail_view` from
-    /// `self.view_state`, calls [`dispatch`], and on `Action::None`
-    /// writes the mutated `help_open` / `detail_view` back. Cross-mode
+    /// transient [`AppState`], seeds `help_open` + `detail_view` +
+    /// `models_selected` from `self.view_state`, calls [`dispatch`], and
+    /// on `Action::None` writes the mutated fields back. Cross-mode
     /// payloads are a no-op (matches `run`).
     ///
     /// Returns `true` if [`dispatch`] returned [`Action::Quit`].
@@ -736,11 +773,15 @@ impl WatchRunner {
             transient
                 .detail_view
                 .clone_from(&self.view_state.detail_view);
+            transient.models_selected = self.view_state.models_selected;
+            transient.view = self.view_state.view;
             match dispatch(&mut transient, ev) {
                 Action::Quit => return true,
                 Action::None => {
                     self.view_state.help_overlay = transient.help_open;
                     self.view_state.detail_view = transient.detail_view;
+                    self.view_state.models_selected = transient.models_selected;
+                    self.view_state.view = transient.view;
                 }
             }
         }

@@ -275,6 +275,14 @@ fn watch_runner_dispatch_enter_opens_detail_view() {
         "detail_view starts None"
     );
 
+    // F1.7 T10 amend: WatchViewState.view now defaults to Aggregate
+    // (matches M1.6.3 behavior). Explicitly switch to Flamegraph so
+    // Enter has the documented effect of opening turn-detail.
+    runner.dispatch_event_for_test(Event::Key(crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Char('1'),
+        crossterm::event::KeyModifiers::empty(),
+    )));
+
     let quit = runner.dispatch_event_for_test(Event::Key(crossterm::event::KeyEvent::new(
         crossterm::event::KeyCode::Enter,
         crossterm::event::KeyModifiers::empty(),
@@ -290,4 +298,111 @@ fn watch_runner_dispatch_enter_opens_detail_view() {
         "T1",
         "detail_view should point at the selected turn id"
     );
+}
+
+#[test]
+fn watch_view_state_persists_models_selected_field() {
+    use agentprof_tui::watch::WatchViewState;
+    let s = WatchViewState::default();
+    assert_eq!(s.models_selected, 0, "default is 0");
+}
+
+#[test]
+fn watch_runner_dispatch_4_switches_to_models_view() {
+    use agentprof_core::adapter::AgentKind;
+    use agentprof_core::analyzer::{AnalysisReport, ModelUsage};
+    use agentprof_core::episode::Episodes;
+    use agentprof_core::model::SessionMeta;
+    use agentprof_tui::app::event::Event;
+    use agentprof_tui::views::View;
+    use agentprof_tui::watch::{WatchData, WatchRunner};
+    use chrono::Utc;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::collections::BTreeMap;
+
+    let meta = SessionMeta::new("s".into(), AgentKind::Copilot, Utc::now(), false);
+    let mut report = AnalysisReport::new(meta.clone());
+    let mut m = BTreeMap::new();
+    let mut usage = ModelUsage::new();
+    usage.input_tokens = 100;
+    usage.output_tokens = 50;
+    m.insert("test-model".into(), usage);
+    report.model_metrics = Some(m);
+    let mut runner = WatchRunner::new_static(WatchData::Single {
+        report,
+        episodes: Episodes::default(),
+        meta,
+    });
+
+    runner.dispatch_event_for_test(Event::Key(KeyEvent::new(
+        KeyCode::Char('4'),
+        KeyModifiers::empty(),
+    )));
+
+    runner.dispatch_event_for_test(Event::Key(KeyEvent::new(
+        KeyCode::Char('j'),
+        KeyModifiers::empty(),
+    )));
+    assert_eq!(runner.view_state().models_selected, 0);
+
+    // Verify the view round-trip works — pressing '4' should have set
+    // WatchViewState.view to View::Models (otherwise watch users
+    // pressing '4' would silently see no effect — pre-T10 architectural
+    // bug found in T10 self-review).
+    assert_eq!(
+        runner.view_state().view,
+        View::Models,
+        "key '4' must round-trip view to Models in watch mode"
+    );
+}
+
+#[test]
+fn watch_runner_dispatch_number_keys_persist_view_across_events() {
+    // Regression test for pre-F1.7 architectural bug: WatchRunner
+    // didn't round-trip `view` across the transient AppState, so
+    // pressing 1/2/3/4 had no observable effect after the next render.
+    // Fixed in F1.7 Task 10 amend.
+    use agentprof_core::adapter::AgentKind;
+    use agentprof_core::analyzer::AnalysisReport;
+    use agentprof_core::episode::Episodes;
+    use agentprof_core::model::SessionMeta;
+    use agentprof_tui::app::event::Event;
+    use agentprof_tui::views::View;
+    use agentprof_tui::watch::{WatchData, WatchRunner};
+    use chrono::Utc;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    let meta = SessionMeta::new("s".into(), AgentKind::Copilot, Utc::now(), false);
+    let report = AnalysisReport::new(meta.clone());
+    let mut runner = WatchRunner::new_static(WatchData::Single {
+        report,
+        episodes: Episodes::default(),
+        meta,
+    });
+
+    // Default WatchViewState.view is Aggregate (backward-compat).
+    assert_eq!(runner.view_state().view, View::Aggregate);
+
+    // Press '1' → switches to Flamegraph.
+    runner.dispatch_event_for_test(Event::Key(KeyEvent::new(
+        KeyCode::Char('1'),
+        KeyModifiers::empty(),
+    )));
+    assert_eq!(runner.view_state().view, View::Flamegraph, "1 → Flamegraph");
+
+    // Press '2' → switches to Roi.
+    runner.dispatch_event_for_test(Event::Key(KeyEvent::new(
+        KeyCode::Char('2'),
+        KeyModifiers::empty(),
+    )));
+    assert_eq!(runner.view_state().view, View::Roi, "2 → Roi");
+
+    // Press '3' → switches to Aggregate.
+    runner.dispatch_event_for_test(Event::Key(KeyEvent::new(
+        KeyCode::Char('3'),
+        KeyModifiers::empty(),
+    )));
+    assert_eq!(runner.view_state().view, View::Aggregate, "3 → Aggregate");
+
+    // '4' covered by the existing `watch_runner_dispatch_4_switches_to_models_view` test.
 }
