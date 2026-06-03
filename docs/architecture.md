@@ -78,7 +78,7 @@ agentprof-cli  ──▶  agentprof-tui
 ```
 
 - `agentprof-core` 不依赖任何其他 workspace crate（叶子节点）
-- `agentprof-adapters` / `agentprof-storage` / `agentprof-tui` 只依赖 `core`
+- `agentprof-adapters` / `agentprof-storage` / `agentprof-tui` 运行时只依赖 `core`（dev-dependencies 可包含其他 workspace crate 以便 snapshot / fixture-driven tests，例如 `agentprof-tui` dev-deps `agentprof-adapters` 用于 `tests/views.rs` 加载真实 Copilot fixture）
 - `agentprof-cli` 是唯一的组装层；**不允许**任何 lib crate 依赖 `agentprof-cli`
 - CI 用 `cargo deny` + 自定义 grep 校验依赖图
 
