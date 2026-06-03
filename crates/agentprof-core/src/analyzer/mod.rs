@@ -163,6 +163,15 @@ pub struct AnalysisReport {
     /// data anomalies (e.g. orphan hook.end), not parser-time format errors.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub parse_warnings: Vec<ParseWarning>,
+    /// Per-model token-usage rollup, cloned from
+    /// [`crate::episode::Episodes::model_metrics`] by [`analyze`].
+    /// `None` when the session had no event reporting model metrics
+    /// (e.g. Copilot session without `session.shutdown`).
+    ///
+    /// Map key is the model identifier as reported by the adapter.
+    /// Skipped in JSON output when `None` for archive cleanliness.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_metrics: Option<std::collections::BTreeMap<String, ModelUsage>>,
 }
 
 impl AnalysisReport {
@@ -193,6 +202,7 @@ impl AnalysisReport {
             hook_rank: Vec::new(),
             warnings: Vec::new(),
             parse_warnings: Vec::new(),
+            model_metrics: None,
         }
     }
 }
@@ -237,6 +247,7 @@ pub fn analyze(
         hook_rank: hook_rank(episodes),
         warnings: episodes.warnings.clone(),
         parse_warnings: parse_warnings.to_vec(),
+        model_metrics: episodes.model_metrics.clone(),
     };
     tracing::debug!(
         tool_count = report.tool_rank.len(),
@@ -473,5 +484,50 @@ mod model_usage_tests {
         // Exercise the Default impl (delegates to new() — see impl Default
         // for ModelUsage). PartialEq is derived so this is a direct compare.
         assert_eq!(ModelUsage::default(), ModelUsage::new());
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
+mod analyze_model_metrics_tests {
+    use super::*;
+    use crate::adapter::AgentKind;
+    use crate::episode::Episodes;
+    use crate::model::SessionMeta;
+    use chrono::Utc;
+    use std::collections::BTreeMap;
+
+    fn fixture_meta() -> SessionMeta {
+        SessionMeta::new("s".into(), AgentKind::Copilot, Utc::now(), false)
+    }
+
+    #[test]
+    fn analyze_passes_none_when_episodes_have_no_metrics() {
+        let episodes = Episodes::default();
+        let report = analyze(&episodes, &fixture_meta(), &[]);
+        assert!(report.model_metrics.is_none());
+    }
+
+    #[test]
+    fn analyze_clones_episodes_model_metrics_into_report() {
+        let mut m = BTreeMap::new();
+        let mut usage = ModelUsage::new();
+        usage.input_tokens = 98_327;
+        usage.output_tokens = 47_523;
+        usage.cache_read_tokens = 3_444_639;
+        usage.cache_write_tokens = 721_860;
+        m.insert("claude-opus-4.7-1m-internal".into(), usage);
+
+        let episodes = Episodes {
+            model_metrics: Some(m.clone()),
+            ..Episodes::default()
+        };
+        let report = analyze(&episodes, &fixture_meta(), &[]);
+        let rm = report.model_metrics.expect("clone");
+        assert_eq!(
+            rm.get("claude-opus-4.7-1m-internal").unwrap().input_tokens,
+            98_327
+        );
+        assert_eq!(rm.len(), 1);
     }
 }

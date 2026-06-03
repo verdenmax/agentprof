@@ -1,13 +1,14 @@
 ---
 source: crates/agentprof-cli/tests/aggregate.rs
+assertion_line: 182
 expression: s
 ---
 # agentprof aggregate
 
 - By: day
 - Window: all
-- Sessions: 20
-- Total wall-clock time: 14.3 min
+- Sessions: 21
+- Total wall-clock time: 14.4 min
 
 ## By day
 
@@ -20,4 +21,4 @@ expression: s
 | 2026-05-31 | 2 | 16.0 s | 8.0 s | 72 | 50.0% |
 | 2026-06-01 | 1 | 19.0 s | 2.0 s | 25 | ⚠ 10.5% |
 | 2026-06-02 | 1 | 11.0 s | 2.0 s | 18 | ⚠ 18.2% |
-| 2026-06-03 | 2 | 10.7 min | 10.0 min | 42 | 93.4% |
+| 2026-06-03 | 3 | 10.8 min | 10.0 min | 42 | 92.8% |

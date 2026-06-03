@@ -1,13 +1,14 @@
 ---
 source: crates/agentprof-cli/tests/aggregate.rs
+assertion_line: 166
 expression: s
 ---
 # agentprof aggregate
 
 - By: tool
 - Window: all
-- Sessions: 20
-- Total wall-clock time: 14.3 min
+- Sessions: 21
+- Total wall-clock time: 14.4 min
 
 ## By tool
 
@@ -23,4 +24,4 @@ expression: s
 | `mcp__github__search_issues` | mcp:github | 1 | 1 | 0 | 1.0 s | 1.0 s | 1.0 s | 1 |
 | `skill__git-flow__release` | skill:git-flow | 1 | 1 | 0 | 1.0 s | 1.0 s | 1.0 s | 1 |
 | `skill__synthetic__example` | skill:synthetic | 1 | 1 | 0 | 1.0 s | 1.0 s | 1.0 s | 1 |
-| `<orphan>` | builtin | 2 | 0 | 0 | 0 ms | 0 ms | 0 ms | 2 |
+| `<orphan>` | builtin | 3 | 0 | 0 | 0 ms | 0 ms | 0 ms | 3 |

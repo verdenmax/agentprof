@@ -15,6 +15,8 @@ prefix used in commit messages).
 
 ### Added
 
+- `agentprof-core`: `AnalysisReport.model_metrics: Option<BTreeMap<String, ModelUsage>>` field — cloned from `Episodes.model_metrics` by `analyze()`. Surfaces session-level per-model token rollup to all `AnalysisReport` consumers (TUI Models view, JSON / HTML / Markdown / CSV exports automatically). `#[serde(skip_serializing_if = "Option::is_none")]` keeps archives clean when absent.
+
 - `agentprof-core`: `Episodes.model_metrics: Option<BTreeMap<String, ModelUsage>>` field — populated by `derive_episodes` from `Event::payload_model_metrics()` on `EventKind::Shutdown` events (last-wins per ADR-0012 D-6). `#[serde(skip_serializing_if = "Option::is_none")]` keeps older archives forward-compatible. See [ADR-0012](docs/internals/adr-0012-session-model-metrics-and-models-view.md) D-3 + D-6.
 
 - **F1.7 fixture**: `crates/agentprof-adapters/tests/fixtures/copilot/with-session-shutdown/` — 1-turn-1-tool Copilot session that emits `session.shutdown` with `modelMetrics` for 2 distinct models (`claude-opus-4.7-1m-internal` + `gpt-5-mini`). Token values mirror 2026-06-03 real-session survey. Used by F1.7 Tasks 5/6/11. Brings fixture count from 21 to 22.
