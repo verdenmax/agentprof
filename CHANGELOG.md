@@ -15,6 +15,8 @@ prefix used in commit messages).
 
 ### Added
 
+- `agentprof-core`: `Episodes.model_metrics: Option<BTreeMap<String, ModelUsage>>` field — populated by `derive_episodes` from `Event::payload_model_metrics()` on `EventKind::Shutdown` events (last-wins per ADR-0012 D-6). `#[serde(skip_serializing_if = "Option::is_none")]` keeps older archives forward-compatible. See [ADR-0012](docs/internals/adr-0012-session-model-metrics-and-models-view.md) D-3 + D-6.
+
 - **F1.7 fixture**: `crates/agentprof-adapters/tests/fixtures/copilot/with-session-shutdown/` — 1-turn-1-tool Copilot session that emits `session.shutdown` with `modelMetrics` for 2 distinct models (`claude-opus-4.7-1m-internal` + `gpt-5-mini`). Token values mirror 2026-06-03 real-session survey. Used by F1.7 Tasks 5/6/11. Brings fixture count from 21 to 22.
 
 - `agentprof-adapters`: `CopilotEvent::payload_model_metrics()` override extracts per-model token rollup from the `Shutdown` variant's `model_metrics: BTreeMap<String, serde_json::Value>` tree. Free-form `Value` walking (`.get("usage")?.get("<key>").and_then(as_u64).unwrap_or(0)`) — robust against Copilot wire schema drift; new fields don't break parsing, renames produce `0` instead of failing. Skips models whose `usage` subtree is absent; returns `None` if no models have usage data. `ModelUsage` instances constructed via `::new()` + field assignment (required because `#[non_exhaustive]` blocks struct-literal construction from outside `agentprof-core`). See [ADR-0012](docs/internals/adr-0012-session-model-metrics-and-models-view.md) D-7.

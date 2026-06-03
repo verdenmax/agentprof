@@ -132,7 +132,8 @@ pub fn derive_episodes<E: Event>(events: &[E], meta: &SessionMeta) -> Episodes {
             EventKind::AssistantMessage => state.on_assistant_message(ev),
             EventKind::ModeChanged | EventKind::ModelChange => state.on_mode_event(ev),
             EventKind::Abort => state.on_abort(ev),
-            _ => {} // metadata-only events (Session*, UserMessage, SystemMessage, Shutdown, Unknown): no-op for derive
+            EventKind::Shutdown => state.on_session_shutdown(ev),
+            _ => {} // metadata-only events (Session*, UserMessage, SystemMessage, Unknown): no-op for derive
         }
         state.bump_skill_windows(idx, ev);
     }
@@ -178,6 +179,11 @@ struct DeriveState {
     /// walk; consulted at tool-close (normal, orphan, abort, end-of-session)
     /// to stamp `ToolCall.arguments`. See ADR-0011 D-3 + D-4.
     args_by_call_id: BTreeMap<String, serde_json::Value>,
+    /// Last-wins per-model token rollup from `EventKind::Shutdown` events.
+    /// Populated by [`Self::on_session_shutdown`]; moved into the final
+    /// `Episodes` at end of derive. `None` when no shutdown event provided
+    /// the data. See ADR-0012 D-3 + D-6.
+    model_metrics: Option<BTreeMap<String, crate::analyzer::ModelUsage>>,
 }
 
 struct OpenToolCall {
@@ -234,6 +240,7 @@ impl DeriveState {
             aborts: Vec::new(),
             warnings: Vec::new(),
             args_by_call_id,
+            model_metrics: None,
         }
     }
 
@@ -629,6 +636,24 @@ impl DeriveState {
         });
     }
 
+    /// Populate `model_metrics` from the event's
+    /// [`Event::payload_model_metrics`] if non-`None`. Last-wins on multiple
+    /// emitters per ADR-0012 D-6 (defensive — Copilot CLI currently emits
+    /// at most one `session_shutdown` per session, but the contract is
+    /// stable against future multi-emit cases).
+    ///
+    /// Clearing semantics: `Some(empty_map)` is treated as an authoritative
+    /// "no models reported" rollup that overwrites a prior `Some(full_map)`
+    /// — the last emission wins, including if it conveys absence. This
+    /// preserves the wire's expressivity without an extra `is_empty` guard.
+    /// (In practice Copilot CLI's adapter normalizes empty rollups to
+    /// `None` upstream per ADR-0012 D-15, so this code path is defensive.)
+    fn on_session_shutdown<E: Event>(&mut self, ev: &E) {
+        if let Some(metrics) = ev.payload_model_metrics() {
+            self.model_metrics = Some(metrics);
+        }
+    }
+
     fn finalize(mut self) -> Episodes {
         let last_ts = self.last_event_ts;
 
@@ -696,6 +721,7 @@ impl DeriveState {
             mode_segments: self.mode_segments,
             aborts: self.aborts,
             warnings: self.warnings,
+            model_metrics: self.model_metrics,
         }
     }
 }
@@ -1439,6 +1465,137 @@ mod args_plumbing_tests {
             bash.calls[0].arguments,
             Some(serde_json::json!({"late": true})),
             "PASS 0 must collect args before PASS 1 walks state machine"
+        );
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
+mod model_metrics_plumbing_tests {
+    use super::*;
+    use crate::adapter::{AgentKind, EventKind};
+    use crate::analyzer::ModelUsage;
+    use crate::model::SessionMeta;
+    use chrono::{TimeZone, Utc};
+    use std::collections::BTreeMap;
+
+    /// Minimal event for testing `model_metrics` plumbing.
+    enum E {
+        Shutdown {
+            id: String,
+            ts: chrono::DateTime<Utc>,
+            metrics: BTreeMap<String, ModelUsage>,
+        },
+        Other {
+            id: String,
+            ts: chrono::DateTime<Utc>,
+        },
+    }
+
+    impl Event for E {
+        fn id(&self) -> &str {
+            match self {
+                Self::Shutdown { id, .. } | Self::Other { id, .. } => id,
+            }
+        }
+        fn kind(&self) -> EventKind {
+            match self {
+                Self::Shutdown { .. } => EventKind::Shutdown,
+                Self::Other { .. } => EventKind::Unknown,
+            }
+        }
+        fn timestamp(&self) -> chrono::DateTime<Utc> {
+            match self {
+                Self::Shutdown { ts, .. } | Self::Other { ts, .. } => *ts,
+            }
+        }
+        fn parent_id(&self) -> Option<&str> {
+            None
+        }
+        fn payload_model_metrics(&self) -> Option<BTreeMap<String, ModelUsage>> {
+            match self {
+                Self::Shutdown { metrics, .. } => Some(metrics.clone()),
+                Self::Other { .. } => None,
+            }
+        }
+    }
+
+    fn meta() -> SessionMeta {
+        SessionMeta::new("s".into(), AgentKind::Copilot, Utc::now(), false)
+    }
+
+    fn t(s: u32) -> chrono::DateTime<Utc> {
+        Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, s).unwrap()
+    }
+
+    fn make_usage(input: u64, output: u64, cache_read: u64, cache_write: u64) -> ModelUsage {
+        let mut u = ModelUsage::new();
+        u.input_tokens = input;
+        u.output_tokens = output;
+        u.cache_read_tokens = cache_read;
+        u.cache_write_tokens = cache_write;
+        u
+    }
+
+    #[test]
+    fn episodes_model_metrics_defaults_to_none_no_shutdown_event() {
+        let events = vec![E::Other {
+            id: "x".into(),
+            ts: t(0),
+        }];
+        let ep = derive_episodes(&events, &meta());
+        assert!(ep.model_metrics.is_none(), "no shutdown → None");
+    }
+
+    #[test]
+    fn episodes_model_metrics_populated_from_shutdown() {
+        let mut m = BTreeMap::new();
+        m.insert(
+            "claude-opus-4.7-1m-internal".into(),
+            make_usage(98_327, 47_523, 3_444_639, 721_860),
+        );
+        m.insert("gpt-5-mini".into(), make_usage(12_500, 3_400, 8_200, 0));
+        let events = vec![E::Shutdown {
+            id: "sd".into(),
+            ts: t(1),
+            metrics: m.clone(),
+        }];
+        let ep = derive_episodes(&events, &meta());
+        let mm = ep.model_metrics.expect("shutdown → Some");
+        assert_eq!(mm.len(), 2);
+        assert_eq!(
+            mm.get("claude-opus-4.7-1m-internal").unwrap().input_tokens,
+            98_327
+        );
+        assert_eq!(mm.get("gpt-5-mini").unwrap().cache_read_tokens, 8_200);
+    }
+
+    #[test]
+    fn episodes_model_metrics_last_wins_on_multiple_shutdowns() {
+        // Defensive — Copilot emits ≤1 shutdown but our derive must
+        // handle the multi-emit case via last-wins per ADR-0012 D-6.
+        let mut m1 = BTreeMap::new();
+        m1.insert("model-a".into(), make_usage(100, 50, 0, 0));
+        let mut m2 = BTreeMap::new();
+        m2.insert("model-a".into(), make_usage(999, 999, 999, 999));
+        let events = vec![
+            E::Shutdown {
+                id: "sd1".into(),
+                ts: t(1),
+                metrics: m1,
+            },
+            E::Shutdown {
+                id: "sd2".into(),
+                ts: t(2),
+                metrics: m2.clone(),
+            },
+        ];
+        let ep = derive_episodes(&events, &meta());
+        let mm = ep.model_metrics.expect("shutdown → Some");
+        assert_eq!(
+            mm.get("model-a").unwrap().input_tokens,
+            999,
+            "last-wins (second shutdown overwrites first)"
         );
     }
 }

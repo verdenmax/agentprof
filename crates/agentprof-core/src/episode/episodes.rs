@@ -43,6 +43,17 @@ pub struct Episodes {
     pub aborts: Vec<AbortInfo>,
     /// Data-quality observations made while deriving.
     pub warnings: Vec<DeriveWarning>,
+    /// Per-model token-usage rollup, populated from
+    /// [`crate::adapter::Event::payload_model_metrics`] during the
+    /// [`crate::episode::derive_episodes`] walk. `None` when no
+    /// event provided the data (e.g. session without
+    /// `EventKind::Shutdown`).
+    ///
+    /// Map key is the model identifier as reported by the adapter.
+    /// Cloned into `AnalysisReport::model_metrics` by `analyze()`
+    /// (Task 6 of F1.7).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_metrics: Option<BTreeMap<String, crate::analyzer::ModelUsage>>,
 }
 
 impl Episodes {
