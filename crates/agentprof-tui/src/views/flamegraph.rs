@@ -1,8 +1,11 @@
 //! `FlamegraphView` — per-turn horizontal gantt of tool calls.
 //!
-//! Each row = one Turn (chronological order). The longest turn's duration
-//! fills the inner content area; other rows scale proportionally. Within a
-//! row, each [`agentprof_core::episode::ToolCall`] is drawn as a segment at
+//! Each row = one Turn (chronological order). The horizontal scale is set
+//! to the **p95** of non-user-blocking turn durations (see
+//! [`Turn::is_user_blocking`]); turns at or below p95 scale proportionally,
+//! and the top 5% outliers clamp to gantt width via the `.min(gantt_w)`
+//! guard so they still render as fully-filled rows. Within a row, each
+//! [`agentprof_core::episode::ToolCall`] is drawn as a segment at
 //! `(call.span.start - turn.start) / turn.duration` of row width, colored by
 //! [`agentprof_core::model::ToolSource`].
 //!
@@ -18,7 +21,7 @@
 //!   reasoning, generating output tokens, interpreting tool output). This time IS part of the
 //!   turn's wall-time and is real cost.
 //! - `·` (U+00B7 MIDDLE DOT) — padding: the turn ended before this position. The character only
-//!   exists because this row is shorter than the longest non-blocking turn (which sets the
+//!   exists because this row is shorter than the p95 non-blocking turn duration (which sets the
 //!   horizontal scale). This time is NOT part of the turn.
 //!
 //! Below the gantt rows, a single-line footer (see [`selected_turn_footer_line`]) lists the
@@ -27,10 +30,14 @@
 //! `+K more` when the line exceeds the footer width.
 //!
 //! User-blocking turns (e.g. containing an `ask_user` call where the user spent minutes on
-//! the keyboard or AFK) are excluded from the "longest turn" calculation per
+//! the keyboard or AFK) are excluded from the scale calculation per
 //! [`Turn::is_user_blocking`]; otherwise such a turn's wall-time would dwarf others and
-//! squash every normal turn's gantt-bar to ≤ 1 cell. See ADR-0005 §6 for the same split
-//! applied to the Tool Rank table.
+//! squash every normal turn's gantt-bar to ≤ 1 cell. We additionally use the **p95** of
+//! the remaining non-blocking durations (rather than `max`) to resist agent-side outliers:
+//! a single `task`/long-subagent turn running tens of minutes is *not* user-blocking, but
+//! would have the same squashing effect under a max-based scale. The top 5% outliers
+//! clamp to gantt width and remain visible as fully-filled rows. See ADR-0005 §6 for the
+//! same split applied to the Tool Rank table.
 //!
 //! See `docs/superpowers/specs/2026-05-30-m1.5-tui-design.md` §6.1.
 
@@ -166,19 +173,31 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState<'_>) {
         .map(|t| (t.id.as_str(), t))
         .collect();
 
-    // Compute max_dur EXCLUDING user-blocking turns (whose wall-time is
-    // dominated by human-thinking-time, not agent work — e.g. an `ask_user`
-    // turn where the user spent 10 minutes deciding). Without this filter,
-    // a single such outlier squashes every other turn's gantt-bar width to
-    // near-zero, making the visualization effectively useless.
+    // Scaling strategy: use p95 of non-user-blocking turn durations.
     //
-    // Fallback: if EVERY turn is user-blocking (rare degenerate case),
-    // fall back to the original "max across all turns" so we don't divide
-    // by 1 ms.
+    // Why p95 instead of max:
+    // - User-blocking turns (e.g. `ask_user` waiting on a human) are
+    //   already excluded via `Turn::is_user_blocking()` (see b5c1429).
+    // - BUT agent-self-blocking turns also exist: a single `task` /
+    //   long subagent call can run for tens of minutes without any
+    //   human involvement. These are NOT user-blocking but they're
+    //   the same kind of long-tail outlier for visualization.
+    // - Using max would let any single outlier (human OR agent) squash
+    //   the visualization. Using p95 keeps 95% of turns at usable
+    //   widths; the rare > p95 outliers get clamped to `gantt_w` by
+    //   the existing `.min(gantt_w)` in the scaled cell calc, so they
+    //   still render visibly (just at the cap).
     //
-    // Mirrors ADR-0005 §6 + the user-blocking split in the Tool Rank table
-    // (see [`agentprof_core::analyzer::tool_rank`]).
-    let max_dur_excl_blocking = turns
+    // Standard practice in flamegraph tooling (Speedscope / flamegraph.pl
+    // / gprof2dot all use percentile-based scaling for the same reason).
+    //
+    // Fallback: if EVERY turn is user-blocking (degenerate), or if
+    // there are no completed turns, fall back to max-of-all-durations
+    // or 1 ms — same fallback as before b5c1429.
+    //
+    // Mirrors ADR-0005 §6 + the user-blocking split in the Tool Rank
+    // table (see [`agentprof_core::analyzer::tool_rank`]).
+    let mut non_blocking_durs_ms: Vec<i64> = turns
         .iter()
         .filter_map(|row| {
             let turn = turn_by_id.get(row.turn_id.as_str())?;
@@ -188,17 +207,33 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState<'_>) {
                 row.duration.map(|d| d.num_milliseconds())
             }
         })
-        .max();
+        .collect();
+    non_blocking_durs_ms.sort_unstable();
 
-    let max_dur = max_dur_excl_blocking
-        .or_else(|| {
-            turns
-                .iter()
-                .filter_map(|t| t.duration.map(|d| d.num_milliseconds()))
-                .max()
-        })
-        .unwrap_or(1)
-        .max(1);
+    let max_dur: i64 = if non_blocking_durs_ms.is_empty() {
+        // Degenerate: every turn is user-blocking. Fall back to
+        // max-of-all so we don't divide by 1 ms.
+        turns
+            .iter()
+            .filter_map(|t| t.duration.map(|d| d.num_milliseconds()))
+            .max()
+            .unwrap_or(1)
+            .max(1)
+    } else {
+        // p95 of sorted non-blocking durations.
+        // p95 index = ceil(0.95 * n) - 1, clamped to [0, n-1].
+        // For n = 1, p95 = the single value.
+        // For n = 57, p95 = idx 53 (the 54th turn ascending).
+        let n = non_blocking_durs_ms.len();
+        #[allow(
+            clippy::cast_precision_loss,
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss
+        )]
+        let p95_idx_raw = ((n as f64) * 0.95).ceil() as usize;
+        let p95_idx = p95_idx_raw.saturating_sub(1).min(n - 1);
+        non_blocking_durs_ms[p95_idx].max(1)
+    };
 
     // Edge-triggered viewport: only scroll when selected leaves the window.
     // Persisted via Cell on AppState so the cursor can move freely within
@@ -309,7 +344,10 @@ fn build_row<'a>(
     if let Some(t) = turn {
         if let Some(ended) = t.ended_at {
             let started = t.started_at;
-            // Scale this turn's gantt width relative to the longest turn.
+            // Scale this turn's gantt width relative to the p95 of
+            // non-user-blocking turn durations. Rows above p95 clamp to
+            // `gantt_w` via the `.min(gantt_w)` below, so outliers
+            // render as fully-filled rows.
             let dur_ms = duration.map_or(0, |d| d.num_milliseconds()).max(0);
             let scaled = u16::try_from(dur_ms * i64::from(gantt_w) / max_dur_ms).unwrap_or(gantt_w);
             let scaled = scaled.min(gantt_w);
@@ -639,13 +677,14 @@ mod tests {
         turn
     }
 
-    /// Replicates the `max_dur` calculation from `render()` so we can
-    /// unit-test it without instantiating a full ratatui Frame + `AppState`.
+    /// Replicates the `max_dur` (p95-based) scaling calculation from
+    /// `render()` so we can unit-test it without instantiating a full
+    /// ratatui Frame + `AppState`.
     fn compute_max_dur(turns: &[Turn]) -> i64 {
         let turn_by_id: std::collections::HashMap<&str, &Turn> =
             turns.iter().map(|t| (t.id.as_str(), t)).collect();
 
-        let max_excl = turns
+        let mut non_blocking_durs_ms: Vec<i64> = turns
             .iter()
             .filter_map(|t| {
                 let turn = turn_by_id.get(t.id.as_str())?;
@@ -655,28 +694,41 @@ mod tests {
                     t.ended_at.map(|e| (e - t.started_at).num_milliseconds())
                 }
             })
-            .max();
+            .collect();
+        non_blocking_durs_ms.sort_unstable();
 
-        max_excl
-            .or_else(|| {
-                turns
-                    .iter()
-                    .filter_map(|t| t.ended_at.map(|e| (e - t.started_at).num_milliseconds()))
-                    .max()
-            })
-            .unwrap_or(1)
-            .max(1)
+        if non_blocking_durs_ms.is_empty() {
+            turns
+                .iter()
+                .filter_map(|t| t.ended_at.map(|e| (e - t.started_at).num_milliseconds()))
+                .max()
+                .unwrap_or(1)
+                .max(1)
+        } else {
+            let n = non_blocking_durs_ms.len();
+            #[allow(
+                clippy::cast_precision_loss,
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss
+            )]
+            let p95_idx_raw = ((n as f64) * 0.95).ceil() as usize;
+            let p95_idx = p95_idx_raw.saturating_sub(1).min(n - 1);
+            non_blocking_durs_ms[p95_idx].max(1)
+        }
     }
 
     #[test]
-    fn max_dur_excludes_user_blocking_turns() {
+    fn p95_dur_excludes_user_blocking_turns() {
         // 3 turns:
         // - T1: 5s normal turn (`bash`)
         // - T2: 600s (10min) user-blocking turn (`ask_user`)
         // - T3: 5s normal turn (`edit`)
         //
-        // Expected: max_dur for scaling = 5000 ms (the non-blocking max),
-        //           NOT 600000 ms (which would squash T1+T3 to ~0 cells).
+        // After filtering out the user-blocking turn, the remaining
+        // non-blocking durations are [5000, 5000] ms. With n=2,
+        // p95_idx = ceil(2*0.95)-1 = ceil(1.9)-1 = 2-1 = 1 → sorted[1]
+        // = 5000 ms. Verifies that user-blocking filter still applies on
+        // top of p95 scaling.
         let turns = vec![
             turn_with_tool("t1", 0, 5, "bash"),
             turn_with_tool("t2", 10, 610, "ask_user"),
@@ -686,9 +738,9 @@ mod tests {
     }
 
     #[test]
-    fn max_dur_falls_back_when_all_turns_are_user_blocking() {
+    fn p95_dur_falls_back_when_all_turns_are_user_blocking() {
         // Degenerate case: only user-blocking turns exist. Filter would
-        // produce None — must fall back to original max-across-all so we
+        // produce an empty vec — must fall back to max-across-all so we
         // don't divide by 1 ms.
         let turns = vec![turn_with_tool("t1", 0, 300, "ask_user")];
         assert_eq!(
@@ -696,6 +748,57 @@ mod tests {
             300_000,
             "fallback must use all-turns max when filter empties"
         );
+    }
+
+    #[test]
+    fn p95_scaling_resists_single_long_agent_task_outlier() {
+        // The motivating bug-fix case: 20 short turns (5s each) + 1
+        // long agent-task turn (50min). All are non-user-blocking (no
+        // `ask_user` involved — `task` is agent-self-driven).
+        //
+        // With max-based scaling: 50min = 3_000_000ms would set the
+        // scale and 5s turns would render to <1% of gantt_w (squashed
+        // to 1 cell). That is exactly what b5c1429 *didn't* fix.
+        //
+        // With p95-based scaling: sorted durations are
+        // [5000 × 20, 3_000_000]. n = 21, p95_idx =
+        // ceil(21 * 0.95) - 1 = ceil(19.95) - 1 = 20 - 1 = 19, so
+        // sorted[19] = 5000 ms — the outlier at sorted[20] is NOT
+        // picked. Normal turns render at full gantt width.
+        let mut turns: Vec<Turn> = (0..20)
+            .map(|i| turn_with_tool(&format!("short{i}"), i * 10, i * 10 + 5, "bash"))
+            .collect();
+        // 50-minute agent-task outlier (3000s = 50min). `task` is not
+        // in USER_BLOCKING_TOOLS, so it survives the is_user_blocking
+        // filter.
+        turns.push(turn_with_tool("long", 10_000, 10_000 + 3_000, "task"));
+
+        assert_eq!(
+            compute_max_dur(&turns),
+            5_000,
+            "p95 of 21 sorted durations [5000×20, 3_000_000] is sorted[19] = 5000ms, \
+             not the outlier at sorted[20] = 3_000_000ms"
+        );
+    }
+
+    #[test]
+    fn p95_scaling_with_single_turn_uses_that_turn() {
+        // n = 1 → p95_idx = ceil(0.95) - 1 = 1 - 1 = 0 → sorted[0].
+        // Single turn is its own p95.
+        let turns = vec![turn_with_tool("only", 0, 12, "bash")];
+        assert_eq!(compute_max_dur(&turns), 12_000);
+    }
+
+    #[test]
+    fn p95_scaling_with_many_uniform_turns_picks_around_max() {
+        // n = 100, all 5000 ms. p95_idx = ceil(100*0.95)-1 = 94.
+        // sorted[94] = 5000 ms. Confirms p95 ≈ max in the no-outlier
+        // case (so the existing snapshot fixtures with few turns and
+        // uniform durations are unaffected).
+        let turns: Vec<Turn> = (0..100)
+            .map(|i| turn_with_tool(&format!("t{i}"), i * 10, i * 10 + 5, "bash"))
+            .collect();
+        assert_eq!(compute_max_dur(&turns), 5_000);
     }
 
     #[test]
