@@ -98,8 +98,22 @@ impl TracingHandle {
             .map_err(|_| "reload::Handle::modify failed")?;
         // Drop the old guard AFTER the swap so any in-flight event from
         // before the swap still has a worker thread to flush to.
-        if let Ok(mut slot) = self.appender_guard.lock() {
-            *slot = new_guard;
+        //
+        // The critical section is just `*slot = new_guard` (no panic-able
+        // operation), so the `Mutex` cannot become poisoned in practice.
+        // We still handle the `PoisonError` branch explicitly — preferring
+        // poison-recovery (`into_inner`) over `expect`/`unwrap` — so that
+        // a future refactor that inadvertently adds a panic-able op inside
+        // the section degrades gracefully (lose the old guard, keep
+        // observability alive) rather than aborting the process.
+        match self.appender_guard.lock() {
+            Ok(mut slot) => {
+                *slot = new_guard;
+            }
+            Err(poisoned) => {
+                let mut slot = poisoned.into_inner();
+                *slot = new_guard;
+            }
         }
         Ok(())
     }
@@ -126,7 +140,10 @@ impl TracingHandle {
 /// - Invalid level filter string ⇒ falls back to `"warn"`.
 /// - Log file parent dir missing AND cannot be created ⇒ falls back
 ///   to stderr writer (still reload-able).
-/// - File open fails ⇒ falls back to stderr writer.
+/// - Log file parent directory cannot be created ⇒ falls back to stderr writer.
+///   (Note: the rolling appender opens the file lazily on first write; a later
+///   permission denial inside the appender worker thread is silently swallowed
+///   — for now. Tracked as M1.6.5+ follow-up.)
 /// - Subscriber already installed (e.g. test environment) ⇒ swallowed;
 ///   returns a no-op `TracingHandle` (`swap_writer` will fail; callers
 ///   must tolerate this).
@@ -224,6 +241,7 @@ pub fn try_build_file_writer(
 }
 
 /// Reasons [`try_build_file_writer`] may refuse a path.
+#[doc(hidden)]
 #[derive(Debug)]
 pub enum FileWriterError {
     /// Path has no parent component (e.g. an empty string).

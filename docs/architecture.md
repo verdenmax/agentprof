@@ -915,8 +915,8 @@ syntax error 等）软降级到默认 stderr — tracing 永远不阻塞 CLI 启
 [ADR-0010 D-5](internals/adr-0010-tracing-infrastructure.md)）。
 
 完整设计见 [ADR-0010](internals/adr-0010-tracing-infrastructure.md)
-+ [spec](../docs/superpowers/specs/2026-06-02-tracing-design.md)
-+ [plan](../docs/superpowers/plans/2026-06-02-m1.6.4-tracing.md)。
++ [spec](superpowers/specs/2026-06-02-tracing-design.md)
++ [plan](superpowers/plans/2026-06-02-m1.6.4-tracing.md)。
 
 ---
 

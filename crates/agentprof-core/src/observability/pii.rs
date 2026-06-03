@@ -19,6 +19,14 @@ use std::path::Path;
 /// observe a collision in support traces, set
 /// `AGENTPROF_LOG_FULL_PATHS=1` to emit raw paths and re-run.
 ///
+/// **Non-UTF-8 paths note**: paths are normalized via
+/// [`std::path::Path::to_string_lossy`] before hashing. Two distinct
+/// OS-level paths that differ only in invalid byte sequences (e.g.
+/// raw bytes that fail UTF-8 decoding) can therefore collide pre-hash
+/// — the replacement character `U+FFFD` substitution flattens those
+/// distinctions. Acceptable for PII-redaction purposes; flagged here
+/// so consumers don't over-trust the determinism guarantee.
+///
 /// # Examples
 ///
 /// ```
@@ -49,13 +57,13 @@ pub fn hash_path(p: &Path) -> String {
 /// ```
 #[must_use]
 pub fn hash_short(s: &str) -> String {
+    use std::fmt::Write;
     let mut hasher = Sha256::new();
     hasher.update(s.as_bytes());
     let digest = hasher.finalize();
     // 4 bytes = 8 hex chars.
     let mut out = String::with_capacity(8);
     for b in &digest[..4] {
-        use std::fmt::Write;
         let _ = write!(&mut out, "{b:02x}");
     }
     out
@@ -103,5 +111,15 @@ mod tests {
     #[test]
     fn hash_short_distinguishes_inputs() {
         assert_ne!(hash_short("abc"), hash_short("xyz"));
+    }
+
+    #[test]
+    fn hash_short_returns_8_hex_chars() {
+        let h = hash_short("anything");
+        assert_eq!(h.len(), 8);
+        assert!(
+            h.chars().all(|c| c.is_ascii_hexdigit()),
+            "must be ASCII hex"
+        );
     }
 }
