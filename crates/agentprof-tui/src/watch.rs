@@ -157,6 +157,7 @@ pub enum AggSortKey {
 /// let s = WatchViewState::default();
 /// assert_eq!(s.agg_selected, 0);
 /// assert!(!s.help_overlay);
+/// assert!(!s.pending_gg);
 /// ```
 #[derive(Debug, Default)]
 #[non_exhaustive]
@@ -167,6 +168,9 @@ pub struct WatchViewState {
     pub agg_selected: usize,
     /// `?` toggles the help overlay.
     pub help_overlay: bool,
+    /// Vim-style `gg` two-key sequence in-progress flag. Mirrors
+    /// `AppState::pending_gg` for the cross-session aggregate view.
+    pub pending_gg: bool,
 }
 
 /// Owned-data live-refresh TUI runner.
@@ -490,17 +494,43 @@ impl WatchRunner {
     /// (sort cycling, selection, help, Cross-mode quit). Caller then
     /// `continue`s without forwarding to general dispatch.
     fn handle_watch_key(&mut self, ev: &Event) -> bool {
-        use crossterm::event::{KeyCode, KeyEvent};
-        let Event::Key(KeyEvent { code, .. }) = ev else {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let Event::Key(KeyEvent {
+            code, modifiers, ..
+        }) = ev
+        else {
             return false;
         };
         if matches!(code, KeyCode::Char('?')) {
             self.view_state.help_overlay = !self.view_state.help_overlay;
+            self.view_state.pending_gg = false;
             return true;
         }
         if !matches!(self.data, WatchData::Cross(_)) {
             return false;
         }
+        // Vim G / gg motion (cross-session aggregate only). Handle before
+        // the sort/select match so pending_gg state stays consistent.
+        let is_capital_g = matches!(code, KeyCode::Char('G'))
+            || (matches!(code, KeyCode::Char('g')) && modifiers.contains(KeyModifiers::SHIFT));
+        let is_lowercase_g =
+            matches!(code, KeyCode::Char('g')) && !modifiers.contains(KeyModifiers::SHIFT);
+        if is_capital_g {
+            self.view_state.agg_selected = self.cross_bucket_count().saturating_sub(1);
+            self.view_state.pending_gg = false;
+            return true;
+        }
+        if is_lowercase_g {
+            if self.view_state.pending_gg {
+                self.view_state.agg_selected = 0;
+                self.view_state.pending_gg = false;
+            } else {
+                self.view_state.pending_gg = true;
+            }
+            return true;
+        }
+        // Any non-g key clears pending_gg but still executes its own behavior.
+        self.view_state.pending_gg = false;
         match code {
             KeyCode::Char('c') => {
                 self.view_state.agg_sort = AggSortKey::Calls;
@@ -518,15 +548,36 @@ impl WatchRunner {
                 self.view_state.agg_sort = AggSortKey::Percentile50;
                 true
             }
-            KeyCode::Up => {
+            KeyCode::Up | KeyCode::Char('k') => {
                 self.view_state.agg_selected = self.view_state.agg_selected.saturating_sub(1);
                 true
             }
-            KeyCode::Down => {
-                self.view_state.agg_selected = self.view_state.agg_selected.saturating_add(1);
+            KeyCode::Down | KeyCode::Char('j') => {
+                let max = self.cross_bucket_count().saturating_sub(1);
+                if self.view_state.agg_selected < max {
+                    self.view_state.agg_selected += 1;
+                }
                 true
             }
             _ => false,
+        }
+    }
+
+    /// Bucket count of the current `WatchData::Cross` payload (0 for
+    /// `Single`). Used to clamp `agg_selected` for j/k/G/gg motion.
+    fn cross_bucket_count(&self) -> usize {
+        use agentprof_core::analyzer::aggregate::AnyAggregateReport as A;
+        let WatchData::Cross(any) = &self.data else {
+            return 0;
+        };
+        match any {
+            A::Tool(r) => r.buckets.len(),
+            A::McpServer(r) => r.buckets.len(),
+            A::Day(r) => r.buckets.len(),
+            A::Model(r) => r.buckets.len(),
+            // AnyAggregateReport is `#[non_exhaustive]`; future variants
+            // surface as a zero count (selection clamps to 0).
+            _ => 0,
         }
     }
 }

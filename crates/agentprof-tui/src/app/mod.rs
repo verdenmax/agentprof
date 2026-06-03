@@ -133,7 +133,7 @@ impl<'a> AppRunner<'a> {
 
 fn draw_help_overlay(frame: &mut Frame<'_>, full: Rect) {
     let w = full.width.min(60);
-    let h = full.height.min(12);
+    let h = full.height.min(14);
     let x = full.x + (full.width.saturating_sub(w)) / 2;
     let y = full.y + (full.height.saturating_sub(h)) / 2;
     let area = Rect::new(x, y, w, h);
@@ -142,12 +142,14 @@ fn draw_help_overlay(frame: &mut Frame<'_>, full: Rect) {
         .title(" Help (any key closes) ")
         .style(Style::default().fg(Color::Yellow));
     let text = [
-        "q / Ctrl-C   Quit",
-        "1 / 2 / 3    Switch view (Flamegraph / Roi / Aggregate)",
-        "Tab / S-Tab  Cycle views forward / backward",
-        "↑ / ↓        Scroll / select (viewport follows cursor)",
-        "t/c/s/p (Roi)  Cycle sort key (Total / Calls / Success% / p50)",
-        "?            This help",
+        "q / Ctrl-C       Quit",
+        "1 / 2 / 3        Switch view (Flamegraph / Roi / Aggregate)",
+        "Tab / S-Tab      Cycle views forward / backward",
+        "↑ / ↓ or k / j   Scroll / select (viewport follows cursor)",
+        "G                Jump to last row",
+        "gg               Jump to first row (two-key vim sequence)",
+        "t/c/s/p (Roi)    Cycle sort key (Total / Calls / Success% / p50)",
+        "?                This help",
     ]
     .join("\n");
     let para = Paragraph::new(text).block(block);

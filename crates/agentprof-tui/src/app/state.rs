@@ -77,6 +77,13 @@ pub struct AppState<'a> {
     pub flame_viewport_top: std::cell::Cell<usize>,
     /// Viewport offset for `RoiView` work table (same rationale).
     pub roi_viewport_top: std::cell::Cell<usize>,
+    /// Vim-style `gg` two-key sequence in-progress flag.
+    ///
+    /// Set to `true` after a lone `g` press; cleared on either `gg`
+    /// completion (jump to top), `G` (jump to bottom), or any other key
+    /// press (be lenient: the other key still executes, we just exit the
+    /// pending state). See [`dispatch`].
+    pub(crate) pending_gg: bool,
     /// Source report (turn / tool / hook rollups).
     pub report: &'a AnalysisReport,
     /// Source episodes (per-call timing for `FlamegraphView`).
@@ -114,6 +121,7 @@ impl<'a> AppState<'a> {
             help_open: false,
             flame_viewport_top: std::cell::Cell::new(0),
             roi_viewport_top: std::cell::Cell::new(0),
+            pending_gg: false,
             report,
             episodes,
         }
@@ -131,7 +139,8 @@ impl<'a> AppState<'a> {
 /// - `t`/`c`/`s`/`p` cycle `RoiView` sort key (`TotalDur` / `Calls` / `SuccessRate` / `P50`);
 ///   only meaningful when view == Roi, ignored elsewhere
 /// - `Tab` / `Shift-Tab` cycle views
-/// - `↑` / `↓` scroll/select
+/// - `↑` / `↓` or vim `k` / `j` scroll/select
+/// - `G` jump to last selectable row; `gg` (two-key sequence) jump to first row
 /// - `q` / Ctrl-C quit
 /// - `?` toggle help overlay (any key closes)
 #[allow(clippy::needless_pass_by_value)]
@@ -140,6 +149,7 @@ pub fn dispatch(state: &mut AppState<'_>, event: Event) -> Action {
     if state.help_open {
         if let Event::Key(_) = event {
             state.help_open = false;
+            state.pending_gg = false;
         }
         return Action::None;
     }
@@ -158,6 +168,34 @@ pub fn dispatch(state: &mut AppState<'_>, event: Event) -> Action {
     if matches!(k.code, KeyCode::Char('q')) {
         return Action::Quit;
     }
+
+    // Vim-style G / gg motion. Handle BEFORE other key dispatch so the
+    // pending-gg state stays consistent.
+    //
+    // `G` (Shift+g): crossterm sends `KeyCode::Char('G')` on most
+    // terminals, but some emit `Char('g')` + `KeyModifiers::SHIFT`.
+    // Accept both spellings.
+    let is_capital_g = matches!(k.code, KeyCode::Char('G'))
+        || (matches!(k.code, KeyCode::Char('g')) && k.modifiers.contains(KeyModifiers::SHIFT));
+    let is_lowercase_g =
+        matches!(k.code, KeyCode::Char('g')) && !k.modifiers.contains(KeyModifiers::SHIFT);
+    if is_capital_g {
+        scroll_to_bottom(state);
+        state.pending_gg = false;
+        return Action::None;
+    }
+    if is_lowercase_g {
+        if state.pending_gg {
+            scroll_to_top(state);
+            state.pending_gg = false;
+        } else {
+            state.pending_gg = true;
+        }
+        return Action::None;
+    }
+    // Any non-g key clears pending_gg but still executes its own behavior
+    // (lenient: avoid stranding the user in a half-typed gg state).
+    state.pending_gg = false;
 
     // Number keys ALWAYS switch view (no Roi exception).
     // (Previously 1-4 re-sorted in Roi per spec §7; user reported that as
@@ -192,8 +230,8 @@ pub fn dispatch(state: &mut AppState<'_>, event: Event) -> Action {
         KeyCode::Tab => state.view = state.view.next(),
         KeyCode::BackTab => state.view = state.view.prev(),
         KeyCode::Char('?') => state.help_open = true,
-        KeyCode::Up => scroll_up(state),
-        KeyCode::Down => scroll_down(state),
+        KeyCode::Up | KeyCode::Char('k') => scroll_up(state),
+        KeyCode::Down | KeyCode::Char('j') => scroll_down(state),
         // KeyCode::Left | KeyCode::Right reserved for FlamegraphView horizontal scroll
         _ => {}
     }
@@ -245,6 +283,39 @@ fn scroll_down(state: &mut AppState<'_>) {
             // no scrollable element; ↑/↓ are intentionally no-ops here.
             // M1.6 may add a focused-pane concept allowing scroll within
             // the (potentially long) hook table.
+        }
+    }
+}
+
+fn scroll_to_top(state: &mut AppState<'_>) {
+    match state.view {
+        View::Roi => state.roi_selected = 0,
+        View::Flamegraph => state.flame_selected = 0,
+        View::Aggregate => {
+            // Mirrors scroll_up/scroll_down: Aggregate has no scrollable
+            // element in M1.5, so jump-to-top is a no-op.
+        }
+    }
+}
+
+fn scroll_to_bottom(state: &mut AppState<'_>) {
+    match state.view {
+        View::Roi => {
+            // Same partition rule as scroll_down: clamp to the work-only
+            // sub-table, NOT the full tool_rank.
+            let work_count = state
+                .report
+                .tool_rank
+                .iter()
+                .filter(|r| !r.is_user_blocking)
+                .count();
+            state.roi_selected = work_count.saturating_sub(1);
+        }
+        View::Flamegraph => {
+            state.flame_selected = state.report.turn_summary.len().saturating_sub(1);
+        }
+        View::Aggregate => {
+            // No scrollable element in M1.5; no-op.
         }
     }
 }
@@ -555,5 +626,132 @@ mod tests {
         }
         assert_eq!(s.flame_viewport_top.get(), 0);
         assert_eq!(s.roi_viewport_top.get(), 0);
+    }
+
+    // ============ Vim keybindings (j/k/G/gg) ============
+
+    fn shift(c: char) -> Event {
+        Event::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::SHIFT))
+    }
+
+    fn three_row_roi_state() -> (AnalysisReport, Episodes) {
+        let mut r = empty_report();
+        for n in ["a", "b", "c"] {
+            r.tool_rank.push(ToolRankRow::new(
+                n.into(),
+                ToolSource::Builtin,
+                1,
+                1,
+                0,
+                0,
+                0,
+                chrono::Duration::milliseconds(1),
+                chrono::Duration::milliseconds(1),
+                chrono::Duration::milliseconds(1),
+                chrono::Duration::milliseconds(1),
+            ));
+        }
+        (r, Episodes::new())
+    }
+
+    #[test]
+    fn vim_j_moves_selection_down_like_arrow_down() {
+        let (r, e) = three_row_roi_state();
+        let mut s = AppState::new(&r, &e);
+        s.view = View::Roi;
+        dispatch(&mut s, key(KeyCode::Char('j')));
+        assert_eq!(s.roi_selected, 1);
+        dispatch(&mut s, key(KeyCode::Char('j')));
+        assert_eq!(s.roi_selected, 2);
+    }
+
+    #[test]
+    fn vim_k_moves_selection_up_like_arrow_up() {
+        let (r, e) = three_row_roi_state();
+        let mut s = AppState::new(&r, &e);
+        s.view = View::Roi;
+        s.roi_selected = 2;
+        dispatch(&mut s, key(KeyCode::Char('k')));
+        assert_eq!(s.roi_selected, 1);
+        dispatch(&mut s, key(KeyCode::Char('k')));
+        assert_eq!(s.roi_selected, 0);
+        // Saturates at top.
+        dispatch(&mut s, key(KeyCode::Char('k')));
+        assert_eq!(s.roi_selected, 0);
+    }
+
+    #[test]
+    fn capital_g_jumps_to_last_row() {
+        let (r, e) = three_row_roi_state();
+        let mut s = AppState::new(&r, &e);
+        s.view = View::Roi;
+        dispatch(&mut s, key(KeyCode::Char('G')));
+        assert_eq!(s.roi_selected, 2, "G should jump to last work-row index");
+        // Also accept Shift+g spelling for terminals that don't fold it.
+        s.roi_selected = 0;
+        dispatch(&mut s, shift('g'));
+        assert_eq!(s.roi_selected, 2);
+    }
+
+    #[test]
+    fn double_g_jumps_to_first_row() {
+        let (r, e) = three_row_roi_state();
+        let mut s = AppState::new(&r, &e);
+        s.view = View::Roi;
+        s.roi_selected = 2;
+        dispatch(&mut s, key(KeyCode::Char('g')));
+        assert!(s.pending_gg, "first g arms the gg sequence");
+        assert_eq!(s.roi_selected, 2, "first g must not move the selection");
+        dispatch(&mut s, key(KeyCode::Char('g')));
+        assert!(!s.pending_gg, "second g clears the pending flag");
+        assert_eq!(s.roi_selected, 0, "second g jumps to first row");
+    }
+
+    #[test]
+    fn single_g_then_other_key_clears_pending_and_executes() {
+        let (r, e) = three_row_roi_state();
+        let mut s = AppState::new(&r, &e);
+        s.view = View::Roi;
+        dispatch(&mut s, key(KeyCode::Char('g')));
+        assert!(s.pending_gg);
+        // Non-g key: clears pending AND executes its own behavior.
+        dispatch(&mut s, key(KeyCode::Char('j')));
+        assert!(!s.pending_gg, "non-g key must clear pending_gg");
+        assert_eq!(s.roi_selected, 1, "the j keystroke should still scroll");
+        // Capital G also clears pending_gg.
+        dispatch(&mut s, key(KeyCode::Char('g')));
+        assert!(s.pending_gg);
+        dispatch(&mut s, key(KeyCode::Char('G')));
+        assert!(!s.pending_gg);
+        assert_eq!(s.roi_selected, 2);
+    }
+
+    #[test]
+    fn capital_g_on_flamegraph_jumps_to_last_turn() {
+        use agentprof_core::analyzer::TurnSummaryRow;
+        use agentprof_core::episode::TurnStatus;
+        let mut r = empty_report();
+        for i in 0..4 {
+            r.turn_summary.push(TurnSummaryRow::new(
+                format!("t{i}"),
+                chrono::Utc::now(),
+                None,
+                TurnStatus::Open,
+                None,
+                None,
+                None,
+                0,
+                0,
+                0,
+            ));
+        }
+        let e = Episodes::new();
+        let mut s = AppState::new(&r, &e);
+        assert_eq!(s.view, View::Flamegraph);
+        dispatch(&mut s, key(KeyCode::Char('G')));
+        assert_eq!(s.flame_selected, 3);
+        dispatch(&mut s, key(KeyCode::Char('g')));
+        dispatch(&mut s, key(KeyCode::Char('g')));
+        assert_eq!(s.flame_selected, 0);
     }
 }

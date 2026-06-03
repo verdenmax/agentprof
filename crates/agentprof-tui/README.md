@@ -55,7 +55,9 @@ See [`docs/architecture.md`](../../docs/architecture.md) §3 (system layering) a
 | `q` / Ctrl-C | Quit (clean leave + exit 0) |
 | `1` / `2` / `3` | Switch view |
 | `Tab` / Shift-Tab | Cycle views |
-| `↑` / `↓` | Scroll / select |
+| `↑` / `↓` or `k` / `j` | Scroll / select (vim aliases) |
+| `G` | Jump to last row |
+| `gg` | Jump to first row (two-key vim sequence) |
 | `t` / `c` / `s` / `p` (in Roi) | Cycle sort key (total / calls / success% / p50) |
 | Viewport | Auto-scrolls to keep selected row visible in Flamegraph and Roi |
 | `?` | Help overlay |
