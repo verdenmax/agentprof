@@ -133,7 +133,7 @@ impl<'a> AppRunner<'a> {
 
 fn draw_help_overlay(frame: &mut Frame<'_>, full: Rect) {
     let w = full.width.min(60);
-    let h = full.height.min(14);
+    let h = full.height.min(16);
     let x = full.x + (full.width.saturating_sub(w)) / 2;
     let y = full.y + (full.height.saturating_sub(h)) / 2;
     let area = Rect::new(x, y, w, h);
@@ -150,6 +150,8 @@ fn draw_help_overlay(frame: &mut Frame<'_>, full: Rect) {
         "gg               Jump to first row (two-key vim sequence)",
         "t/c/s/p (Roi)    Cycle sort key (Total / Calls / Success% / p50)",
         "?                This help",
+        "",
+        "Deep flamegraph: `analyze --export speedscope` → speedscope.app",
     ]
     .join("\n");
     let para = Paragraph::new(text).block(block);
