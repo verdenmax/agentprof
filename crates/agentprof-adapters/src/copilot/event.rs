@@ -1274,6 +1274,54 @@ impl CopilotEvent {
             _ => None,
         }
     }
+
+    /// Returns `(tool_call_id, arguments)` pairs for variants that carry them:
+    /// - [`Self::AssistantMessage`] → one pair per
+    ///   [`AssistantMessageData::tool_requests`] entry (multi).
+    /// - [`Self::ToolUserRequested`] → one pair via
+    ///   `serde_json::to_value(&data.arguments)` (single).
+    /// - All other variants → empty `Vec`.
+    ///
+    /// Consumed by `agentprof_core::episode::derive_episodes` to populate
+    /// `ToolCall::arguments`.
+    ///
+    /// Returns owned `String` + `Value`; callers that don't need ownership
+    /// should hold the source `Event` and pattern-match the variant
+    /// directly. The trait-level signature exists because `derive_episodes`
+    /// PASS 0 needs ownership to stash into `ToolCall::arguments`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_adapters::copilot::CopilotEvent;
+    /// let ev = CopilotEvent::Unknown;
+    /// assert!(ev.payload_tool_requests().is_empty());
+    /// ```
+    #[must_use]
+    pub fn payload_tool_requests(&self) -> Vec<(String, serde_json::Value)> {
+        match self {
+            Self::AssistantMessage(env) => env
+                .data
+                .tool_requests
+                .iter()
+                .map(|tr| (tr.tool_call_id.clone(), tr.arguments.clone()))
+                .collect(),
+            Self::ToolUserRequested(env) => {
+                // ToolUserArgs is a plain struct → to_value is total; the
+                // unwrap_or is dead-code defensive (documented + tested via
+                // the single-pair test below).
+                let v =
+                    serde_json::to_value(&env.data.arguments).unwrap_or(serde_json::Value::Null);
+                debug_assert!(
+                    !v.is_null(),
+                    "ToolUserArgs unexpectedly serialized to Null; \
+                     check for fallible field types added under #[non_exhaustive]"
+                );
+                vec![(env.data.tool_call_id.clone(), v)]
+            }
+            _ => Vec::new(),
+        }
+    }
 }
 
 impl agentprof_core::adapter::Event for CopilotEvent {
@@ -1300,6 +1348,9 @@ impl agentprof_core::adapter::Event for CopilotEvent {
     }
     fn payload_mode(&self) -> Option<&str> {
         self.payload_mode()
+    }
+    fn payload_tool_requests(&self) -> Vec<(String, serde_json::Value)> {
+        self.payload_tool_requests()
     }
 }
 
@@ -1409,6 +1460,88 @@ mod payload_name_tests {
     fn unknown_returns_none() {
         let ev = CopilotEvent::Unknown;
         assert_eq!(ev.payload_name(), None);
+    }
+
+    #[test]
+    fn payload_tool_requests_assistant_message_multi() {
+        let ev = CopilotEvent::AssistantMessage(envelope(AssistantMessageData {
+            message_id: "m1".into(),
+            model: "claude-sonnet-4.6".into(),
+            content: String::new(),
+            tool_requests: vec![
+                ToolRequest {
+                    tool_call_id: "tc-1".into(),
+                    name: "bash".into(),
+                    arguments: serde_json::json!({"command": "ls -la"}),
+                    call_type: "function".into(),
+                    intention_summary: None,
+                },
+                ToolRequest {
+                    tool_call_id: "tc-2".into(),
+                    name: "read_file".into(),
+                    arguments: serde_json::json!({"path": "/etc/hosts"}),
+                    call_type: "function".into(),
+                    intention_summary: None,
+                },
+            ],
+            interaction_id: "i".into(),
+            turn_id: Some("t1".into()),
+            parent_tool_call_id: None,
+            reasoning_opaque: None,
+            reasoning_text: None,
+            encrypted_content: None,
+            output_tokens: 100,
+            request_id: None,
+            service_request_id: None,
+        }));
+        let pairs = ev.payload_tool_requests();
+        assert_eq!(pairs.len(), 2);
+        assert_eq!(pairs[0].0, "tc-1");
+        assert_eq!(pairs[0].1, serde_json::json!({"command": "ls -la"}));
+        assert_eq!(pairs[1].0, "tc-2");
+        assert_eq!(pairs[1].1, serde_json::json!({"path": "/etc/hosts"}));
+    }
+
+    #[test]
+    fn payload_tool_requests_tool_user_requested_single() {
+        let ev = CopilotEvent::ToolUserRequested(envelope(ToolUserRequestedData {
+            tool_call_id: "tc-9".into(),
+            tool_name: "shell".into(),
+            arguments: ToolUserArgs {
+                command: "rm -rf /tmp/scratch".into(),
+                description: "clean scratch dir".into(),
+            },
+        }));
+        let pairs = ev.payload_tool_requests();
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(pairs[0].0, "tc-9");
+        let v = &pairs[0].1;
+        assert_eq!(v["command"], "rm -rf /tmp/scratch");
+        assert_eq!(v["description"], "clean scratch dir");
+    }
+
+    #[test]
+    fn payload_tool_requests_other_variants_empty() {
+        let ev = CopilotEvent::SessionStart(envelope(SessionStartData {
+            session_id: "s".into(),
+            version: 1,
+            producer: "test".into(),
+            copilot_version: "1.0.0".into(),
+            start_time: Utc.with_ymd_and_hms(2026, 5, 29, 0, 0, 0).unwrap(),
+            context: SessionContext {
+                cwd: "/".into(),
+                git_root: None,
+                branch: None,
+                head_commit: None,
+                repository: None,
+                host_type: None,
+            },
+            already_in_use: false,
+        }));
+        assert_eq!(ev.payload_tool_requests().len(), 0);
+
+        // Unknown variant also returns empty.
+        assert_eq!(CopilotEvent::Unknown.payload_tool_requests().len(), 0);
     }
 }
 

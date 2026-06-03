@@ -17,7 +17,7 @@ for the M1.2 design.
 ## Public interface
 
 - [`copilot::CopilotAdapter`] — GitHub Copilot CLI adapter
-- [`copilot::CopilotEvent`] — 28-variant event enum (+ `Unknown` fallthrough)；`impl Event` 提供 4 个 payload-* method (`payload_name` / `payload_model` / `payload_output_tokens` / `payload_mode`) 让 `derive_episodes` / `analyze` 直接读 turn metadata 而无需 downcast
+- [`copilot::CopilotEvent`] — 28-variant event enum (+ `Unknown` fallthrough)；`impl Event` 提供 5 个 payload-* method (`payload_name` / `payload_model` / `payload_output_tokens` / `payload_mode` / `payload_tool_requests`) 让 `derive_episodes` / `analyze` 直接读 turn metadata 而无需 downcast
 - [`copilot::parser::parse_events_jsonl`] — JSONL → `RawSession<CopilotEvent>`（含 `parse_warnings` 收集 + live-mode 末行截断容忍）
 - [`copilot::paths::discover_sessions`] — walk session-state directory，按 mtime 倒序
 - [`registry::adapter_for`] — `AgentKind → Option<Adapter>` resolver
