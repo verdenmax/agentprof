@@ -359,28 +359,23 @@ pub fn to_speedscope(
     let session_frame = lookup(&frame_index, "session");
     events.push(Event::new(EventType::Open, 0, session_frame));
 
-    for (ordinal, turn) in episodes.turns.iter().enumerate() {
-        emit_turn(
-            ordinal,
-            turn,
+    {
+        let mut ctx = EmitCtx {
             episodes,
             session_start,
             session_end,
             total_ms,
-            &frame_index,
-            &mut events,
-            &mut warnings,
-        );
-    }
+            frame_index: &frame_index,
+            events: &mut events,
+            warnings: &mut warnings,
+        };
+        for (ordinal, turn) in episodes.turns.iter().enumerate() {
+            emit_turn(&mut ctx, ordinal, turn);
+        }
 
-    if has_orphan_tool_calls {
-        emit_orphans(
-            episodes,
-            session_start,
-            &frame_index,
-            &mut events,
-            &mut warnings,
-        );
+        if has_orphan_tool_calls {
+            emit_orphans(&mut ctx);
+        }
     }
 
     events.push(Event::new(EventType::Close, total_ms, session_frame));
@@ -474,29 +469,36 @@ fn collect_turn_children(turn: &crate::episode::Turn, episodes: &Episodes) -> Ve
     children
 }
 
-#[allow(clippy::too_many_arguments)]
-fn emit_turn(
-    ordinal: usize,
-    turn: &crate::episode::Turn,
-    episodes: &Episodes,
+/// Shared context threaded through every `emit_*` helper.
+///
+/// Bundles the session-scoped inputs (episodes, time bounds, frame
+/// dedup table) and the two shared output buffers (`events`, `warnings`)
+/// so per-call signatures only carry per-call data (e.g. ordinal +
+/// `&Turn`). Lifetime `'a` ties all borrows to the surrounding
+/// `to_speedscope` invocation.
+struct EmitCtx<'a> {
+    episodes: &'a Episodes,
     session_start: DateTime<Utc>,
     session_end: DateTime<Utc>,
     total_ms: i64,
-    frame_index: &BTreeMap<String, usize>,
-    events: &mut Vec<Event>,
-    warnings: &mut Vec<ExportWarning>,
-) {
+    frame_index: &'a BTreeMap<String, usize>,
+    events: &'a mut Vec<Event>,
+    warnings: &'a mut Vec<ExportWarning>,
+}
+
+fn emit_turn(ctx: &mut EmitCtx<'_>, ordinal: usize, turn: &crate::episode::Turn) {
     let turn_name = turn_frame_name(ordinal, turn.ended_at.is_none());
-    let turn_frame = lookup(frame_index, &turn_name);
-    let turn_start_ms = duration_ms(turn.started_at - session_start);
+    let turn_frame = lookup(ctx.frame_index, &turn_name);
+    let turn_start_ms = duration_ms(turn.started_at - ctx.session_start);
     let turn_end_ms = turn
         .ended_at
-        .map_or(total_ms, |e| duration_ms(e - session_start));
+        .map_or(ctx.total_ms, |e| duration_ms(e - ctx.session_start));
 
-    events.push(Event::new(EventType::Open, turn_start_ms, turn_frame));
+    ctx.events
+        .push(Event::new(EventType::Open, turn_start_ms, turn_frame));
 
-    let children = collect_turn_children(turn, episodes);
-    let turn_close_bound = turn.ended_at.unwrap_or(session_end);
+    let children = collect_turn_children(turn, ctx.episodes);
+    let turn_close_bound = turn.ended_at.unwrap_or(ctx.session_end);
     let mut last_end = turn.started_at;
     for child in children {
         let (effective_start, effective_end) = adjust_for_overlap(
@@ -504,37 +506,32 @@ fn emit_turn(
             child.ended_at,
             last_end,
             &child.warning_label,
-            warnings,
+            ctx.warnings,
         );
         let clamped_end = effective_end.min(turn_close_bound);
         let final_end = clamped_end.max(effective_start);
-        let frame_idx = lookup(frame_index, &child.frame_name);
-        events.push(Event::new(
+        let frame_idx = lookup(ctx.frame_index, &child.frame_name);
+        ctx.events.push(Event::new(
             EventType::Open,
-            duration_ms(effective_start - session_start),
+            duration_ms(effective_start - ctx.session_start),
             frame_idx,
         ));
-        events.push(Event::new(
+        ctx.events.push(Event::new(
             EventType::Close,
-            duration_ms(final_end - session_start),
+            duration_ms(final_end - ctx.session_start),
             frame_idx,
         ));
         last_end = final_end;
     }
 
-    events.push(Event::new(EventType::Close, turn_end_ms, turn_frame));
+    ctx.events
+        .push(Event::new(EventType::Close, turn_end_ms, turn_frame));
 }
 
-fn emit_orphans(
-    episodes: &Episodes,
-    session_start: DateTime<Utc>,
-    frame_index: &BTreeMap<String, usize>,
-    events: &mut Vec<Event>,
-    warnings: &mut Vec<ExportWarning>,
-) {
-    let orphan_frame = lookup(frame_index, "turn-orphan");
+fn emit_orphans(ctx: &mut EmitCtx<'_>) {
+    let orphan_frame = lookup(ctx.frame_index, "turn-orphan");
     let mut orphans: Vec<(DateTime<Utc>, DateTime<Utc>, String)> = Vec::new();
-    for tool in episodes.tools.values() {
+    for tool in ctx.episodes.tools.values() {
         for call in &tool.calls {
             if call.turn_id.is_none() {
                 let display = format_tool_frame_name(&tool.name, &tool.source);
@@ -546,30 +543,31 @@ fn emit_orphans(
     let (Some(first), Some(last)) = (orphans.first(), orphans.last()) else {
         return;
     };
-    let orphan_start_ms = duration_ms(first.0 - session_start);
-    let orphan_end_ms = duration_ms(last.1 - session_start);
-    events.push(Event::new(EventType::Open, orphan_start_ms, orphan_frame));
+    let orphan_start_ms = duration_ms(first.0 - ctx.session_start);
+    let orphan_end_ms = duration_ms(last.1 - ctx.session_start);
+    ctx.events
+        .push(Event::new(EventType::Open, orphan_start_ms, orphan_frame));
     let mut last_end = first.0;
     for (s, e, display) in orphans {
         let (effective_start, effective_end) =
-            adjust_for_overlap(s, e, last_end, &display, warnings);
+            adjust_for_overlap(s, e, last_end, &display, ctx.warnings);
         let final_end = effective_end.max(effective_start);
-        let frame_idx = lookup(frame_index, &display);
-        events.push(Event::new(
+        let frame_idx = lookup(ctx.frame_index, &display);
+        ctx.events.push(Event::new(
             EventType::Open,
-            duration_ms(effective_start - session_start),
+            duration_ms(effective_start - ctx.session_start),
             frame_idx,
         ));
-        events.push(Event::new(
+        ctx.events.push(Event::new(
             EventType::Close,
-            duration_ms(final_end - session_start),
+            duration_ms(final_end - ctx.session_start),
             frame_idx,
         ));
         last_end = final_end;
     }
-    events.push(Event::new(
+    ctx.events.push(Event::new(
         EventType::Close,
-        orphan_end_ms.max(duration_ms(last_end - session_start)),
+        orphan_end_ms.max(duration_ms(last_end - ctx.session_start)),
         orphan_frame,
     ));
 }
@@ -680,6 +678,17 @@ fn short_id(session_id: &str) -> String {
 /// Look up a frame's index in the dedup table. Returns 0 (the `session`
 /// frame) if the name is unknown, which should be impossible because
 /// `build_frame_table` is the single source of truth.
+///
+/// In debug builds we additionally assert the name is present so any
+/// regression in `build_frame_table` (e.g. an `emit_*` site emitting a
+/// frame it forgot to register) trips a test failure instead of silently
+/// collapsing onto the session frame. Release builds keep the silent
+/// `0` fallback so a profile is still produced for end users.
 fn lookup(idx: &BTreeMap<String, usize>, name: &str) -> usize {
+    debug_assert!(
+        idx.contains_key(name),
+        "speedscope frame lookup miss for {name:?}: \
+         build_frame_table must register every frame emitted by emit_*"
+    );
     idx.get(name).copied().unwrap_or(0)
 }
