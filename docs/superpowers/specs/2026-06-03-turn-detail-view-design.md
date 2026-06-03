@@ -224,8 +224,7 @@ pub fn render_turn_detail(
     f: &mut ratatui::Frame<'_>,
     area: ratatui::layout::Rect,
     state: &TurnDetailState,
-    report: &agentprof_core::AnalysisReport,
-    episodes: &agentprof_core::Episodes, // need this for actual ToolCall lookup
+    app_state: &crate::app::state::AppState<'_>, // borrows report + episodes
 );
 
 // Pure helpers (rustdoc + Examples + tested):
@@ -247,19 +246,14 @@ fn render_header_line(turn: &Turn, area: Rect) -> Line<'static>;
 fn render_footer_line(state: &TurnDetailState, selected_name: &str, area: Rect) -> Line<'static>;
 ```
 
-> **Note on the `episodes: &Episodes` parameter**: `AnalysisReport` does **not** currently carry `Episodes`, only derived `turn_summary`/`tool_rank`/etc. To resolve `CallRef → ToolCall` we need access to `Episodes.tools[name].calls[idx]`. Two options:
-> - **(α) Add `pub episodes: Episodes` to `AnalysisReport`** — clean, but bloats the analyze report.
-> - **(β) Keep `Episodes` as a separate parameter threaded through `AppRunner::new(report, episodes)`** — more arguments to thread.
->
-> We pick **(α)** because (i) it's the natural data dependency (the report IS the analysis OF the episodes), (ii) JSON / HTML exporters might want this too, (iii) `Episodes` is cheap to clone (sums in the hundreds of KB max for typical sessions).
->
-> Migration: `AnalysisReport::new(meta)` keeps signature; new field defaults to `Episodes::default()`. `analyze(&episodes, &meta, &warnings)` already takes `episodes`, just store a clone into the report.
+CallRef resolution inside `render_turn_detail`: walk `app_state.episodes.turns` for the entry where `t.id == state.turn_id`, then for each `CallRef` in `turn.tool_calls`, look up `app_state.episodes.tools.get(&ref.name).and_then(|e| e.calls.get(ref.index))`. This is the standard pattern used by FlamegraphView.
 
 **Modified: `crates/agentprof-tui/src/app/state.rs`** — add field + key dispatch:
 
 ```rust
-pub struct AppState {
+pub struct AppState<'a> {
     // existing fields…
+    // (`report: &'a AnalysisReport`, `episodes: &'a Episodes` already present!)
     pub detail_view: Option<TurnDetailState>,
 }
 
@@ -271,30 +265,57 @@ pub struct AppState {
 // 3. NEW: View::Flamegraph + KeyCode::Enter + valid selection → enter detail.
 ```
 
+> **Self-review correction (2026-06-03):** Earlier draft proposed adding `pub episodes: Episodes` to `AnalysisReport` to give TUI access to per-call data. This was **unnecessary** — `AppState<'a>` already holds `episodes: &'a Episodes` via the existing `AppState::new(&report, &episodes)` ctor. Dropped from this spec; D-6 in ADR-0011 is marked superseded by this same finding.
+
 **Modified: `crates/agentprof-tui/src/app/mod.rs`** — render dispatch:
 
 ```rust
-if let Some(detail) = state.detail_view.as_ref() {
-    render_turn_detail(f, area, detail, report, &report.episodes);
+if let Some(detail) = self.state.detail_view.as_ref() {
+    render_turn_detail(f, area, detail, &self.state);
 } else {
     /* existing view dispatch */
 }
 ```
 
+The `render_turn_detail` signature takes `&AppState` (which already carries both `&AnalysisReport` and `&Episodes`); no extra parameters needed.
+
 Help overlay (`fn draw_help_overlay`) gets 5 new lines (detail-view keys + entry hint); overlay height 22 → 27.
 
-**Modified: `crates/agentprof-tui/src/watch.rs`** — single-session reload safety:
+**Modified: `crates/agentprof-tui/src/watch.rs`** — single-session reload safety + transient AppState round-trip:
 
-After every successful reload of `WatchData::Single`, the embedded `AppState` runs:
+`WatchRunner` re-creates a transient `AppState` on every render frame and every key dispatch (existing line 398/457 pattern). To persist `detail_view` across these reconstructions, follow the existing `pending_gg` / `help_overlay` round-trip pattern:
 
 ```rust
-state.detail_view = state.detail_view.take().filter(|d| {
-    report.episodes.turns.iter().any(|t| t.id == d.turn_id)
-});
-// if was Some and is now None: footer_msg = Some("turn T3 disappeared after reload")
+// In WatchViewState (persistent across renders + reloads):
+pub struct WatchViewState {
+    pub help_overlay: bool,
+    pub pending_gg: bool,
+    pub detail_view: Option<TurnDetailState>,  // NEW
+    // …other fields…
+}
+
+// On every transient AppState construction (render path, key dispatch path):
+let mut transient = AppState::new(report, episodes);
+transient.help_open = self.view_state.help_overlay;
+transient.detail_view = self.view_state.detail_view.clone();  // NEW
+
+// After dispatch (key handling path only — render does not mutate):
+self.view_state.help_overlay = transient.help_open;
+self.view_state.detail_view = transient.detail_view;  // NEW
+
+// After do_reload(), validate detail_view against fresh episodes:
+if let WatchData::Single { episodes, .. } = &self.data {
+    if let Some(ref dv) = self.view_state.detail_view {
+        if !episodes.turns.iter().any(|t| t.id == dv.turn_id) {
+            let id = dv.turn_id.clone();
+            self.view_state.detail_view = None;
+            self.last_error = Some(format!("turn {id} disappeared after reload"));
+        }
+    }
+}
 ```
 
-Cross-session `WatchData::Cross` does NOT support detail view (aggregates have no per-turn structure). No change there.
+`TurnDetailState` clone is cheap (one `String` + `HashSet<usize>` typically <8 entries + small primitives). Cross-session `WatchData::Cross` does NOT support detail view (aggregates have no per-turn structure). No change there.
 
 ---
 
@@ -403,11 +424,12 @@ Cross-session `WatchData::Cross` does NOT support detail view (aggregates have n
 | `Event` trait | New method `payload_tool_requests` with default impl returning empty `Vec` | ✅ Backwards compatible — existing trait impls compile unchanged |
 | `ToolCall` struct | New field `arguments: Option<serde_json::Value>`; struct is `#[non_exhaustive]` | ✅ Non-breaking (callers can't pattern-match exhaustively); `ToolCall::new(span)` ctor defaults the new field to `None` |
 | JSON export schema | New optional field `arguments` on each tool call | ✅ Forward-compat for unknown-keys consumers; documented in CHANGELOG |
-| `AnalysisReport` struct | New field `pub episodes: Episodes`; `#[non_exhaustive]` | ✅ Non-breaking. Adds memory cost (clone of episodes — typically <100 KB for normal sessions) |
+| `AppState<'a>` struct | New field `detail_view: Option<TurnDetailState>`; struct is `#[non_exhaustive]` | ✅ Non-breaking; `AppState::new()` ctor defaults to `None` |
+| `WatchViewState` struct | New field `detail_view: Option<TurnDetailState>` | ✅ Non-breaking (struct is internal to `agentprof-tui`); default constructed `None` |
 | TUI key bindings | `Enter` on Flamegraph row was previously unbound — no semantics conflict | ✅ |
 | CLI surface | None | ✅ |
 
-CHANGELOG marks: `### Added` (4 entries: trait method, struct field, TurnDetailView, args in JSON), `### Changed` (1 entry: `AnalysisReport` adds `episodes`).
+CHANGELOG marks: `### Added` (3 entries: trait method, struct field, TurnDetailView). `### Changed` (1 entry: args field in JSON export).
 
 ---
 
@@ -451,11 +473,11 @@ CHANGELOG marks: `### Added` (4 entries: trait method, struct field, TurnDetailV
 
 ## 9. Risks
 
-- **State leakage on reload**: `WatchRunner` swap could leave `detail_view` pointing at a vanished turn id. Mitigated in §3.4.
+- **State leakage on reload**: `WatchRunner` swap could leave `detail_view` pointing at a vanished turn id. Mitigated in §3.4 — `do_reload()` validates `view_state.detail_view.turn_id` against fresh `episodes.turns` and drops + footer-banners on mismatch.
 - **`expanded_tools: HashSet<usize>` indices**: stable within one detail session; cleared on Esc or reload. OK.
 - **Snapshot fragility**: tool ordering is duration-desc; ties use original `Episodes.tools[name].calls[index]` order. Deterministic.
 - **Wide-char CJK args / tool names**: `format_args_preview` uses `chars().take()` (not byte count); width off by ±1 cell on wide CJK / emoji. Documented in rustdoc with explicit ASCII-friendliness note.
-- **`Episodes` clone cost in `AnalysisReport`**: For a 57-turn session, `Episodes` is on the order of ~10–50 KB (tool calls + spans). For a hypothetical 50-turn session with 5000 tool calls + 10 KB args each, this could reach ~50 MB. Risk is real but bounded; document as a known cost. If it becomes a problem, switch to `Arc<Episodes>`.
+- **`TurnDetailState` clone cost in WatchRunner**: copied across transient `AppState` boundary every render + every key event. Struct is small (`String` + `HashSet<usize>` typically <8 entries + 3 primitives) — cost is negligible relative to a single TUI frame.
 - **`serde_json::Value::Null` for `to_value` failure on `ToolUserArgs`**: dead code path (struct serializes deterministically) but documented + asserted in a debug_assert via unit test.
 
 ---
@@ -494,7 +516,6 @@ ADR will be written in Stage 2 immediately after this spec is approved, before S
 - **F2 ask_user pending detection** — next brainstorm (`f2-askuser-pending-brainstorm` todo). Possible integration once F1 ships: detail view shows `⏸ pending — awaiting user reply` badge if `tool_call.status == ToolCallStatus::OrphanEnd` AND `tool_call.user_requested == true` (or some other signal — needs F2 brainstorm to define).
 - **Args sort hotkeys in detail view** (`t`/`c`/`p` mimicking RoiView) — wait for usage feedback.
 - **Hook/skill row interleaving** — separate UX exploration.
-- **`AnalysisReport.episodes` as `Arc<Episodes>` for large sessions** — track for M2.
-- **Other adapters (Claude / Codex)** must implement `payload_tool_requests` when they land — document in `docs/adapters.md` as required impl for full TurnDetailView UX.
+- **Other adapters (Claude / Codex)** must implement `payload_tool_requests` when they land — document in `docs/adapters.md` as recommended-but-optional method for full TurnDetailView UX.
 
 ---

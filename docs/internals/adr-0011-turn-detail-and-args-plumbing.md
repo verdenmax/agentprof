@@ -91,14 +91,24 @@ the affected D-row.)
   already `#[non_exhaustive]`, so the field add is non-breaking. Spec
   §3.2, §6.
 
-- **D-6** Episodes exposure in report: **add `pub episodes: Episodes`
-  to `AnalysisReport`** by full clone. Rejected `Arc<Episodes>` for
-  v1 (extra indirection; current sessions <50 KB; switch tracked as
-  follow-up in spec §12 if a future M2 session hits MB scale).
-  Rejected "thread `Episodes` as a separate `AppRunner::new(report,
-  episodes)` parameter" because (a) it's the natural data dependency,
-  (b) JSON / HTML exporters may want it too, (c) `AnalysisReport` is
-  already `#[non_exhaustive]`. Spec §3.4.
+- **D-6** ~~Episodes exposure in report: **add `pub episodes: Episodes`
+  to `AnalysisReport`** by full clone.~~ **SUPERSEDED 2026-06-03 by
+  self-review finding**: `AppState<'a>` already holds
+  `episodes: &'a Episodes` via the existing
+  `AppState::new(&report, &episodes)` ctor (cf.
+  `crates/agentprof-tui/src/app/state.rs:88-90`). TUI accesses per-call
+  data via the existing borrow chain; no new field on `AnalysisReport`
+  needed. The original D-6 rationale (cross-exporter access) is preserved
+  as a *future* possibility but is not required for F1.
+
+- **D-6-revised** TUI access to per-call data: **reuse the existing
+  `AppState<'a> { report, episodes }` dual-borrow** that all M1.5 views
+  already use. `render_turn_detail` takes `&AppState<'_>` like every
+  other view (`flamegraph::render(&AppState)`,
+  `roi::render(&AppState)`, etc.) — no extra parameters, no field
+  additions to core types. CallRef resolution uses the standard
+  `app_state.episodes.tools.get(&ref.name).and_then(|e| e.calls.get(ref.index))`
+  pattern. Spec §3.4.
 
 - **D-7** TUI UI form: **full-screen `TurnDetailView`**, NOT a modal
   overlay and NOT a split panel. Modal overflows on 4+ tools / long
@@ -178,9 +188,9 @@ the affected D-row.)
   for other adapters (Claude / Codex) to opt into rich detail-view UX
   by implementing the one method — symmetric with the four existing
   `payload_*` extension methods.
-- **POS-003** `AnalysisReport.episodes` unlocks future exporters
-  (JSON consumers, custom reporters) that want raw episode access
-  without re-deriving from raw events.
+- **POS-003** ~~`AnalysisReport.episodes` unlocks future exporters…~~
+  Superseded by D-6 revision; the existing `AppState<'a>` dual-borrow
+  pattern is the canonical TUI access mechanism.
 - **POS-004** Recursive "Enter = drill deeper" UX rule establishes a
   consistent navigation model that future detail-of-detail views (result
   viewer, frame viewer) inherit cleanly.
@@ -190,11 +200,9 @@ the affected D-row.)
 
 ### Negative
 
-- **NEG-001** `AnalysisReport.episodes` carries a memory cost — for
-  typical 57-turn sessions ~10–50 KB; for hypothetical 5000-call
-  sessions with 10 KB args each, could reach ~50 MB. Bounded but
-  real; follow-up tracked for `Arc<Episodes>` if M2 sessions surface
-  this.
+- **NEG-001** ~~`AnalysisReport.episodes` carries a memory cost…~~
+  Superseded by D-6 revision; no memory cost incurred at all
+  (existing borrow chain reused).
 - **NEG-002** New trait method on `Event` is technically a
   source-compat-only addition with a default impl. Other adapter
   authors who *want* args-aware detail view UX must implement it —
@@ -212,6 +220,11 @@ the affected D-row.)
   maintain (state machine, render code, vim key dispatch, snapshot
   tests). Justified by the user value but increases the TUI footprint
   by ~15 %.
+- **NEG-006** WatchRunner persists `detail_view` in
+  `WatchViewState` and `.clone()`s across the transient `AppState`
+  boundary every render + key event. Clone cost is small (one `String`
+  + one tiny `HashSet`) but is a new per-frame allocation pattern
+  worth flagging.
 
 ## Alternatives Considered
 
@@ -293,17 +306,17 @@ the affected D-row.)
      `ToolUserRequested`. Add unit tests.
   3. Core: add `ToolCall.arguments` field + adjust `ToolCall::new`
      to default `None`. Roundtrip serde test.
-  4. Core: add `AnalysisReport.episodes`. Update `analyze()` to clone
-     episodes into the report. Existing tests pass.
-  5. Core: PASS 0 args-map collection in `derive_episodes`; stamp
+  4. Core: PASS 0 args-map collection in `derive_episodes`; stamp
      `ToolCall.arguments` on `on_tool_complete`. Test against
-     fixture replay.
-  6. TUI: new `views/turn_detail.rs` with helpers + render + state.
-  7. TUI: `AppState.detail_view` field + key dispatch order.
-  8. TUI: render fork in `AppRunner::draw`.
-  9. TUI: WatchRunner reload safety.
-  10. TUI: help overlay extension.
-  11. Docs: rustdoc, CHANGELOG entries, `docs/adapters.md`
+     fixture replay. (D-6 superseded: no `AnalysisReport.episodes`
+     plumbing needed.)
+  5. TUI: new `views/turn_detail.rs` with helpers + render + state.
+  6. TUI: `AppState.detail_view` field + key dispatch order.
+  7. TUI: render fork in `AppRunner::draw`.
+  8. TUI: WatchRunner — `WatchViewState.detail_view` field +
+     round-trip clone across transient AppState + reload safety.
+  9. TUI: help overlay extension.
+  10. Docs: rustdoc, CHANGELOG entries, `docs/adapters.md`
       addition, `docs/features/privacy.md` §8.
 
 - **IMP-002** Per-step gates (verification): `cargo fmt --all
