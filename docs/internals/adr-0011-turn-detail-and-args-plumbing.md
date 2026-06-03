@@ -74,6 +74,7 @@ the affected D-row.)
   `assistant.message` before either) and a forward-buffer would
   complicate the state machine for no measurable runtime saving.
   Spec §3.2.
+  (Amends ADR-0004's "single-pass" descriptor — see ADR-0004 §Amendments.)
 
 - **D-4** Conflict resolution: **`BTreeMap.entry().or_insert()`** — first
   occurrence wins on duplicate `tool_call_id`. Defends against

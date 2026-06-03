@@ -1,5 +1,6 @@
 ---
 source: crates/agentprof-adapters/tests/episode_derive.rs
+assertion_line: 52
 expression: episodes
 ---
 {
@@ -61,7 +62,10 @@ expression: episodes
               "message": "aborted"
             }
           },
-          "user_requested": false
+          "user_requested": false,
+          "arguments": {
+            "command": "sleep 30"
+          }
         }
       ],
       "total_duration": [

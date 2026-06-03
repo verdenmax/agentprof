@@ -326,6 +326,36 @@ pub trait Event {
     fn payload_tool_requests(&self) -> Vec<(String, serde_json::Value)> {
         Vec::new()
     }
+
+    /// Adapter-specific `tool_call_id` for events that carry one
+    /// (e.g. `ToolExecStart`, `ToolExecComplete`, `ToolUserRequested`).
+    /// Returns `None` for events without the concept.
+    ///
+    /// Used by [`crate::episode::derive_episodes`] to look up
+    /// `(tool_call_id → arguments)` pairs collected in PASS 0 from
+    /// [`Self::payload_tool_requests`].
+    ///
+    /// Default returns `None`; adapters override for variants whose
+    /// payload carries `tool_call_id`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::adapter::{Event, EventKind};
+    /// use chrono::Utc;
+    ///
+    /// struct StubEvent;
+    /// impl Event for StubEvent {
+    ///     fn id(&self) -> &str { "x" }
+    ///     fn kind(&self) -> EventKind { EventKind::Unknown }
+    ///     fn timestamp(&self) -> chrono::DateTime<Utc> { Utc::now() }
+    ///     fn parent_id(&self) -> Option<&str> { None }
+    /// }
+    /// assert_eq!(StubEvent.tool_call_id(), None);
+    /// ```
+    fn tool_call_id(&self) -> Option<&str> {
+        None
+    }
 }
 
 /// Reference to a single discoverable session.
@@ -613,5 +643,25 @@ mod tests {
             }
         }
         assert_eq!(StubEvent.payload_tool_requests().len(), 0);
+    }
+
+    #[test]
+    fn tool_call_id_default_returns_none() {
+        struct StubEvent;
+        impl Event for StubEvent {
+            fn id(&self) -> &'static str {
+                "stub"
+            }
+            fn kind(&self) -> EventKind {
+                EventKind::Unknown
+            }
+            fn timestamp(&self) -> chrono::DateTime<chrono::Utc> {
+                chrono::Utc::now()
+            }
+            fn parent_id(&self) -> Option<&str> {
+                None
+            }
+        }
+        assert_eq!(StubEvent.tool_call_id(), None);
     }
 }

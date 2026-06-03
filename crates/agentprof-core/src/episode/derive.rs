@@ -47,9 +47,28 @@ pub const ORPHAN_TOOL_SENTINEL: &str = "<orphan>";
 ///
 /// **Pure.** Same input → same output, byte-for-byte. Snapshot-stable.
 /// **Total.** Never returns `Err`. Data-quality issues land in `Episodes.warnings`.
-/// **Single-pass.** `O(N_events)` time, `O(N_episodes + N_warnings)` space.
+/// **Two-pass.** PASS 0 walks events once to collect
+/// `(tool_call_id → arguments)` into a `BTreeMap` from each event's
+/// [`Event::payload_tool_requests`] output. PASS 1 runs the
+/// state machine; on every `ToolCall` close (normal, orphan,
+/// abort, end-of-session) it looks up args via the End event's
+/// [`Event::tool_call_id`] (with fallback to the Start-captured
+/// id when the End event doesn't carry one). Total complexity
+/// stays `O(N_events × max_requests_per_event)` — `O(N_events)`
+/// typical, `O(N_episodes + N_warnings)` space. See ADR-0011
+/// D-3 + D-4 for the rationale.
 ///
 /// See `docs/internals/adr-0004-episode-derivation.md` for the full rationale.
+///
+/// # Adapter contract for `ToolCall.arguments`
+///
+/// Adapters that wish to populate `ToolCall.arguments` must
+/// implement BOTH [`Event::payload_tool_requests`] (to emit
+/// `(tool_call_id, args)` pairs at request time) AND
+/// [`Event::tool_call_id`] (to expose the id on close-event
+/// variants for lookup). Implementing only one silently
+/// no-ops: PASS 0 will collect args that PASS 1 cannot find,
+/// or PASS 1 will lookup ids that PASS 0 never collected.
 ///
 /// # Examples
 ///
@@ -80,7 +99,25 @@ pub const ORPHAN_TOOL_SENTINEL: &str = "<orphan>";
 #[must_use]
 #[tracing::instrument(name = "analyzer.derive_episodes", skip_all, fields(events = events.len()))]
 pub fn derive_episodes<E: Event>(events: &[E], meta: &SessionMeta) -> Episodes {
-    let mut state = DeriveState::new(meta);
+    // PASS 0: collect (tool_call_id → arguments) map by walking events once
+    // before the state machine. ToolCall.arguments is then attached on tool
+    // close via args_by_call_id.get(&call_id).cloned().
+    // First-occurrence-wins on duplicate ids (ADR-0011 D-4).
+    let mut args_by_call_id: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+    for ev in events {
+        for (call_id, args) in ev.payload_tool_requests() {
+            if args_by_call_id.contains_key(&call_id) {
+                tracing::debug!(
+                    target: "derive",
+                    tool_call_id = %call_id,
+                    "duplicate tool_call_id args ignored (first-wins)"
+                );
+                continue;
+            }
+            args_by_call_id.insert(call_id, args);
+        }
+    }
+    let mut state = DeriveState::new(meta, args_by_call_id);
     for (idx, ev) in events.iter().enumerate() {
         state.observe_timestamp(ev);
         match ev.kind() {
@@ -137,6 +174,10 @@ struct DeriveState {
     current_mode: Option<Mode>,
     aborts: Vec<AbortInfo>,
     warnings: Vec<DeriveWarning>,
+    /// PASS 0 map: `tool_call_id` → args. Populated before the state-machine
+    /// walk; consulted at tool-close (normal, orphan, abort, end-of-session)
+    /// to stamp `ToolCall.arguments`. See ADR-0011 D-3 + D-4.
+    args_by_call_id: BTreeMap<String, serde_json::Value>,
 }
 
 struct OpenToolCall {
@@ -145,6 +186,11 @@ struct OpenToolCall {
     started_at: DateTime<Utc>,
     turn_id: Option<String>,
     user_requested: bool,
+    /// Adapter-supplied `tool_call_id` captured at Start, used to look up
+    /// args from `DeriveState::args_by_call_id` at close time (esp. when
+    /// the close path is abort / end-of-session and doesn't carry an
+    /// `Event` with `tool_call_id()` of its own).
+    tool_call_id: Option<String>,
 }
 
 struct OpenHookCall {
@@ -160,7 +206,7 @@ struct OpenSkill {
 }
 
 impl DeriveState {
-    fn new(meta: &SessionMeta) -> Self {
+    fn new(meta: &SessionMeta, args_by_call_id: BTreeMap<String, serde_json::Value>) -> Self {
         Self {
             last_event_ts: None,
             prev_ts: None,
@@ -187,6 +233,7 @@ impl DeriveState {
             current_mode: Some(Mode::Interactive),
             aborts: Vec::new(),
             warnings: Vec::new(),
+            args_by_call_id,
         }
     }
 
@@ -303,19 +350,32 @@ impl DeriveState {
             started_at: ev.timestamp(),
             turn_id,
             user_requested: false,
+            tool_call_id: ev.tool_call_id().map(str::to_owned),
         });
     }
 
     fn on_tool_complete<E: Event>(&mut self, ev: &E) {
         let ts = ev.timestamp();
+        // End event's tool_call_id is the authoritative key for normal pairs
+        // (stack-order pairing per ADR-0004 — see file comment); for orphans
+        // the same End event id is still the only key we have to look up
+        // PASS 0 args (ADR-0011 D-3 + M2 follow-up: orphan should still try).
+        let end_call_id = ev.tool_call_id();
         if let Some(open) = self.open_tool_calls.pop() {
             let span = Span::new(open.started_at, ts);
+            // Prefer End-event id (always present in Copilot); fall back
+            // to Start-captured id. The fallback is load-bearing for
+            // future adapters whose Complete variant doesn't carry the
+            // id (i.e. their `Event::tool_call_id()` returns None for
+            // ToolExecComplete).
+            let lookup_id = end_call_id.or(open.tool_call_id.as_deref());
+            let arguments = lookup_id.and_then(|id| self.args_by_call_id.get(id).cloned());
             let call = ToolCall {
                 span,
                 turn_id: open.turn_id,
                 status: ToolCallStatus::Success, // Task 10b will read actual success bit
                 user_requested: open.user_requested,
-                arguments: None,
+                arguments,
             };
             self.commit_tool_call(&open.name, &open.source, call);
         } else {
@@ -333,12 +393,16 @@ impl DeriveState {
             let span = Span::instant(ts);
             let name = ORPHAN_TOOL_SENTINEL.to_string();
             let source = ToolSource::infer(&name);
+            // Even orphan completes can carry a tool_call_id whose args were
+            // declared earlier by an assistant.message — keep the lookup so
+            // M2 of the Task 3 review is satisfied (ADR-0011 D-3).
+            let arguments = end_call_id.and_then(|id| self.args_by_call_id.get(id).cloned());
             let call = ToolCall {
                 span,
                 turn_id: self.open_turn_idx.map(|i| self.turns[i].id.clone()),
                 status: ToolCallStatus::OrphanSynthesizedStart,
                 user_requested: false,
-                arguments: None,
+                arguments,
             };
             self.commit_tool_call(&name, &source, call);
             self.warnings.push(DeriveWarning::SynthesizedStart {
@@ -511,6 +575,11 @@ impl DeriveState {
         // Attach to most-recently-opened: try open tool/hook first (more specific), then turn.
         if let Some(open) = self.open_tool_calls.pop() {
             let span = Span::new(open.started_at, ev.timestamp());
+            // Abort event itself has no tool_call_id; use the Start-captured id.
+            let arguments = open
+                .tool_call_id
+                .as_deref()
+                .and_then(|id| self.args_by_call_id.get(id).cloned());
             let call = ToolCall {
                 span,
                 turn_id: open.turn_id,
@@ -518,7 +587,7 @@ impl DeriveState {
                     message: Some("aborted".to_string()),
                 },
                 user_requested: open.user_requested,
-                arguments: None,
+                arguments,
             };
             self.commit_tool_call(&open.name, &open.source, call);
             return;
@@ -571,12 +640,18 @@ impl DeriveState {
         for open in std::mem::take(&mut self.open_tool_calls) {
             let end = last_ts.unwrap_or(open.started_at);
             let span = Span::new(open.started_at, end);
+            // End-of-session close: rely on Start-captured tool_call_id since
+            // there is no triggering Event here.
+            let arguments = open
+                .tool_call_id
+                .as_deref()
+                .and_then(|id| self.args_by_call_id.get(id).cloned());
             let call = ToolCall {
                 span,
                 turn_id: open.turn_id,
                 status: ToolCallStatus::OpenAtEndOfSession,
                 user_requested: open.user_requested,
-                arguments: None,
+                arguments,
             };
             let start_event_id = format!("open-tool-{}", open.name);
             self.commit_tool_call(&open.name, &open.source, call);
@@ -1120,5 +1195,250 @@ mod tests {
         assert_eq!(ep.turns.len(), 1);
         assert_eq!(ep.turns[0].model, None);
         assert_eq!(ep.turns[0].output_tokens, None);
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
+mod args_plumbing_tests {
+    use super::*;
+    use crate::adapter::{AgentKind, EventKind};
+    use crate::model::SessionMeta;
+    use chrono::{TimeZone, Utc};
+
+    /// Minimal event variants for testing the args-attachment flow.
+    /// Mirrors the shape that `derive_episodes` walks.
+    enum E {
+        TurnStart {
+            id: String,
+            ts: chrono::DateTime<Utc>,
+        },
+        AssistantMsg {
+            id: String,
+            ts: chrono::DateTime<Utc>,
+            requests: Vec<(String, serde_json::Value)>,
+        },
+        ToolStart {
+            id: String,
+            ts: chrono::DateTime<Utc>,
+            tool_call_id: String,
+            tool_name: String,
+        },
+        ToolEnd {
+            id: String,
+            ts: chrono::DateTime<Utc>,
+            tool_call_id: String,
+        },
+        TurnEnd {
+            id: String,
+            ts: chrono::DateTime<Utc>,
+        },
+    }
+
+    impl Event for E {
+        fn id(&self) -> &str {
+            match self {
+                Self::TurnStart { id, .. }
+                | Self::AssistantMsg { id, .. }
+                | Self::ToolStart { id, .. }
+                | Self::ToolEnd { id, .. }
+                | Self::TurnEnd { id, .. } => id,
+            }
+        }
+        fn kind(&self) -> EventKind {
+            match self {
+                Self::TurnStart { .. } => EventKind::TurnStart,
+                Self::AssistantMsg { .. } => EventKind::AssistantMessage,
+                Self::ToolStart { .. } => EventKind::ToolExecStart,
+                Self::ToolEnd { .. } => EventKind::ToolExecComplete,
+                Self::TurnEnd { .. } => EventKind::TurnEnd,
+            }
+        }
+        fn timestamp(&self) -> chrono::DateTime<Utc> {
+            match self {
+                Self::TurnStart { ts, .. }
+                | Self::AssistantMsg { ts, .. }
+                | Self::ToolStart { ts, .. }
+                | Self::ToolEnd { ts, .. }
+                | Self::TurnEnd { ts, .. } => *ts,
+            }
+        }
+        fn parent_id(&self) -> Option<&str> {
+            None
+        }
+        fn payload_name(&self) -> Option<&str> {
+            match self {
+                Self::ToolStart { tool_name, .. } => Some(tool_name.as_str()),
+                _ => None,
+            }
+        }
+        fn payload_tool_requests(&self) -> Vec<(String, serde_json::Value)> {
+            match self {
+                Self::AssistantMsg { requests, .. } => requests.clone(),
+                _ => Vec::new(),
+            }
+        }
+        fn tool_call_id(&self) -> Option<&str> {
+            match self {
+                Self::ToolStart { tool_call_id, .. } | Self::ToolEnd { tool_call_id, .. } => {
+                    Some(tool_call_id.as_str())
+                }
+                _ => None,
+            }
+        }
+    }
+
+    fn meta() -> SessionMeta {
+        SessionMeta::new("s".into(), AgentKind::Copilot, Utc::now(), false)
+    }
+
+    fn t(s: u32) -> chrono::DateTime<Utc> {
+        Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, s).unwrap()
+    }
+
+    #[test]
+    fn args_attached_when_payload_tool_requests_seen_before_close() {
+        let events = vec![
+            E::TurnStart {
+                id: "t".into(),
+                ts: t(0),
+            },
+            E::AssistantMsg {
+                id: "m".into(),
+                ts: t(1),
+                requests: vec![("tc-1".into(), serde_json::json!({"command": "ls"}))],
+            },
+            E::ToolStart {
+                id: "s".into(),
+                ts: t(2),
+                tool_call_id: "tc-1".into(),
+                tool_name: "bash".into(),
+            },
+            E::ToolEnd {
+                id: "e".into(),
+                ts: t(3),
+                tool_call_id: "tc-1".into(),
+            },
+            E::TurnEnd {
+                id: "te".into(),
+                ts: t(4),
+            },
+        ];
+        let ep = derive_episodes(&events, &meta());
+        let bash = ep.tools.get("bash").expect("bash episode present");
+        assert_eq!(bash.calls.len(), 1);
+        assert_eq!(
+            bash.calls[0].arguments,
+            Some(serde_json::json!({"command": "ls"}))
+        );
+    }
+
+    #[test]
+    fn args_none_when_no_matching_tool_request_event() {
+        let events = vec![
+            E::TurnStart {
+                id: "t".into(),
+                ts: t(0),
+            },
+            E::ToolStart {
+                id: "s".into(),
+                ts: t(1),
+                tool_call_id: "tc-orphan".into(),
+                tool_name: "bash".into(),
+            },
+            E::ToolEnd {
+                id: "e".into(),
+                ts: t(2),
+                tool_call_id: "tc-orphan".into(),
+            },
+            E::TurnEnd {
+                id: "te".into(),
+                ts: t(3),
+            },
+        ];
+        let ep = derive_episodes(&events, &meta());
+        let bash = ep.tools.get("bash").expect("bash episode present");
+        assert!(bash.calls[0].arguments.is_none());
+    }
+
+    #[test]
+    fn args_first_occurrence_wins_on_duplicate_call_id() {
+        let events = vec![
+            E::TurnStart {
+                id: "t".into(),
+                ts: t(0),
+            },
+            E::AssistantMsg {
+                id: "m1".into(),
+                ts: t(1),
+                requests: vec![("tc-dup".into(), serde_json::json!({"v": "first"}))],
+            },
+            E::AssistantMsg {
+                id: "m2".into(),
+                ts: t(2),
+                requests: vec![("tc-dup".into(), serde_json::json!({"v": "second"}))],
+            },
+            E::ToolStart {
+                id: "s".into(),
+                ts: t(3),
+                tool_call_id: "tc-dup".into(),
+                tool_name: "bash".into(),
+            },
+            E::ToolEnd {
+                id: "e".into(),
+                ts: t(4),
+                tool_call_id: "tc-dup".into(),
+            },
+            E::TurnEnd {
+                id: "te".into(),
+                ts: t(5),
+            },
+        ];
+        let ep = derive_episodes(&events, &meta());
+        let bash = ep.tools.get("bash").expect("bash episode present");
+        assert_eq!(
+            bash.calls[0].arguments,
+            Some(serde_json::json!({"v": "first"})),
+            "first-wins on duplicate tool_call_id"
+        );
+    }
+
+    #[test]
+    fn args_attached_when_assistant_msg_arrives_after_tool_close() {
+        // Defensive: derive PASS 0 walks ALL events first, so the ordering
+        // of AssistantMsg vs ToolStart/ToolEnd should not matter.
+        let events = vec![
+            E::TurnStart {
+                id: "t".into(),
+                ts: t(0),
+            },
+            E::ToolStart {
+                id: "s".into(),
+                ts: t(1),
+                tool_call_id: "tc-late".into(),
+                tool_name: "bash".into(),
+            },
+            E::ToolEnd {
+                id: "e".into(),
+                ts: t(2),
+                tool_call_id: "tc-late".into(),
+            },
+            E::AssistantMsg {
+                id: "m".into(),
+                ts: t(3),
+                requests: vec![("tc-late".into(), serde_json::json!({"late": true}))],
+            },
+            E::TurnEnd {
+                id: "te".into(),
+                ts: t(4),
+            },
+        ];
+        let ep = derive_episodes(&events, &meta());
+        let bash = ep.tools.get("bash").expect("bash episode present");
+        assert_eq!(
+            bash.calls[0].arguments,
+            Some(serde_json::json!({"late": true})),
+            "PASS 0 must collect args before PASS 1 walks state machine"
+        );
     }
 }

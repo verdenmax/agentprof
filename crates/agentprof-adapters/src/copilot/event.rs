@@ -1322,6 +1322,31 @@ impl CopilotEvent {
             _ => Vec::new(),
         }
     }
+
+    /// Returns `tool_call_id` for variants that carry it:
+    /// - [`Self::ToolExecStart`] → `data.tool_call_id`
+    /// - [`Self::ToolExecComplete`] → `data.tool_call_id`
+    /// - [`Self::ToolUserRequested`] → `data.tool_call_id`
+    /// - All other variants → `None`.
+    ///
+    /// Used by [`agentprof_core::episode::derive_episodes`] to look up
+    /// args collected in PASS 0.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_adapters::copilot::CopilotEvent;
+    /// assert_eq!(CopilotEvent::Unknown.tool_call_id(), None);
+    /// ```
+    #[must_use]
+    pub fn tool_call_id(&self) -> Option<&str> {
+        match self {
+            Self::ToolExecStart(env) => Some(env.data.tool_call_id.as_str()),
+            Self::ToolExecComplete(env) => Some(env.data.tool_call_id.as_str()),
+            Self::ToolUserRequested(env) => Some(env.data.tool_call_id.as_str()),
+            _ => None,
+        }
+    }
 }
 
 impl agentprof_core::adapter::Event for CopilotEvent {
@@ -1351,6 +1376,9 @@ impl agentprof_core::adapter::Event for CopilotEvent {
     }
     fn payload_tool_requests(&self) -> Vec<(String, serde_json::Value)> {
         self.payload_tool_requests()
+    }
+    fn tool_call_id(&self) -> Option<&str> {
+        self.tool_call_id()
     }
 }
 

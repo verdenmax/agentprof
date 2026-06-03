@@ -188,3 +188,17 @@ the index encoding is fixed.
 ## Update §2026-05-30: 5th DeriveWarning variant
 
 This ADR's "`DeriveWarning` taxonomy (4 variants)" section locked `SynthesizedStart` / `OpenAtEndOfSession` / `AbortWithoutOpenElement` / `NonMonotonicTimestamp` at M1.3 ship time. The `feat/turn-metadata-extraction` merge added a **5th variant `PayloadNameMissing { kind, event_id }`** (emitted whenever `Event::payload_name()` returns `None` for an event whose `EventKind` indicates it SHOULD have a name; closes the silent-failure risk for upcoming Claude/Codex adapter authors). See `crates/agentprof-core/src/episode/warning.rs:13-71` for the canonical 5-variant definition and [ADR-0005 §3 D-1](./adr-0005-analyzer-and-payload-name.md) for the rationale.
+
+---
+
+## Amendments
+
+**2026-06-03 (ADR-0011 D-3, see [adr-0011-turn-detail-and-args-plumbing.md](./adr-0011-turn-detail-and-args-plumbing.md))**:
+The F1 args-plumbing feature added a PASS 0 to `derive_episodes` that
+walks events once to collect a `(tool_call_id → arguments)` `BTreeMap`
+before the state-machine PASS 1. The function is now conceptually
+**two-pass** (collect then drive), not single-pass as originally
+described. The **pure** and **total** guarantees still hold; complexity
+stays `O(N_events × max_requests_per_event)`. State-machine pairing
+semantics (Start↔End by stack order) are unchanged. See ADR-0011
+§Decisions D-3, D-4 for full rationale.

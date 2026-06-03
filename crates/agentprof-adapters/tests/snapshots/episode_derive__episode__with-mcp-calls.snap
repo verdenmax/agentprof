@@ -1,5 +1,6 @@
 ---
 source: crates/agentprof-adapters/tests/episode_derive.rs
+assertion_line: 49
 expression: episodes
 ---
 {
@@ -41,7 +42,10 @@ expression: episodes
           },
           "turn_id": "00000000-0000-0000-0000-000000000042",
           "status": "Success",
-          "user_requested": false
+          "user_requested": false,
+          "arguments": {
+            "path": "/tmp/x"
+          }
         }
       ],
       "total_duration": [
@@ -64,7 +68,10 @@ expression: episodes
           },
           "turn_id": "00000000-0000-0000-0000-000000000042",
           "status": "Success",
-          "user_requested": false
+          "user_requested": false,
+          "arguments": {
+            "query": "label:bug"
+          }
         }
       ],
       "total_duration": [
