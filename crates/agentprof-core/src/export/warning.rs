@@ -50,4 +50,65 @@ pub enum ExportWarning {
         /// Adjusted `started_at` actually emitted to the profile.
         adjusted_start: DateTime<Utc>,
     },
+
+    /// A turn was still open at the end of the session and its synthetic
+    /// Close had to be clamped to the start of the following turn so that
+    /// Speedscope's per-stack at-monotonicity invariant holds.
+    ///
+    /// Without clamping the synthetic Close would land at `total_ms`
+    /// (session end) and overshoot the following turn's Open, producing
+    /// a profile that fails strict-nesting validation.
+    #[error(
+        "speedscope open-turn truncated: turn={turn_id} \
+         original_at_ms={original_at} clamped_at_ms={clamped_at} \
+         (next turn started before session end)"
+    )]
+    OpenTurnTruncated {
+        /// Identifier of the open turn whose synthetic Close was clamped.
+        turn_id: String,
+        /// Original synthetic close timestamp (ms from session start),
+        /// i.e. `total_ms`.
+        original_at: i64,
+        /// Clamped synthetic close timestamp (ms from session start),
+        /// i.e. the next turn's start.
+        clamped_at: i64,
+    },
+
+    /// The first event in the trailing `turn-orphan` section started
+    /// before the last in-turn event ended; the orphan section's open
+    /// timestamp was shifted forward to preserve Speedscope's per-stack
+    /// at-monotonicity invariant across the boundary.
+    #[error(
+        "speedscope orphan time shifted: kind={orphan_kind} \
+         original_at_ms={original_at} shifted_to_ms={shifted_to} \
+         (orphan began before last in-turn event ended)"
+    )]
+    OrphanTimeShifted {
+        /// Human-readable description of the first orphan (frame name).
+        orphan_kind: String,
+        /// Originally computed orphan start (ms from session start).
+        original_at: i64,
+        /// Shifted orphan start (ms from session start).
+        shifted_to: i64,
+    },
+
+    /// A span's `ended_at` was earlier than its `started_at`. The
+    /// duration is clamped to 0 ms for output correctness, but the
+    /// warning informs the caller that a real timestamp inversion
+    /// exists in the source session data (clock skew, parser bug, or
+    /// out-of-order events upstream).
+    #[error(
+        "speedscope negative duration clamped to 0 ms: name={name} \
+         started_at={started_at} ended_at={ended_at} \
+         (ended_at < started_at in source data)"
+    )]
+    NegativeDurationClamped {
+        /// Human-readable label identifying the affected span (e.g.
+        /// turn id, tool frame name).
+        name: String,
+        /// Source `started_at` timestamp.
+        started_at: DateTime<Utc>,
+        /// Source `ended_at` timestamp (earlier than `started_at`).
+        ended_at: DateTime<Utc>,
+    },
 }

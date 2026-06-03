@@ -359,6 +359,7 @@ pub fn to_speedscope(
     let session_frame = lookup(&frame_index, "session");
     events.push(Event::new(EventType::Open, 0, session_frame));
 
+    let final_total_ms;
     {
         let mut ctx = EmitCtx {
             episodes,
@@ -368,6 +369,7 @@ pub fn to_speedscope(
             frame_index: &frame_index,
             events: &mut events,
             warnings: &mut warnings,
+            last_emitted_at: 0,
         };
         for (ordinal, turn) in episodes.turns.iter().enumerate() {
             emit_turn(&mut ctx, ordinal, turn);
@@ -376,9 +378,14 @@ pub fn to_speedscope(
         if has_orphan_tool_calls {
             emit_orphans(&mut ctx);
         }
+        // The session-close must come after the last emitted event;
+        // otherwise overlap adjustments inside the orphan section (or a
+        // clamp-induced shift) can push a child past `total_ms`,
+        // violating per-stack at-monotonicity at the session boundary.
+        final_total_ms = total_ms.max(ctx.last_emitted_at);
     }
 
-    events.push(Event::new(EventType::Close, total_ms, session_frame));
+    events.push(Event::new(EventType::Close, final_total_ms, session_frame));
 
     let profile = SpeedscopeProfile::new(
         SpeedscopeProfile::SCHEMA_URL.to_string(),
@@ -390,7 +397,7 @@ pub fn to_speedscope(
             "wall-clock".to_string(),
             "milliseconds".to_string(),
             0,
-            total_ms,
+            final_total_ms,
             events,
         )],
     );
@@ -476,6 +483,11 @@ fn collect_turn_children(turn: &crate::episode::Turn, episodes: &Episodes) -> Ve
 /// so per-call signatures only carry per-call data (e.g. ordinal +
 /// `&Turn`). Lifetime `'a` ties all borrows to the surrounding
 /// `to_speedscope` invocation.
+///
+/// `last_emitted_at` tracks the largest `at` value pushed so far (in
+/// ms from session start). It backs the B-4.2 clamp that prevents the
+/// orphan section from beginning with a descending `at` across the
+/// last-in-turn → first-orphan boundary.
 struct EmitCtx<'a> {
     episodes: &'a Episodes,
     session_start: DateTime<Utc>,
@@ -484,18 +496,87 @@ struct EmitCtx<'a> {
     frame_index: &'a BTreeMap<String, usize>,
     events: &'a mut Vec<Event>,
     warnings: &'a mut Vec<ExportWarning>,
+    last_emitted_at: i64,
+}
+
+impl EmitCtx<'_> {
+    /// Push an event and advance `last_emitted_at` if `at` is later than
+    /// any previously emitted timestamp. Centralizing the push keeps the
+    /// monotonicity tracker honest.
+    fn push_event(&mut self, ty: EventType, at: i64, frame: usize) {
+        self.events.push(Event::new(ty, at, frame));
+        if at > self.last_emitted_at {
+            self.last_emitted_at = at;
+        }
+    }
+}
+
+/// Compute the duration from `started_at` to `ended_at` in ms, clamped
+/// to `0` for output safety, and emit a [`ExportWarning::NegativeDurationClamped`]
+/// when the input would have been negative.
+///
+/// This is the `duration_ms_warn` helper from the B-4.3 follow-up: the
+/// underlying `duration_ms` already silently `.max(0)`s the value, but
+/// surfacing a warning lets the user know that a real timestamp inversion
+/// exists in their session data (clock skew, parser bug, out-of-order
+/// upstream events).
+fn duration_ms_warn(
+    ctx: &mut EmitCtx<'_>,
+    name: &str,
+    started_at: DateTime<Utc>,
+    ended_at: DateTime<Utc>,
+) -> i64 {
+    if ended_at < started_at {
+        ctx.warnings.push(ExportWarning::NegativeDurationClamped {
+            name: name.to_string(),
+            started_at,
+            ended_at,
+        });
+    }
+    duration_ms(ended_at - started_at)
 }
 
 fn emit_turn(ctx: &mut EmitCtx<'_>, ordinal: usize, turn: &crate::episode::Turn) {
     let turn_name = turn_frame_name(ordinal, turn.ended_at.is_none());
     let turn_frame = lookup(ctx.frame_index, &turn_name);
-    let turn_start_ms = duration_ms(turn.started_at - ctx.session_start);
-    let turn_end_ms = turn
-        .ended_at
-        .map_or(ctx.total_ms, |e| duration_ms(e - ctx.session_start));
+    let turn_start_ms = duration_ms_warn(
+        ctx,
+        &format!("turn-{} start", ordinal + 1),
+        ctx.session_start,
+        turn.started_at,
+    );
+    let turn_end_ms = if let Some(e) = turn.ended_at {
+        duration_ms_warn(
+            ctx,
+            &format!("turn-{} end", ordinal + 1),
+            ctx.session_start,
+            e,
+        )
+    } else {
+        // B-4.1: synthetic close for an open turn defaults to
+        // `total_ms` (session end). If the open turn is followed by
+        // another turn that began before session end, the synthetic
+        // Close would overshoot that next-turn Open, violating
+        // Speedscope's per-stack at-monotonicity invariant. Clamp
+        // to `min(total_ms, turns[N+1].started_at_ms)` and emit a
+        // warning when the clamp actually fires.
+        let next_turn_start_ms = ctx
+            .episodes
+            .turns
+            .get(ordinal + 1)
+            .map(|next| duration_ms(next.started_at - ctx.session_start));
+        let clamped = next_turn_start_ms.map_or(ctx.total_ms, |n| ctx.total_ms.min(n));
+        if clamped < ctx.total_ms {
+            ctx.warnings.push(ExportWarning::OpenTurnTruncated {
+                turn_id: turn.id.clone(),
+                original_at: ctx.total_ms,
+                clamped_at: clamped,
+            });
+        }
+        clamped
+    };
 
-    ctx.events
-        .push(Event::new(EventType::Open, turn_start_ms, turn_frame));
+    ctx.push_event(EventType::Open, turn_start_ms, turn_frame);
 
     let children = collect_turn_children(turn, ctx.episodes);
     let turn_close_bound = turn.ended_at.unwrap_or(ctx.session_end);
@@ -511,21 +592,20 @@ fn emit_turn(ctx: &mut EmitCtx<'_>, ordinal: usize, turn: &crate::episode::Turn)
         let clamped_end = effective_end.min(turn_close_bound);
         let final_end = clamped_end.max(effective_start);
         let frame_idx = lookup(ctx.frame_index, &child.frame_name);
-        ctx.events.push(Event::new(
+        ctx.push_event(
             EventType::Open,
             duration_ms(effective_start - ctx.session_start),
             frame_idx,
-        ));
-        ctx.events.push(Event::new(
+        );
+        ctx.push_event(
             EventType::Close,
             duration_ms(final_end - ctx.session_start),
             frame_idx,
-        ));
+        );
         last_end = final_end;
     }
 
-    ctx.events
-        .push(Event::new(EventType::Close, turn_end_ms, turn_frame));
+    ctx.push_event(EventType::Close, turn_end_ms, turn_frame);
 }
 
 fn emit_orphans(ctx: &mut EmitCtx<'_>) {
@@ -544,32 +624,53 @@ fn emit_orphans(ctx: &mut EmitCtx<'_>) {
         return;
     };
     let orphan_start_ms = duration_ms(first.0 - ctx.session_start);
+
+    // B-4.2: the first orphan may have begun before the last in-turn
+    // event ended (e.g. an orphan tool call whose timestamp predates an
+    // open turn's synthetic close). Clamp the orphan section's open
+    // forward to `last_emitted_at` so Speedscope's monotonicity holds
+    // across the boundary; emit a warning when the shift fires.
+    let clamped_start_ms = orphan_start_ms.max(ctx.last_emitted_at);
+    if clamped_start_ms > orphan_start_ms {
+        ctx.warnings.push(ExportWarning::OrphanTimeShifted {
+            orphan_kind: first.2.clone(),
+            original_at: orphan_start_ms,
+            shifted_to: clamped_start_ms,
+        });
+    }
+
     let orphan_end_ms = duration_ms(last.1 - ctx.session_start);
-    ctx.events
-        .push(Event::new(EventType::Open, orphan_start_ms, orphan_frame));
-    let mut last_end = first.0;
+    ctx.push_event(EventType::Open, clamped_start_ms, orphan_frame);
+
+    // Initialize `last_end` to the clamped boundary in `DateTime` form so
+    // subsequent `adjust_for_overlap` calls preserve the shift for any
+    // orphans whose `started_at` is also < `clamped_start_ms`.
+    let clamped_start_dt = ctx.session_start + Duration::milliseconds(clamped_start_ms);
+    let mut last_end = first.0.max(clamped_start_dt);
     for (s, e, display) in orphans {
         let (effective_start, effective_end) =
             adjust_for_overlap(s, e, last_end, &display, ctx.warnings);
         let final_end = effective_end.max(effective_start);
         let frame_idx = lookup(ctx.frame_index, &display);
-        ctx.events.push(Event::new(
+        ctx.push_event(
             EventType::Open,
             duration_ms(effective_start - ctx.session_start),
             frame_idx,
-        ));
-        ctx.events.push(Event::new(
+        );
+        ctx.push_event(
             EventType::Close,
             duration_ms(final_end - ctx.session_start),
             frame_idx,
-        ));
+        );
         last_end = final_end;
     }
-    ctx.events.push(Event::new(
+    ctx.push_event(
         EventType::Close,
-        orphan_end_ms.max(duration_ms(last_end - ctx.session_start)),
+        orphan_end_ms
+            .max(duration_ms(last_end - ctx.session_start))
+            .max(clamped_start_ms),
         orphan_frame,
-    ));
+    );
 }
 
 // ---- Helpers ----
@@ -691,4 +792,202 @@ fn lookup(idx: &BTreeMap<String, usize>, name: &str) -> usize {
          build_frame_table must register every frame emitted by emit_*"
     );
     idx.get(name).copied().unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    //! B-4 timestamp-robustness unit tests (M1.6.4 follow-ups i1/i2/i3).
+    //!
+    //! Each test constructs a synthetic `Episodes` that triggers one of
+    //! the three monotonicity-preserving clamps and asserts that:
+    //!
+    //! 1. the emitted events satisfy Speedscope's per-stack `at`
+    //!    monotonicity invariant; and
+    //! 2. the corresponding [`ExportWarning`] variant is surfaced.
+
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::*;
+    use crate::adapter::AgentKind;
+    use crate::episode::tool::{ToolCall, ToolEpisode};
+    use crate::episode::turn::{Span, Turn};
+    use crate::model::{SessionMeta, ToolSource};
+    use chrono::TimeZone;
+
+    fn meta_at(start: DateTime<Utc>) -> SessionMeta {
+        SessionMeta::new("sess-b4".into(), AgentKind::Copilot, start, false)
+    }
+
+    // ----- B-4.1: open turn followed by closed turn ------------------
+
+    #[test]
+    fn open_turn_close_is_clamped_to_next_turn_start() {
+        let session_start = Utc.with_ymd_and_hms(2026, 6, 1, 12, 0, 0).unwrap();
+        let t1_start = session_start + Duration::seconds(1);
+        let t2_start = session_start + Duration::seconds(2);
+        let t2_end = session_start + Duration::seconds(5);
+
+        let mut t1 = Turn::new("turn-1".into(), t1_start);
+        t1.ended_at = None;
+        let mut t2 = Turn::new("turn-2".into(), t2_start);
+        t2.ended_at = Some(t2_end);
+
+        let episodes = Episodes {
+            turns: vec![t1, t2],
+            ..Episodes::default()
+        };
+
+        let meta = meta_at(session_start);
+        let (profile, warnings) = to_speedscope(&episodes, &meta, "0.0.0");
+
+        let truncated: Vec<_> = warnings
+            .iter()
+            .filter_map(|w| match w {
+                ExportWarning::OpenTurnTruncated {
+                    turn_id,
+                    original_at,
+                    clamped_at,
+                } => Some((turn_id.clone(), *original_at, *clamped_at)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            truncated.len(),
+            1,
+            "expected exactly one OpenTurnTruncated; warnings={warnings:?}"
+        );
+        let (turn_id, original_at, clamped_at) = &truncated[0];
+        assert_eq!(turn_id, "turn-1");
+        // total_ms = session_end - session_start = 5000 ms.
+        assert_eq!(*original_at, 5000);
+        // Clamped to next turn's start = 2000 ms.
+        assert_eq!(*clamped_at, 2000);
+
+        let events = &profile.profiles[0].events;
+        for win in events.windows(2) {
+            assert!(
+                win[0].at <= win[1].at,
+                "events must be at-monotonic; got {win:?}"
+            );
+        }
+    }
+
+    // ----- B-4.2: orphan tool call before last in-turn event ---------
+
+    #[test]
+    fn orphan_section_open_is_clamped_to_last_emitted_at() {
+        let session_start = Utc.with_ymd_and_hms(2026, 6, 1, 12, 0, 0).unwrap();
+        let t1_start = session_start + Duration::seconds(1);
+        let t1_end = session_start + Duration::seconds(10);
+
+        let mut t1 = Turn::new("turn-1".into(), t1_start);
+        t1.ended_at = Some(t1_end);
+
+        // Orphan whose started_at is BEFORE turn-1 ended → its absolute
+        // ms-offset is 2000 but the last emitted in-turn event (turn-1
+        // close) is at 10000.
+        let orphan_start = session_start + Duration::seconds(2);
+        let orphan_end = session_start + Duration::seconds(3);
+        let mut tool = ToolEpisode::new("bash".into(), ToolSource::Builtin);
+        let mut call = ToolCall::new(Span::new(orphan_start, orphan_end));
+        call.turn_id = None;
+        tool.calls.push(call);
+
+        let mut tools = std::collections::BTreeMap::new();
+        tools.insert("bash".to_string(), tool);
+        let episodes = Episodes {
+            turns: vec![t1],
+            tools,
+            ..Episodes::default()
+        };
+
+        let meta = meta_at(session_start);
+        let (profile, warnings) = to_speedscope(&episodes, &meta, "0.0.0");
+
+        let shifted: Vec<_> = warnings
+            .iter()
+            .filter_map(|w| match w {
+                ExportWarning::OrphanTimeShifted {
+                    orphan_kind,
+                    original_at,
+                    shifted_to,
+                } => Some((orphan_kind.clone(), *original_at, *shifted_to)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            shifted.len(),
+            1,
+            "expected exactly one OrphanTimeShifted; warnings={warnings:?}"
+        );
+        let (kind, original_at, shifted_to) = &shifted[0];
+        assert_eq!(kind, "bash");
+        assert_eq!(*original_at, 2000);
+        assert_eq!(*shifted_to, 10000);
+
+        let events = &profile.profiles[0].events;
+        for win in events.windows(2) {
+            assert!(
+                win[0].at <= win[1].at,
+                "events must be at-monotonic across the orphan boundary; got {win:?}"
+            );
+        }
+    }
+
+    // ----- B-4.3: negative-duration helper ---------------------------
+
+    #[test]
+    fn duration_ms_warn_clamps_inverted_input_and_warns() {
+        // A turn whose `started_at` predates the session's `started_at`
+        // exercises the `duration_ms_warn` call on `turn_start_ms`: the
+        // helper computes `(session_start → turn.started_at)` and finds
+        // ended_at < started_at.
+        let session_start = Utc.with_ymd_and_hms(2026, 6, 1, 12, 0, 0).unwrap();
+        let t1_start = session_start - Duration::seconds(3); // before session
+        let t1_end = session_start + Duration::seconds(5);
+
+        let mut t1 = Turn::new("turn-1".into(), t1_start);
+        t1.ended_at = Some(t1_end);
+
+        let episodes = Episodes {
+            turns: vec![t1],
+            ..Episodes::default()
+        };
+
+        let meta = meta_at(session_start);
+        let (profile, warnings) = to_speedscope(&episodes, &meta, "0.0.0");
+
+        let neg: Vec<_> = warnings
+            .iter()
+            .filter_map(|w| match w {
+                ExportWarning::NegativeDurationClamped {
+                    name,
+                    started_at,
+                    ended_at,
+                } => Some((name.clone(), *started_at, *ended_at)),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            neg.iter().any(|(n, _, _)| n == "turn-1 start"),
+            "expected NegativeDurationClamped for 'turn-1 start'; got {neg:?}"
+        );
+        let (_, started_at, ended_at) = neg
+            .iter()
+            .find(|(n, _, _)| n == "turn-1 start")
+            .expect("turn-1 start warning present");
+        assert!(*ended_at < *started_at);
+
+        // Emitted ms is clamped to 0 — search for the Open event whose
+        // frame matches turn-1 and confirm its `at == 0`.
+        let events = &profile.profiles[0].events;
+        let turn_open_at = events
+            .iter()
+            .find(|e| {
+                e.ty == EventType::Open && profile.shared.frames[e.frame].name.starts_with("turn-1")
+            })
+            .map(|e| e.at)
+            .expect("turn-1 open event present");
+        assert_eq!(turn_open_at, 0);
+    }
 }
