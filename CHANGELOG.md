@@ -34,8 +34,12 @@ prefix used in commit messages).
   - **TTY required**: piping yields `OutputError` (exit 3) with a helpful message; use `--export md` or `--export json` for headless.
   - References: spec [`2026-05-30-m1.5-tui-design.md`](docs/superpowers/specs/2026-05-30-m1.5-tui-design.md), plan [`2026-05-30-m1.5-tui.md`](docs/superpowers/plans/2026-05-30-m1.5-tui.md).
 - B-6 (M1.6.4 follow-up M-3): 3 new copilot fixtures covering combinations the existing single-feature fixture set did not exercise — `tool-and-skill-same-turn/` (one turn calls both `bash` and `skill__code-reviewer__run`), `two-skills-one-turn/` (single turn invokes `code-reviewer` + `git-flow`, locking 2 distinct `ToolSource::Skill { name }` rows in `tool_rank`), `orphan-skill-mix/` (turn closes cleanly, then an orphan `tool.execution_complete` + orphan `skill.invoked` arrive post-turn). 6 new snapshot tests in `agentprof-cli` (md + html per fixture) and 3 new analyzer snapshots in `agentprof-adapters` lock the renderer/analyzer behaviour for these combinatorial cases. Cross-session aggregate snapshots refreshed to reflect the 3 added sessions.
+- **B-4 (M1.6.4 follow-up wave, 2026-06-03)** [`c54a1af`]: 3 new `agentprof_core::export::speedscope::ExportWarning` variants — `OpenTurnTruncated { turn_id, original_at, clamped_at }`, `OrphanTimeShifted { orphan_kind, original_at, shifted_to }`, `NegativeDurationClamped { name, started_at, ended_at }`. Emitted when `emit_turn` synthesizes an open-turn Close that would violate at-monotonicity (clamps to next-turn start), when `emit_orphans` shifts an orphan's `at` forward to maintain ordering across the in-turn → orphan boundary, or when `duration_ms` would otherwise silently clamp a negative duration to 0. Speedscope profiles no longer violate Speedscope's per-stack at-monotonicity invariant.
+- **B-5 (M1.6.4 follow-up wave, 2026-06-03)** [`afae0e8`]: new `Display` impls on `agentprof_core::model::tool_source::ToolSource`, `agentprof_core::error::ParseWarning`, and `agentprof_core::episode::warning::DeriveWarning`. **API addition (SemVer minor)** — these are trait impls on public types. HTML renderer in `agentprof-cli::cmd::format::html` now uses `{}` instead of `{:?}` for these 4 types (`ToolSource::Skill { name: "foo" }` → `skill:foo`; raw Rust enum syntax no longer leaks into end-user HTML). Defensive `html_escape` helper + `serde_json::json!` fallback added in `html.rs` and `speedscope.rs` to harden against future user-controlled error messages.
 
 ### Changed
+
+- **B-3 (M1.6.4 follow-up wave, 2026-06-03)** [`b376d18`]: `agentprof_core::export::speedscope::emit_turn` and `emit_orphans` refactored to take a shared `EmitCtx<'a>` struct bundling shared context refs (frame index, output Vec, warnings, etc.). `#[allow(clippy::too_many_arguments)]` removed. `speedscope::lookup` gains a `debug_assert!(idx.contains_key(name))` so debug builds catch misregistered frames; release builds keep the silent 0 fallback. No production behaviour change.
 
 - All 13 production `eprintln!` calls in `agentprof-cli::cmd::*` have been converted to `tracing::{warn, info, error}!` (M1.6.4). **User-visible diff**: warnings that previously appeared as `agentprof: warning: ...` on stderr now appear in `tracing_subscriber::fmt` format (e.g. `WARN agentprof_cli::cmd::analyze: ...`). Shell scripts grepping stderr by the old prefix should switch to grepping for level tokens (`WARN` / `ERROR` / `INFO`) or use `--log-file <path>` to redirect tracing output away from stderr entirely. One `eprintln!` is intentionally kept in `main.rs` for the top-level error printer (must reach stderr even when tracing is pointed at a file). See [ADR-0010 D-7](docs/internals/adr-0010-tracing-infrastructure.md).
 - `Cli` in `agentprof-cli` refactored from `enum` to `struct` with a `#[command(subcommand)]` field (M1.6.4) to enable the two new global args (`--log-level` / `--log-file`). Backwards-compatible at the CLI surface: every existing subcommand name and arg is unchanged. See [ADR-0010 D-10](docs/internals/adr-0010-tracing-infrastructure.md).
@@ -61,6 +65,31 @@ prefix used in commit messages).
 - `with-skill-invoked` fixture: added a `skill__<name>__<tool>` execution so the `ToolSource::Skill` source-label rendering branch is actually exercised by snapshot tests; Source column now shows `skill/synthetic` (M1.5 audit #7).
 
 ### Docs
+
+#### M1.6.4 follow-up wave (2026-06-03)
+
+Post-merge propagation + naming-clarification entries for the 8 cleanup
+commits between M1.6.4 merge (`8abc590`) and `766b8f0`:
+
+- **`d87adec` docs(m1.6.4): post-merge audit** — propagated tracing references
+  into the less-trafficked L2 / L3 docs (`docs/adapters.md`,
+  `docs/features/*.md`, `docs/internals/*.md`, `CONTRIBUTING.md`).
+- **`95fd059` docs(arch)** — clarified `docs/architecture.md §3` no-cross-crate-deps
+  rule excludes dev-dependencies (rationale: `agentprof-tui/tests/views.rs`
+  legitimately dev-deps `agentprof-adapters` for fixture-driven snapshot
+  tests).
+- **`83d2ed0`-companion `docs/architecture.md` follow-up (this `docs(sync)` 2026-06-03)** —
+  corrected the §8 `AGENTPROF_LOG_FULL_PATHS` parenthetical from
+  the stale "仅影响 cli 层 emission" wording (pre-`83d2ed0`) to "系统级
+  opt-out at all 4 span layers via `hash_path` env-var check"
+  (post-`83d2ed0` reality).
+- **Naming clarification (2026-06-03)**: commit
+  `4301125 chore(m1.6.5): cleanup batch 1` uses an `m1.6.5` token in its
+  subject line, but the work belongs to the **M1.6.4 follow-up wave** —
+  NOT the M1.6.5 milestone, which remains reserved in
+  `tasks/ROADMAP.md §6.1 L-4` for **MCP server waste analysis**
+  (deferred to 0.2.0 per `docs/plan.md §8`). See `tasks/ROADMAP.md §9`
+  change-log entry for 2026-06-03 v1.4.
 
 #### Roadmap / progress sync (`docs(sync)` — 2026-05-30)
 
