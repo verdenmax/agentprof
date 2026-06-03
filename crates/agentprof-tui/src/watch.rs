@@ -158,6 +158,7 @@ pub enum AggSortKey {
 /// assert_eq!(s.agg_selected, 0);
 /// assert!(!s.help_overlay);
 /// assert!(!s.pending_gg);
+/// assert!(s.detail_view.is_none());
 /// ```
 #[derive(Debug, Default)]
 #[non_exhaustive]
@@ -171,6 +172,12 @@ pub struct WatchViewState {
     /// Vim-style `gg` two-key sequence in-progress flag. Mirrors
     /// `AppState::pending_gg` for the cross-session aggregate view.
     pub pending_gg: bool,
+    /// Mirrors [`crate::app::state::AppState::detail_view`] across
+    /// `WatchRunner`'s transient-`AppState` reconstruction (every
+    /// frame and every key dispatch). Cleared by
+    /// `WatchRunner::do_reload` when the cached `turn_id` is no
+    /// longer present in the reloaded [`Episodes`] (see ADR-0011 D-14).
+    pub detail_view: Option<crate::views::turn_detail::TurnDetailState>,
 }
 
 /// Owned-data live-refresh TUI runner.
@@ -397,7 +404,17 @@ impl WatchRunner {
             } => {
                 let mut transient = AppState::new(report, episodes);
                 transient.help_open = self.view_state.help_overlay;
-                views::aggregate::render(frame, body_area, &transient);
+                // Read `detail_view` directly from the persistent
+                // `view_state` — render is read-only so no clone-in
+                // round trip is needed (unlike `dispatch`, which mutates
+                // a transient `AppState` and writes back).
+                if let Some(detail) = self.view_state.detail_view.as_ref() {
+                    crate::views::turn_detail::render_turn_detail(
+                        frame, body_area, detail, &transient,
+                    );
+                } else {
+                    views::aggregate::render(frame, body_area, &transient);
+                }
             }
             WatchData::Cross(any) => {
                 views::aggregate::render_cross_session(
@@ -456,10 +473,14 @@ impl WatchRunner {
                     {
                         let mut transient = AppState::new(report, episodes);
                         transient.help_open = self.view_state.help_overlay;
+                        transient
+                            .detail_view
+                            .clone_from(&self.view_state.detail_view);
                         match dispatch(&mut transient, ev) {
                             Action::Quit => return Ok(()),
                             Action::None => {
                                 self.view_state.help_overlay = transient.help_open;
+                                self.view_state.detail_view = transient.detail_view;
                             }
                         }
                     } else if ev.is_ctrl_c()
@@ -482,6 +503,40 @@ impl WatchRunner {
                     self.data = new_data;
                     self.refresh_count = self.refresh_count.saturating_add(1);
                     self.last_error = None;
+
+                    // Drop detail_view if its cached turn_id no longer
+                    // exists in the reloaded Episodes. ADR-0011 D-14.
+                    //
+                    // - Single → Single: check turn_id presence; if
+                    //   gone, drop + red-banner footer.
+                    // - Single → Cross (mode change) or Cross →
+                    //   anything: Cross mode doesn't support the
+                    //   detail view at all, so any stale detail_view
+                    //   is silently dropped without a footer message.
+                    match &self.data {
+                        WatchData::Single { episodes, .. } => {
+                            if let Some(dv) = self.view_state.detail_view.as_ref() {
+                                let still_present =
+                                    episodes.turns.iter().any(|t| t.id == dv.turn_id);
+                                if !still_present {
+                                    let id = dv.turn_id.clone();
+                                    self.view_state.detail_view = None;
+                                    self.last_error =
+                                        Some(format!("turn {id} disappeared after reload"));
+                                }
+                            }
+                        }
+                        WatchData::Cross(_) => {
+                            // Silent drop on Cross — no banner. Mode change
+                            // (Single→Cross) is its own visual signal: the
+                            // entire view morphs from per-turn flamegraph
+                            // to cross-session aggregate. A red-banner
+                            // "turn disappeared" would be redundant and
+                            // misleading (the turn didn't disappear; the
+                            // whole single-session context did).
+                            self.view_state.detail_view = None;
+                        }
+                    }
                 }
                 Err(e) => {
                     self.last_error = Some(e.to_string());
@@ -606,6 +661,35 @@ impl WatchRunner {
         self.view_state.help_overlay
     }
 
+    /// Borrow the persistent view state (test helper).
+    #[doc(hidden)]
+    #[must_use]
+    pub const fn view_state(&self) -> &WatchViewState {
+        &self.view_state
+    }
+
+    /// Mutably borrow the persistent view state (test helper —
+    /// lets tests seed `detail_view` etc.).
+    #[doc(hidden)]
+    pub const fn view_state_mut(&mut self) -> &mut WatchViewState {
+        &mut self.view_state
+    }
+
+    /// Install or replace the reload callback (test helper —
+    /// lets `new_static`-constructed runners receive a reload fn
+    /// without needing the full `with_watcher` channel plumbing).
+    #[doc(hidden)]
+    pub fn set_reload(&mut self, cb: Box<dyn FnMut() -> Result<WatchData, ReloadError>>) {
+        self.reload = Some(cb);
+    }
+
+    /// Trigger one synchronous reload through the installed callback
+    /// (test helper — bypasses the refresh channel).
+    #[doc(hidden)]
+    pub fn do_reload_for_test(&mut self) {
+        self.do_reload();
+    }
+
     /// Single non-blocking iteration of `run` (test helper). Drains the
     /// refresh channel and calls `do_reload` if needed; returns without
     /// polling for keystrokes.
@@ -629,5 +713,37 @@ impl WatchRunner {
             self.do_reload();
         }
         Ok(())
+    }
+
+    /// Drive a single [`Event`] through the same Single-mode dispatch
+    /// path that [`WatchRunner::run`] uses for keystrokes (test helper).
+    ///
+    /// Mirrors the clone-in / write-back round trip of `run`: builds a
+    /// transient [`AppState`], seeds `help_open` + `detail_view` from
+    /// `self.view_state`, calls [`dispatch`], and on `Action::None`
+    /// writes the mutated `help_open` / `detail_view` back. Cross-mode
+    /// payloads are a no-op (matches `run`).
+    ///
+    /// Returns `true` if [`dispatch`] returned [`Action::Quit`].
+    #[doc(hidden)]
+    pub fn dispatch_event_for_test(&mut self, ev: Event) -> bool {
+        if let WatchData::Single {
+            report, episodes, ..
+        } = &self.data
+        {
+            let mut transient = AppState::new(report, episodes);
+            transient.help_open = self.view_state.help_overlay;
+            transient
+                .detail_view
+                .clone_from(&self.view_state.detail_view);
+            match dispatch(&mut transient, ev) {
+                Action::Quit => return true,
+                Action::None => {
+                    self.view_state.help_overlay = transient.help_open;
+                    self.view_state.detail_view = transient.detail_view;
+                }
+            }
+        }
+        false
     }
 }

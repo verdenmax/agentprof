@@ -160,3 +160,134 @@ fn reload_success_after_failure_clears_banner() {
     assert_eq!(runner.refresh_count(), 1);
     assert!(matches!(runner.data(), WatchData::Single { .. }));
 }
+
+#[test]
+fn watch_view_state_persists_detail_view_field() {
+    use agentprof_tui::watch::WatchViewState;
+    let s = WatchViewState::default();
+    assert!(
+        s.detail_view.is_none(),
+        "WatchViewState defaults to detail_view = None"
+    );
+}
+
+#[test]
+fn reload_drops_detail_view_when_turn_disappears() {
+    use agentprof_core::episode::{
+        CallRef, Episodes, Span as EpSpan, ToolCall, ToolCallStatus, ToolEpisode, Turn,
+    };
+    use agentprof_core::model::ToolSource;
+
+    fn fixture_with_t1() -> (AnalysisReport, Episodes) {
+        let meta = SessionMeta::new("s".into(), AgentKind::Copilot, Utc::now(), false);
+        let report = AnalysisReport::new(meta);
+        let mut episodes = Episodes::new();
+        let start = Utc::now();
+        let span = EpSpan::new(start, start + Duration::seconds(1));
+        let mut tc = ToolCall::new(span);
+        tc.status = ToolCallStatus::Success;
+        let mut tool_ep = ToolEpisode::new("bash".into(), ToolSource::Builtin);
+        tool_ep.calls.push(tc);
+        episodes.tools.insert("bash".into(), tool_ep);
+        let mut turn = Turn::new("T1".into(), start);
+        turn.tool_calls.push(CallRef::new("bash".into(), 0));
+        episodes.turns.push(turn);
+        (report, episodes)
+    }
+
+    fn fixture_empty() -> (AnalysisReport, Episodes) {
+        let meta = SessionMeta::new("s".into(), AgentKind::Copilot, Utc::now(), false);
+        let report = AnalysisReport::new(meta);
+        (report, Episodes::new())
+    }
+
+    let (r1, e1) = fixture_with_t1();
+    let mut runner = WatchRunner::new_static(WatchData::Single {
+        report: r1,
+        episodes: e1,
+        meta: SessionMeta::new("s".into(), AgentKind::Copilot, Utc::now(), false),
+    });
+    runner.view_state_mut().detail_view = Some(
+        agentprof_tui::views::turn_detail::TurnDetailState::new("T1"),
+    );
+
+    let reload_call = std::sync::Arc::new(std::sync::Mutex::new(0u32));
+    let rc = reload_call.clone();
+    runner.set_reload(Box::new(move || {
+        *rc.lock().unwrap() += 1;
+        let (r, e) = fixture_empty();
+        Ok(WatchData::Single {
+            report: r,
+            episodes: e,
+            meta: SessionMeta::new("s".into(), AgentKind::Copilot, Utc::now(), false),
+        })
+    }));
+    runner.do_reload_for_test();
+    assert!(
+        runner.view_state().detail_view.is_none(),
+        "turn-disappeared reload should drop detail_view"
+    );
+    assert!(
+        runner.last_error().unwrap_or("").contains("disappeared"),
+        "expected 'disappeared' message in last_error; got: {:?}",
+        runner.last_error()
+    );
+    assert_eq!(*reload_call.lock().unwrap(), 1, "reload was called once");
+}
+
+#[test]
+fn watch_runner_dispatch_enter_opens_detail_view() {
+    // End-to-end: simulate a key event going through WatchRunner's
+    // dispatch round-trip. Asserts:
+    // 1. detail_view is None before
+    // 2. dispatching Enter on Flamegraph with a valid turn opens it
+    // 3. WatchViewState.detail_view is updated (write-back path works)
+    use agentprof_core::episode::{
+        CallRef, Span as EpSpan, ToolCall, ToolCallStatus, ToolEpisode, Turn,
+    };
+    use agentprof_core::model::ToolSource;
+    use agentprof_tui::app::event::Event;
+
+    let meta = SessionMeta::new("s".into(), AgentKind::Copilot, Utc::now(), false);
+    let report = AnalysisReport::new(meta.clone());
+
+    let now = Utc::now();
+    let mut episodes = Episodes::new();
+    let span = EpSpan::new(now, now + Duration::seconds(1));
+    let mut tc = ToolCall::new(span);
+    tc.status = ToolCallStatus::Success;
+    let mut tool_ep = ToolEpisode::new("bash".into(), ToolSource::Builtin);
+    tool_ep.calls.push(tc);
+    episodes.tools.insert("bash".into(), tool_ep);
+
+    let mut turn = Turn::new("T1".into(), now);
+    turn.ended_at = Some(now + Duration::seconds(2));
+    turn.tool_calls.push(CallRef::new("bash".into(), 0));
+    episodes.turns.push(turn);
+
+    let mut runner = WatchRunner::new_static(WatchData::Single {
+        report,
+        episodes,
+        meta,
+    });
+    assert!(
+        runner.view_state().detail_view.is_none(),
+        "detail_view starts None"
+    );
+
+    let quit = runner.dispatch_event_for_test(Event::Key(crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Enter,
+        crossterm::event::KeyModifiers::empty(),
+    )));
+    assert!(!quit, "Enter must not quit");
+
+    assert!(
+        runner.view_state().detail_view.is_some(),
+        "Enter on Flamegraph row should open detail_view"
+    );
+    assert_eq!(
+        runner.view_state().detail_view.as_ref().unwrap().turn_id,
+        "T1",
+        "detail_view should point at the selected turn id"
+    );
+}

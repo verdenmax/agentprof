@@ -170,6 +170,19 @@ pub enum WatchData {
 Single-session watch mode reuses the M1.5 `AppRunner` view bindings
 (`1`/`2`/`3` switch view, `t`/`c`/`s`/`p` cycle Roi sort, etc.).
 
+**TurnDetailView in single-session watch mode** (F1 Task 8): `Enter` on a
+selected Flamegraph turn opens the detail view exactly as in
+`analyze --export tui`; `Esc` / `1` / `2` / `3` returns or pops to another
+view; navigation (`j`/`k`/`G`/`gg`) and `Enter`-to-toggle-args-expand
+behave identically. The detail-view state (`WatchViewState.detail_view`)
+persists across reloads. If a reload removes the underlying turn (e.g.
+the session file was truncated or the turn's events were dropped), the
+detail view is dropped and the footer shows
+`⚠ reload error: turn <id> disappeared after reload`. The banner is
+**not sticky**: it persists only until the next reload — a subsequent
+successful reload clears it, regardless of whether that reload sets
+its own new banner.
+
 ### CLI wiring
 
 `agentprof watch` (in `agentprof-cli`) owns the file-watcher thread —
