@@ -51,13 +51,14 @@ crate(s) it primarily binds.
 | [0008](./adr-0008-aggregate-report-and-utilization.md) | `AggregateReport<B>` + `utilization_pct` metric for day buckets | Accepted (M1.6.2) | `core::analyzer::aggregate` + `cli::cmd::aggregate` |
 | [0009](./adr-0009-watch-runner-and-notify.md) | `WatchRunner` + `notify-debouncer-mini` file watcher | Accepted (M1.6.3) | `tui::watch` + `cli::cmd::watch` |
 | [0010](./adr-0010-tracing-infrastructure.md) | Tracing infrastructure (4-layer span topology + reload-Layer TUI auto-redirect + `sha256[..8]` PII hash + global `--log-level` / `--log-file`) | Accepted (M1.6.4) | `core::observability::pii` + `cli::observability` + `adapters::copilot::{parser,paths}` |
+| [0011](./adr-0011-turn-detail-and-args-plumbing.md) | Tool arguments plumbing (`Event::payload_tool_requests` + `ToolCall.arguments`) + TurnDetailView state model (full-screen, Enter = drill deeper, vim keys, reload-safe) | Accepted (M1.6.4 follow-up wave Phase 2) | `core::{adapter, episode::tool, episode::derive, analyzer}` + `adapters::copilot::event` + `tui::views::turn_detail` + `tui::app::state` |
 
-No ADR is currently superseded. ADR-0010 is additive: it builds on ADR-0006
-(panic-safe TUI lifecycle — the writer-swap fires inside the same
-`install_panic_hook` / `enter` / `leave` window) and on ADR-0009 (watch
-runner — the auto-redirect to `$XDG_STATE_HOME/agentprof/agentprof.log`
-is the canonical fix for the M1.6.3 T2 alt-screen-corruption pattern),
-without invalidating either.
+No ADR is currently superseded. ADR-0011 extends ADR-0004 (the
+`derive_episodes` algorithm gains a PASS 0 args-map collection) and
+ADR-0005 (uses the `Event::payload_*` extension-method pattern for
+the new `payload_tool_requests` method); inherits the red-banner-footer
+reload-error UX from ADR-0009 D-13 and uses ADR-0010's
+`tracing::debug!` for D-4 conflict detection.
 
 ## Planned files
 
