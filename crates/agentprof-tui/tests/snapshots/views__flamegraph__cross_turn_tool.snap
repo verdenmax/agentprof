@@ -1,5 +1,6 @@
 ---
 source: crates/agentprof-tui/tests/views.rs
+assertion_line: 81
 expression: buffer_to_symbol_grid(&buffer)
 ---
 ┌ Flamegraph (1/3) ────────────────────────────────────────────────────────────────────────────────┐
@@ -27,7 +28,7 @@ expression: buffer_to_symbol_grid(&buffer)
 │                                                                                                  │
 │                                                                                                  │
 │                                                                                                  │
-│T1 selected:  bash(5.0s)                                                                          │
+│T1 selected:  bash(5.0s) · Enter for detail                                                       │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ Detail ──────────────────────────────────────────────────────────────────────────────────────────┐
 │Turn turn-A | model=- mode=Interactive out_tokens=- tools=1                                       │

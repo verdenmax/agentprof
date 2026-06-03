@@ -195,7 +195,7 @@ For repository structure and crate boundaries, see
 
 `agentprof analyze --export tui` opens an interactive ratatui terminal UI on top of the same `AnalysisReport` the markdown / JSON exporters consume. Three views, all driven from one session:
 
-**FlamegraphView (`1`):** Per-turn horizontal gantt; each row is one turn. Three cell types: `█` colored by [`ToolSource`](crates/agentprof-core/src/model/tool_source.rs) (Builtin / MCP / Skill) = tool execution, `░` = LLM thinking time (in-turn, no tool running), `·` = padding (turn ended; shorter than the longest non-user-blocking turn). Selected turn shows a footer line with its tool call breakdown (e.g. `T3 selected: bash(120ms) read_file(85ms) +2 more`).
+**FlamegraphView (`1`):** Per-turn horizontal gantt; each row is one turn. Three cell types: `█` colored by [`ToolSource`](crates/agentprof-core/src/model/tool_source.rs) (Builtin / MCP / Skill) = tool execution, `░` = LLM thinking time (in-turn, no tool running), `·` = padding (turn ended; shorter than the longest non-user-blocking turn). Selected turn shows a footer line with its tool call breakdown (e.g. `T3 selected: bash(120ms) read_file(85ms) +2 more · Enter for detail`); press `Enter` to open a full-screen detail view listing every tool call in the turn.
 
 ```
 ┌─ Flamegraph (1/3) ───────────────────────────────────────────────┐
@@ -222,7 +222,7 @@ For repository structure and crate boundaries, see
 
 **AggregateView (`3`):** Single-session breakdown — By Mode (interactive / plan / autopilot) + By Hook.
 
-Key bindings: `1`/`2`/`3` switch view, `Tab` cycles, `↑`/`↓` or `k`/`j` selects (viewport follows), `G` / `gg` jump to last / first row (vim-style), `t`/`c`/`s`/`p` cycles RoiView sort, `?` opens help, `q` / Ctrl-C quits.
+Key bindings: `1`/`2`/`3` switch view, `Tab` cycles, `↑`/`↓` or `k`/`j` selects (viewport follows), `Enter` opens the detail view for the selected turn (`Esc` to return), `G` / `gg` jump to last / first row (vim-style), `t`/`c`/`s`/`p` cycles RoiView sort, `?` opens help, `q` / Ctrl-C quits.
 
 **For deeper per-call timeline analysis** (zoom, search, frame stack, drag-and-drop into a browser), the TUI Flamegraph is intentionally lightweight — use `agentprof analyze --export speedscope <session>` and load the resulting JSON into <https://speedscope.app> for the full interactive profiler. TUI Flamegraph is for "quickly skim which turn is slow + what tool category dominates"; Speedscope is for "drill into per-call traces".
 

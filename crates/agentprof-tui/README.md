@@ -168,7 +168,16 @@ pub enum WatchData {
 | `↑` / `↓` | Move selected row |
 
 Single-session watch mode reuses the M1.5 `AppRunner` view bindings
-(`1`/`2`/`3` switch view, `t`/`c`/`s`/`p` cycle Roi sort, etc.).
+(`1`/`2`/`3` switch view, `t`/`c`/`s`/`p` cycle Roi sort, etc.). The
+Flamegraph selected-turn footer ends with `· Enter for detail` to
+advertise the F1 TurnDetailView; the `?` help overlay (now 27 lines)
+lists the same `Enter` / `Esc` / `j`/`k`/`G`/`gg` / `1`/`2`/`3` keys
+under a "Detail view (Flamegraph → Enter):" section. Pressing `Enter`
+on a turn with no tool calls also opens the detail view — it will
+display `(no tool calls)` in the body. This is intentional: every
+selectable turn is openable for consistency, and the empty-state
+confirms there's nothing more to inspect rather than silently
+no-op'ing.
 
 **TurnDetailView in single-session watch mode** (F1 Task 8): `Enter` on a
 selected Flamegraph turn opens the detail view exactly as in

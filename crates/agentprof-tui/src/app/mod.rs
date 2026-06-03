@@ -137,7 +137,7 @@ impl<'a> AppRunner<'a> {
 
 fn draw_help_overlay(frame: &mut Frame<'_>, full: Rect) {
     let w = full.width.min(60);
-    let h = full.height.min(22);
+    let h = full.height.min(27);
     let x = full.x + (full.width.saturating_sub(w)) / 2;
     let y = full.y + (full.height.saturating_sub(h)) / 2;
     let area = Rect::new(x, y, w, h);
@@ -154,6 +154,12 @@ fn draw_help_overlay(frame: &mut Frame<'_>, full: Rect) {
         "gg               Jump to first row (two-key vim sequence)",
         "t/c/s/p (Roi)    Cycle sort key (Total / Calls / Success% / p50)",
         "?                This help",
+        "",
+        "Detail view (Flamegraph → Enter):",
+        "  Enter           Toggle args expand",
+        "  Esc             Return to flamegraph",
+        "  j / k / G / gg  Navigate tool calls",
+        "  1 / 2 / 3       Pop detail + switch view",
         "",
         "Flamegraph cell legend:",
         "  █ (colored)     Tool / hook / skill executing (color = ToolSource:",

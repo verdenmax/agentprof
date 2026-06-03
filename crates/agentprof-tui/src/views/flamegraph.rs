@@ -26,8 +26,10 @@
 //!
 //! Below the gantt rows, a single-line footer (see [`selected_turn_footer_line`]) lists the
 //! currently-selected turn's tool calls with per-call durations, e.g.
-//! `T3 selected:  bash(120ms) read_file(85ms) +2 more`. Truncates from the right with
-//! `+K more` when the line exceeds the footer width.
+//! `T3 selected:  bash(120ms) read_file(85ms) +2 more · Enter for detail`. Truncates from the
+//! right with `+K more` when the line exceeds the footer width; the trailing
+//! `· Enter for detail` hint advertises the [`turn_detail`](crate::views::turn_detail) view
+//! and may itself be truncated on narrow terminals (the `?` help overlay lists the same key).
 //!
 //! User-blocking turns (e.g. containing an `ask_user` call where the user spent minutes on
 //! the keyboard or AFK) are excluded from the scale calculation per
@@ -491,13 +493,21 @@ fn cell_style(ch: char, source: Option<&ToolSource>) -> Style {
 
 /// Build the selected-turn footer line shown below the gantt rows.
 ///
-/// Format: `"T{n} selected:  bash(120ms) read_file(85ms) +K more"` where
-/// `n` is the 1-based turn index, durations come from
+/// Format: `"T{n} selected:  bash(120ms) read_file(85ms) +K more · Enter for detail"`
+/// where `n` is the 1-based turn index, durations come from
 /// [`agentprof_core::episode::Span::duration`], and `+K more` appears if
 /// truncation from the right was required to fit `max_width` columns. When
 /// the selected turn has no tool calls, the line reads
-/// `"T{n} selected:  (no tool calls)"`. When `turn` is `None` (e.g. an
-/// out-of-range selection index), the line reads `"(no turn selected)"`.
+/// `"T{n} selected:  (no tool calls) · Enter for detail"`. When `turn` is
+/// `None` (e.g. an out-of-range selection index), the line reads
+/// `"(no turn selected)"` (no hint — there is nothing to open).
+///
+/// The trailing `" · Enter for detail"` discoverability hint surfaces the
+/// [`turn_detail`](crate::views::turn_detail) affordance.
+/// On narrow terminals where the hint plus the tool list exceeds
+/// `max_width`, the line is truncated from the right and the hint may be
+/// cut off — acceptable degradation, since the help overlay (`?`) lists
+/// the same key binding.
 ///
 /// Hooks and Skill invocations are intentionally omitted — only entries in
 /// [`Turn::tool_calls`] are listed.
@@ -507,7 +517,7 @@ fn cell_style(ch: char, source: Option<&ToolSource>) -> Style {
 /// ```
 /// use agentprof_core::episode::Episodes;
 /// use agentprof_tui::views::flamegraph::selected_turn_footer_line;
-/// // No turn → fixed placeholder.
+/// // No turn → fixed placeholder, no hint.
 /// let line = selected_turn_footer_line(0, None, &Episodes::default(), 80);
 /// assert_eq!(line, "(no turn selected)");
 /// ```
@@ -522,8 +532,9 @@ pub fn selected_turn_footer_line(
         return "(no turn selected)".to_string();
     };
     let prefix = format!("T{} selected:  ", turn_idx + 1);
+    let budget = usize::from(max_width);
     if t.tool_calls.is_empty() {
-        return format!("{prefix}(no tool calls)");
+        return append_detail_hint(format!("{prefix}(no tool calls)"), budget);
     }
 
     // Format each call as "name(human_short(dur))". Unknown calls (no
@@ -540,11 +551,28 @@ pub fn selected_turn_footer_line(
         .collect();
 
     if entries.is_empty() {
-        return format!("{prefix}(no tool calls)");
+        return append_detail_hint(format!("{prefix}(no tool calls)"), budget);
     }
 
-    let budget = usize::from(max_width);
-    fit_entries(&prefix, &entries, budget)
+    let body = fit_entries(&prefix, &entries, budget);
+    append_detail_hint(body, budget)
+}
+
+/// Append the `" · Enter for detail"` discoverability hint to `line`,
+/// or drop it entirely if it does not fully fit within `budget` chars.
+///
+/// The hint advertises the [`turn_detail`](crate::views::turn_detail)
+/// `Enter` affordance. All-or-nothing semantics avoid ambiguous mid-hint
+/// truncations (e.g. a lone `· Enter` reading like another keybinding
+/// label). This matches the surrounding [`fit_entries`] convention of
+/// dropping rather than truncating overflowing items — users can still
+/// discover the key via the `?` help overlay.
+fn append_detail_hint(line: String, budget: usize) -> String {
+    const HINT: &str = " · Enter for detail";
+    if budget == 0 || line.chars().count() + HINT.chars().count() > budget {
+        return line;
+    }
+    format!("{line}{HINT}")
 }
 
 /// Pack as many `entries` (joined by a single space) into the budget as
@@ -986,6 +1014,10 @@ mod tests {
         assert!(line.contains("bash(120ms)"), "got: {line:?}");
         assert!(line.contains("edit(220ms)"), "got: {line:?}");
         assert!(!line.contains('+'), "no truncation expected: {line:?}");
+        assert!(
+            line.ends_with(" · Enter for detail"),
+            "wide footer should advertise the detail-view hint: {line:?}",
+        );
     }
 
     #[test]
@@ -994,7 +1026,7 @@ mod tests {
         let mut t = Turn::new("t1".into(), base);
         t.ended_at = Some(base + Duration::seconds(1));
         let line = selected_turn_footer_line(0, Some(&t), &Episodes::default(), 80);
-        assert_eq!(line, "T1 selected:  (no tool calls)");
+        assert_eq!(line, "T1 selected:  (no tool calls) · Enter for detail");
     }
 
     #[test]
@@ -1023,10 +1055,51 @@ mod tests {
         }
         episodes.tools.insert("bash".into(), ep);
 
-        // Narrow budget: "T1 selected:  bash(80ms) bash(80ms) +3 more" = 44.
+        // Narrow budget: "T1 selected:  bash(80ms) bash(80ms) +3 more" = 43.
+        // The " · Enter for detail" hint (19 chars) doesn't fit within
+        // the 44-char budget, so it is dropped entirely (all-or-nothing
+        // semantics) and the line ends cleanly on " +3 more".
         let line = selected_turn_footer_line(0, Some(&t), &episodes, 44);
         assert!(line.starts_with("T1 selected:  "), "got: {line:?}");
         assert!(line.ends_with(" +3 more"), "got: {line:?}");
         assert!(line.len() <= 44, "got: {line:?} (len {})", line.len());
+        assert!(
+            !line.contains("Enter for detail"),
+            "hint should be fully dropped when there's no room: {line:?}",
+        );
+    }
+
+    #[test]
+    fn selected_turn_footer_line_hint_dropped_when_partial_fit() {
+        use agentprof_core::episode::{CallRef, Span as EpisodeSpan, ToolCall, ToolEpisode};
+        let base = Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap();
+        let mut t = Turn::new("t1".into(), base);
+        t.ended_at = Some(base + Duration::seconds(10));
+        let mut episodes = Episodes::default();
+        let mut ep = ToolEpisode::new("bash".into(), ToolSource::Builtin);
+        for i in 0..5_i64 {
+            t.tool_calls
+                .push(CallRef::new("bash".into(), usize::try_from(i).unwrap()));
+            ep.calls.push(ToolCall::new(EpisodeSpan::new(
+                base + Duration::milliseconds(i * 100),
+                base + Duration::milliseconds(i * 100 + 80),
+            )));
+        }
+        episodes.tools.insert("bash".into(), ep);
+
+        // At a budget where the body fits with " +K more" but the full
+        // " · Enter for detail" hint (19 chars) does NOT fit, the hint
+        // is dropped entirely (all-or-nothing semantics).
+        // body=43 chars + hint=19 = 62 chars. With budget=50, hint
+        // doesn't fit → dropped.
+        let line = selected_turn_footer_line(0, Some(&t), &episodes, 50);
+        assert!(
+            !line.contains("Enter"),
+            "hint must be dropped entirely when it doesn't fully fit: {line}"
+        );
+        assert!(
+            line.ends_with("+3 more") || line.contains("+3 more"),
+            "body content preserved: {line}"
+        );
     }
 }
