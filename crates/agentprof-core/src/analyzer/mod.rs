@@ -36,6 +36,86 @@ use crate::episode::{DeriveWarning, Episodes};
 use crate::error::ParseWarning;
 use crate::model::SessionMeta;
 
+/// Per-model token-usage rollup, sourced from session-level events
+/// (e.g. Copilot CLI's `session.shutdown.modelMetrics`).
+///
+/// All four fields default to `0` when the wire format omits them.
+/// Cardinality discrimination ("known-zero vs unreported") is intentionally
+/// elided in v1 — Copilot CLI consistently reports all four fields when
+/// `usage` is present. See ADR-0012 D-15 for rationale.
+///
+/// # Examples
+///
+/// ```
+/// use agentprof_core::analyzer::ModelUsage;
+/// let mut u = ModelUsage::new();
+/// u.input_tokens = 100;
+/// u.output_tokens = 50;
+/// assert_eq!(u.total(), 150);
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct ModelUsage {
+    /// Input (request prompt) tokens.
+    pub input_tokens: u64,
+    /// Output (response generation) tokens.
+    pub output_tokens: u64,
+    /// Cache-read tokens (re-used context from prompt cache).
+    pub cache_read_tokens: u64,
+    /// Cache-write tokens (new context entered into the prompt cache).
+    pub cache_write_tokens: u64,
+}
+
+impl Default for ModelUsage {
+    /// Equivalent to [`ModelUsage::new`] — zero-initialized.
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ModelUsage {
+    /// Construct a zero-initialized rollup.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::analyzer::ModelUsage;
+    /// let u = ModelUsage::new();
+    /// assert_eq!(u.input_tokens, 0);
+    /// ```
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
+        }
+    }
+
+    /// Total of all four token categories. Saturating add (returns
+    /// `u64::MAX` on overflow rather than panicking).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::analyzer::ModelUsage;
+    /// let mut u = ModelUsage::new();
+    /// u.input_tokens = 10;
+    /// u.output_tokens = 20;
+    /// u.cache_read_tokens = 30;
+    /// u.cache_write_tokens = 40;
+    /// assert_eq!(u.total(), 100);
+    /// ```
+    #[must_use]
+    pub const fn total(&self) -> u64 {
+        self.input_tokens
+            .saturating_add(self.output_tokens)
+            .saturating_add(self.cache_read_tokens)
+            .saturating_add(self.cache_write_tokens)
+    }
+}
+
 /// Bundled analyzer output for a single session.
 ///
 /// Constructed by [`analyze`]. Snapshot-stable: every contained `Vec` is
@@ -323,5 +403,75 @@ mod tests {
             original, recovered_pretty,
             "pretty JSON round-trip must preserve report"
         );
+    }
+}
+
+#[cfg(test)]
+mod model_usage_tests {
+    use super::*;
+
+    #[test]
+    fn model_usage_new_zero_initialized() {
+        let u = ModelUsage::new();
+        assert_eq!(u.input_tokens, 0);
+        assert_eq!(u.output_tokens, 0);
+        assert_eq!(u.cache_read_tokens, 0);
+        assert_eq!(u.cache_write_tokens, 0);
+    }
+
+    #[test]
+    fn model_usage_total_sums_all_four() {
+        let u = ModelUsage {
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_read_tokens: 1000,
+            cache_write_tokens: 25,
+        };
+        assert_eq!(u.total(), 1175);
+    }
+
+    #[test]
+    fn model_usage_total_saturates_at_u64_max() {
+        let u = ModelUsage {
+            input_tokens: u64::MAX,
+            output_tokens: 1,
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
+        };
+        assert_eq!(u.total(), u64::MAX, "saturating_add prevents overflow");
+    }
+
+    #[test]
+    fn model_usage_total_saturates_mid_chain() {
+        // Sum exceeds u64::MAX only after the 3rd addend — exercises the
+        // saturating semantics in the middle of the chain, not just at
+        // the trivial MAX + 1 case. Documents intent for future refactors.
+        let u = ModelUsage {
+            input_tokens: u64::MAX / 2,
+            output_tokens: u64::MAX / 2,
+            cache_read_tokens: 2, // (MAX/2)+(MAX/2)=MAX-1; +2 saturates
+            cache_write_tokens: 100,
+        };
+        assert_eq!(u.total(), u64::MAX);
+    }
+
+    #[test]
+    fn model_usage_serde_roundtrip() {
+        let u = ModelUsage {
+            input_tokens: 781_437,
+            output_tokens: 17_664,
+            cache_read_tokens: 499_072,
+            cache_write_tokens: 0,
+        };
+        let json = serde_json::to_string(&u).unwrap();
+        let back: ModelUsage = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, u);
+    }
+
+    #[test]
+    fn model_usage_default_equals_new() {
+        // Exercise the Default impl (delegates to new() — see impl Default
+        // for ModelUsage). PartialEq is derived so this is a direct compare.
+        assert_eq!(ModelUsage::default(), ModelUsage::new());
     }
 }
