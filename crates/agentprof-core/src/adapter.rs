@@ -292,6 +292,40 @@ pub trait Event {
     fn payload_mode(&self) -> Option<&str> {
         None
     }
+
+    /// Adapter-specific `(tool_call_id, arguments)` pairs declared by this
+    /// event. Returns empty for events without tool-request payloads.
+    ///
+    /// Used by [`crate::episode::derive_episodes`] to populate
+    /// `ToolCall::arguments` — the args data point
+    /// lives separately from the span on the wire (Copilot:
+    /// `assistant.message.tool_requests[*]` and
+    /// `tool.user_requested.arguments`), so the derive function needs
+    /// a first-pass map keyed by `tool_call_id` before it can attach
+    /// args to the matching span on close.
+    ///
+    /// Default returns empty `Vec`; adapters override for relevant
+    /// payload-bearing variants. See ADR-0011 D-1 / D-2.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::adapter::{Event, EventKind};
+    /// use chrono::Utc;
+    ///
+    /// struct StubEvent;
+    /// impl Event for StubEvent {
+    ///     fn id(&self) -> &str { "x" }
+    ///     fn kind(&self) -> EventKind { EventKind::Unknown }
+    ///     fn timestamp(&self) -> chrono::DateTime<Utc> { Utc::now() }
+    ///     fn parent_id(&self) -> Option<&str> { None }
+    ///     // payload_tool_requests() inherits the default `Vec::new()` impl.
+    /// }
+    /// assert!(StubEvent.payload_tool_requests().is_empty());
+    /// ```
+    fn payload_tool_requests(&self) -> Vec<(String, serde_json::Value)> {
+        Vec::new()
+    }
 }
 
 /// Reference to a single discoverable session.
@@ -559,5 +593,25 @@ mod tests {
             }
         }
         assert_eq!(DefaultPayloadModeEvent.payload_mode(), None);
+    }
+
+    #[test]
+    fn payload_tool_requests_default_returns_empty() {
+        struct StubEvent;
+        impl Event for StubEvent {
+            fn id(&self) -> &'static str {
+                "stub"
+            }
+            fn kind(&self) -> EventKind {
+                EventKind::Unknown
+            }
+            fn timestamp(&self) -> chrono::DateTime<chrono::Utc> {
+                chrono::Utc::now()
+            }
+            fn parent_id(&self) -> Option<&str> {
+                None
+            }
+        }
+        assert_eq!(StubEvent.payload_tool_requests().len(), 0);
     }
 }
