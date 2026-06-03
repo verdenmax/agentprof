@@ -96,6 +96,51 @@ pub enum ParseWarning {
     },
 }
 
+impl std::fmt::Display for ParseWarning {
+    /// Human-readable rendering for report surfaces (markdown / HTML).
+    ///
+    /// Mirrors the warning's structure in a single line; reports embed
+    /// this directly rather than the enum's `Debug` representation so the
+    /// rendered text is stable across future variant refactors.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::error::ParseWarning;
+    /// let w = ParseWarning::Json { line_no: 7, error: "expected `}`".into() };
+    /// assert_eq!(w.to_string(), "line 7: JSON parse error: expected `}`");
+    /// ```
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Json { line_no, error } => {
+                write!(f, "line {line_no}: JSON parse error: {error}")
+            }
+            Self::Io { line_no, error } => {
+                write!(f, "line {line_no}: I/O error: {error}")
+            }
+            Self::OutOfOrder => f.write_str("events have non-monotonic timestamps in file order"),
+            Self::UnclosedTurn { turn_id } => {
+                write!(f, "turn {turn_id}: turn_start without matching turn_end")
+            }
+            Self::UnclosedToolCall { call_id } => {
+                write!(
+                    f,
+                    "tool call {call_id}: execution_start without matching execution_complete"
+                )
+            }
+            Self::UnclosedHook { name } => {
+                write!(f, "hook {name}: hook.start without matching hook.end")
+            }
+            Self::UnknownToolSourcePrefix { tool_name } => {
+                write!(
+                    f,
+                    "tool {tool_name}: unrecognized `__`-separated source prefix"
+                )
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -126,5 +171,57 @@ mod tests {
         let display = format!("{err}");
         assert!(display.contains("/tmp/x.jsonl"));
         assert!(display.contains("no such file"));
+    }
+
+    #[test]
+    fn parse_warning_display_is_human_readable() {
+        let cases: &[(ParseWarning, &str)] = &[
+            (
+                ParseWarning::Json {
+                    line_no: 7,
+                    error: "expected `}`".into(),
+                },
+                "line 7",
+            ),
+            (
+                ParseWarning::Io {
+                    line_no: 3,
+                    error: "EOF".into(),
+                },
+                "I/O error",
+            ),
+            (ParseWarning::OutOfOrder, "non-monotonic"),
+            (
+                ParseWarning::UnclosedTurn {
+                    turn_id: "t-1".into(),
+                },
+                "t-1",
+            ),
+            (
+                ParseWarning::UnclosedToolCall {
+                    call_id: "c-1".into(),
+                },
+                "c-1",
+            ),
+            (ParseWarning::UnclosedHook { name: "h-1".into() }, "h-1"),
+            (
+                ParseWarning::UnknownToolSourcePrefix {
+                    tool_name: "weird__name".into(),
+                },
+                "weird__name",
+            ),
+        ];
+        for (w, needle) in cases {
+            let rendered = w.to_string();
+            assert!(
+                rendered.contains(needle),
+                "Display of {w:?} = {rendered:?} missing {needle:?}"
+            );
+            // No Debug syntax leaking through.
+            assert!(
+                !rendered.contains(" { "),
+                "Display of {w:?} = {rendered:?} looks like Debug output"
+            );
+        }
     }
 }

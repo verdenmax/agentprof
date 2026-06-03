@@ -69,3 +69,80 @@ pub enum DeriveWarning {
         event_id: String,
     },
 }
+
+impl std::fmt::Display for DeriveWarning {
+    /// Human-readable rendering for report surfaces (markdown / HTML).
+    ///
+    /// One-line description per variant; reports embed this directly
+    /// rather than the enum's `Debug` representation so rendered text is
+    /// stable across future variant refactors.
+    ///
+    /// Sub-fields of type [`EventKind`] are rendered via their `Debug`
+    /// repr (e.g. `"ToolExecStart"`). `EventKind` is a `#[non_exhaustive]`
+    /// unit-variant enum, so this naming is stable across additions.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::adapter::EventKind;
+    /// use agentprof_core::episode::DeriveWarning;
+    /// let w = DeriveWarning::SynthesizedStart {
+    ///     kind: EventKind::ToolExecComplete,
+    ///     end_event_id: "evt-1".into(),
+    /// };
+    /// assert!(w.to_string().contains("evt-1"));
+    /// assert!(w.to_string().contains("ToolExecComplete"));
+    /// ```
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SynthesizedStart { kind, end_event_id } => write!(
+                f,
+                "synthesized zero-duration start for {kind:?} (end event {end_event_id})"
+            ),
+            Self::OpenAtEndOfSession {
+                kind,
+                start_event_id,
+            } => write!(
+                f,
+                "{kind:?} (start event {start_event_id}) was still open at end of session; \
+                 clamped to last event timestamp"
+            ),
+            Self::AbortWithoutOpenElement { reason, at } => write!(
+                f,
+                "abort at {at} with no open turn/tool/hook (reason: {reason})"
+            ),
+            Self::NonMonotonicTimestamp {
+                event_id,
+                prev_at,
+                this_at,
+            } => write!(
+                f,
+                "non-monotonic timestamp at event {event_id}: previous {prev_at}, this {this_at}"
+            ),
+            Self::PayloadNameMissing { kind, event_id } => write!(
+                f,
+                "{kind:?} event {event_id} has no payload_name; \
+                 episode aggregation will fall back to event id"
+            ),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_is_human_readable_and_avoids_struct_debug_syntax() {
+        let w = DeriveWarning::SynthesizedStart {
+            kind: EventKind::ToolExecComplete,
+            end_event_id: "evt-1".into(),
+        };
+        let s = w.to_string();
+        assert!(s.contains("evt-1"));
+        assert!(s.contains("ToolExecComplete"));
+        // Should not look like the derived `Debug` struct repr.
+        assert!(!s.contains("end_event_id:"));
+        assert!(!s.contains(" { "));
+    }
+}

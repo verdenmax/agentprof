@@ -33,6 +33,43 @@ pub enum ToolSource {
     },
 }
 
+impl std::fmt::Display for ToolSource {
+    /// Human-readable rendering matching the markdown / HTML report style.
+    ///
+    /// Variants render as:
+    ///
+    /// - [`ToolSource::Builtin`] → `"builtin"`
+    /// - [`ToolSource::Mcp`] → `"mcp:<server>"`
+    /// - [`ToolSource::Skill`] → `"skill:<name>"`
+    ///
+    /// This format is what end-user reports show; it intentionally avoids
+    /// the `Debug` syntax (`Skill { name: "foo" }`) and is stable across
+    /// future refactors of the underlying enum (snapshots use this
+    /// `Display` impl rather than `Debug`).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::model::ToolSource;
+    /// assert_eq!(ToolSource::Builtin.to_string(), "builtin");
+    /// assert_eq!(
+    ///     ToolSource::Skill { name: "synthetic".into() }.to_string(),
+    ///     "skill:synthetic",
+    /// );
+    /// assert_eq!(
+    ///     ToolSource::Mcp { server: "github".into() }.to_string(),
+    ///     "mcp:github",
+    /// );
+    /// ```
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Builtin => f.write_str("builtin"),
+            Self::Mcp { server } => write!(f, "mcp:{server}"),
+            Self::Skill { name } => write!(f, "skill:{name}"),
+        }
+    }
+}
+
 impl ToolSource {
     /// Infer the source of a tool from its registered name.
     ///
@@ -136,5 +173,35 @@ mod tests {
     #[test]
     fn empty_name_falls_back_to_builtin() {
         assert_eq!(ToolSource::infer(""), ToolSource::Builtin);
+    }
+
+    #[test]
+    fn display_renders_human_readable() {
+        assert_eq!(ToolSource::Builtin.to_string(), "builtin");
+        assert_eq!(
+            ToolSource::Mcp {
+                server: "github".into()
+            }
+            .to_string(),
+            "mcp:github"
+        );
+        assert_eq!(
+            ToolSource::Skill {
+                name: "test-skill".into()
+            }
+            .to_string(),
+            "skill:test-skill"
+        );
+    }
+
+    #[test]
+    fn display_avoids_debug_syntax() {
+        let rendered = ToolSource::Skill {
+            name: "synthetic".into(),
+        }
+        .to_string();
+        assert!(!rendered.contains("Skill"));
+        assert!(!rendered.contains("name:"));
+        assert!(rendered.contains("synthetic"));
     }
 }

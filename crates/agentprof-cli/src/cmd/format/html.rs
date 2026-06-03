@@ -66,7 +66,7 @@ pub fn render(
         .iter()
         .map(|r| ToolRow {
             name: r.name.clone(),
-            source_label: format!("{:?}", r.source),
+            source_label: r.source.to_string(),
             call_count: r.call_count.to_string(),
             fail_count: r.failure_count.to_string(),
             total_duration: format!("{} ms", r.total_duration.num_milliseconds()),
@@ -89,8 +89,8 @@ pub fn render(
     let warnings: Vec<String> = report
         .parse_warnings
         .iter()
-        .map(|w| format!("{w:?}"))
-        .chain(report.warnings.iter().map(|w| format!("{w:?}")))
+        .map(ToString::to_string)
+        .chain(report.warnings.iter().map(ToString::to_string))
         .collect();
 
     let total_output_tokens: Option<u32> = report
@@ -104,7 +104,7 @@ pub fn render(
 
     let template = ReportTemplate {
         session_short_id,
-        agent: format!("{:?}", meta.agent).to_lowercase(),
+        agent: meta.agent.to_string(),
         model: report.turn_summary.first().and_then(|r| r.model.clone()),
         started_at_utc: meta.started_at.format("%Y-%m-%d %H:%M:%S").to_string(),
         duration_human,
@@ -129,8 +129,30 @@ pub fn render(
     };
 
     template.render().unwrap_or_else(|e| {
-        format!("<html><body><h1>HTML render error</h1><pre>{e}</pre></body></html>")
+        format!(
+            "<html><body><h1>HTML render error</h1><pre>{}</pre></body></html>",
+            html_escape(&e.to_string())
+        )
     })
+}
+
+/// Minimal HTML escape for the 5 metacharacters relevant inside element
+/// text and double-quoted attributes. Defensive: current callers carry no
+/// user-controlled content, but escaping here prevents future error
+/// variants from becoming an XSS vector.
+fn html_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 #[derive(Template)]
@@ -206,5 +228,35 @@ fn format_duration_short(report: &AnalysisReport) -> String {
         #[allow(clippy::cast_precision_loss)]
         let m = ms as f64 / 60_000.0;
         format!("{m:.1} min")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn html_escape_handles_all_five_metacharacters() {
+        let input = r#"<script src="x" attr='y'>&"#;
+        let escaped = html_escape(input);
+        assert!(!escaped.contains('<'));
+        assert!(!escaped.contains('>'));
+        assert!(!escaped.contains('"'));
+        assert!(!escaped.contains('\''));
+        assert_eq!(
+            escaped,
+            "&lt;script src=&quot;x&quot; attr=&#39;y&#39;&gt;&amp;"
+        );
+    }
+
+    #[test]
+    fn html_escape_preserves_safe_text() {
+        assert_eq!(html_escape("plain text 123"), "plain text 123");
+    }
+
+    #[test]
+    fn html_escape_escapes_ampersand_first() {
+        // Ensure `&lt;` doesn't get double-escaped to `&amp;lt;`.
+        assert_eq!(html_escape("&<"), "&amp;&lt;");
     }
 }
