@@ -356,6 +356,41 @@ pub trait Event {
     fn tool_call_id(&self) -> Option<&str> {
         None
     }
+
+    /// Adapter-specific per-model token-usage rollup, when the event
+    /// reports it (e.g. Copilot CLI's `session.shutdown`). Returns
+    /// `None` for events without the data.
+    ///
+    /// Used by `derive_episodes` to populate `Episodes::model_metrics`,
+    /// which `analyze()` then clones into
+    /// `AnalysisReport::model_metrics`. (Those fields are added in
+    /// later F1.7 tasks; backticked here as forward refs.)
+    ///
+    /// Singular semantics — multiple events emitting non-None values
+    /// in the same session (unusual but possible) follow last-wins by
+    /// event order (matches existing [`crate::episode::Turn::model`]
+    /// semantics). See ADR-0012 D-4 + D-6.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::adapter::{Event, EventKind};
+    /// use chrono::Utc;
+    ///
+    /// struct StubEvent;
+    /// impl Event for StubEvent {
+    ///     fn id(&self) -> &str { "x" }
+    ///     fn kind(&self) -> EventKind { EventKind::Unknown }
+    ///     fn timestamp(&self) -> chrono::DateTime<Utc> { Utc::now() }
+    ///     fn parent_id(&self) -> Option<&str> { None }
+    /// }
+    /// assert!(StubEvent.payload_model_metrics().is_none());
+    /// ```
+    fn payload_model_metrics(
+        &self,
+    ) -> Option<std::collections::BTreeMap<String, crate::analyzer::ModelUsage>> {
+        None
+    }
 }
 
 /// Reference to a single discoverable session.
@@ -663,5 +698,25 @@ mod tests {
             }
         }
         assert_eq!(StubEvent.tool_call_id(), None);
+    }
+
+    #[test]
+    fn payload_model_metrics_default_returns_none() {
+        struct StubEvent;
+        impl Event for StubEvent {
+            fn id(&self) -> &'static str {
+                "stub"
+            }
+            fn kind(&self) -> EventKind {
+                EventKind::Unknown
+            }
+            fn timestamp(&self) -> chrono::DateTime<chrono::Utc> {
+                chrono::Utc::now()
+            }
+            fn parent_id(&self) -> Option<&str> {
+                None
+            }
+        }
+        assert!(StubEvent.payload_model_metrics().is_none());
     }
 }
