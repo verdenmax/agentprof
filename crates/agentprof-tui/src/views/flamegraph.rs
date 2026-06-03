@@ -334,11 +334,26 @@ fn build_row<'a>(
     let dur_str = duration.map_or_else(|| "—".to_string(), human_short);
     let prefix = format!("{:>5} {:>10}  ", format!("T{}", idx + 1), dur_str);
     let mut spans: Vec<TextSpan<'_>> = Vec::new();
-    let prefix_style = if selected {
+    // Thinking-only turns (no tool calls — e.g. pure text replies,
+    // plan-then-execute breakpoints, summary turns) are marked with a
+    // Blue prefix so users can distinguish them at a glance from
+    // active tool-using turns. Composes additively with REVERSED
+    // (selected) and UNDERLINED (aborted, applied below).
+    //
+    // Thinking-only = a CLOSED turn with no tool calls (pure-text reply,
+    // summary turn, etc). Open turns (ended_at=None) are intentionally
+    // excluded — an in-flight turn that hasn't dispatched its first tool
+    // yet would briefly flash Blue before the gantt fills, which is
+    // distracting in watch mode.
+    let thinking_only = turn.is_some_and(|t| t.ended_at.is_some() && t.tool_calls.is_empty());
+    let mut prefix_style = if selected {
         Style::default().add_modifier(Modifier::REVERSED)
     } else {
         Style::default()
     };
+    if thinking_only {
+        prefix_style = prefix_style.fg(Color::Blue);
+    }
     spans.push(TextSpan::styled(prefix, prefix_style));
 
     let gantt_w = gantt_width;
@@ -498,9 +513,11 @@ fn cell_style(ch: char, source: Option<&ToolSource>) -> Style {
 /// [`agentprof_core::episode::Span::duration`], and `+K more` appears if
 /// truncation from the right was required to fit `max_width` columns. When
 /// the selected turn has no tool calls, the line reads
-/// `"T{n} selected:  (no tool calls) · Enter for detail"`. When `turn` is
-/// `None` (e.g. an out-of-range selection index), the line reads
-/// `"(no turn selected)"` (no hint — there is nothing to open).
+/// `"T{n} selected:  (no tool calls) · thinking only · Enter for detail"`
+/// — the `· thinking only` marker confirms what the colored prefix in the
+/// gantt row already shows visually. When `turn` is `None` (e.g. an
+/// out-of-range selection index), the line reads `"(no turn selected)"`
+/// (no hint — there is nothing to open).
 ///
 /// The trailing `" · Enter for detail"` discoverability hint surfaces the
 /// [`turn_detail`](crate::views::turn_detail) affordance.
@@ -534,7 +551,9 @@ pub fn selected_turn_footer_line(
     let prefix = format!("T{} selected:  ", turn_idx + 1);
     let budget = usize::from(max_width);
     if t.tool_calls.is_empty() {
-        return append_detail_hint(format!("{prefix}(no tool calls)"), budget);
+        let base = format!("{prefix}(no tool calls)");
+        let with_mark = append_thinking_marker(base, budget);
+        return append_detail_hint(with_mark, budget);
     }
 
     // Format each call as "name(human_short(dur))". Unknown calls (no
@@ -551,7 +570,9 @@ pub fn selected_turn_footer_line(
         .collect();
 
     if entries.is_empty() {
-        return append_detail_hint(format!("{prefix}(no tool calls)"), budget);
+        let base = format!("{prefix}(no tool calls)");
+        let with_mark = append_thinking_marker(base, budget);
+        return append_detail_hint(with_mark, budget);
     }
 
     let body = fit_entries(&prefix, &entries, budget);
@@ -573,6 +594,19 @@ fn append_detail_hint(line: String, budget: usize) -> String {
         return line;
     }
     format!("{line}{HINT}")
+}
+
+/// Append `" · thinking only"` to `line` if it fully fits within `budget`
+/// characters; otherwise return `line` unchanged. Matches the all-or-
+/// nothing semantics of [`append_detail_hint`] so narrow terminals show
+/// either the complete marker or nothing — never a half-truncated
+/// `· think` that reads like a stray keybinding.
+fn append_thinking_marker(line: String, budget: usize) -> String {
+    const MARK: &str = " · thinking only";
+    if budget == 0 || line.chars().count() + MARK.chars().count() > budget {
+        return line;
+    }
+    format!("{line}{MARK}")
 }
 
 /// Pack as many `entries` (joined by a single space) into the budget as
@@ -1026,7 +1060,10 @@ mod tests {
         let mut t = Turn::new("t1".into(), base);
         t.ended_at = Some(base + Duration::seconds(1));
         let line = selected_turn_footer_line(0, Some(&t), &Episodes::default(), 80);
-        assert_eq!(line, "T1 selected:  (no tool calls) · Enter for detail");
+        assert_eq!(
+            line,
+            "T1 selected:  (no tool calls) · thinking only · Enter for detail"
+        );
     }
 
     #[test]
@@ -1100,6 +1137,202 @@ mod tests {
         assert!(
             line.ends_with("+3 more") || line.contains("+3 more"),
             "body content preserved: {line}"
+        );
+    }
+
+    #[test]
+    fn build_row_thinking_only_turn_has_blue_prefix() {
+        let base = Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap();
+        let mut turn = Turn::new("T1".into(), base);
+        turn.ended_at = Some(base + Duration::seconds(2));
+        // tool_calls intentionally left empty → thinking-only.
+        let episodes = Episodes::default();
+        let line = build_row(
+            0,
+            false,
+            Some(Duration::seconds(2)),
+            2000,
+            40,
+            Some(&turn),
+            &episodes,
+        );
+        let first = &line.spans[0];
+        assert_eq!(
+            first.style.fg,
+            Some(Color::Blue),
+            "thinking-only turn prefix must be Blue"
+        );
+        assert!(
+            !first.style.add_modifier.contains(Modifier::REVERSED),
+            "unselected row must not be REVERSED"
+        );
+    }
+
+    #[test]
+    fn build_row_thinking_only_selected_composes_blue_with_reversed() {
+        let base = Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap();
+        let mut turn = Turn::new("T1".into(), base);
+        turn.ended_at = Some(base + Duration::seconds(2));
+        let episodes = Episodes::default();
+        let line = build_row(
+            0,
+            true, // selected
+            Some(Duration::seconds(2)),
+            2000,
+            40,
+            Some(&turn),
+            &episodes,
+        );
+        let first = &line.spans[0];
+        assert_eq!(first.style.fg, Some(Color::Blue));
+        assert!(first.style.add_modifier.contains(Modifier::REVERSED));
+    }
+
+    #[test]
+    fn build_row_thinking_only_aborted_composes_blue_with_underlined() {
+        let base = Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap();
+        let mut turn = Turn::new("T1".into(), base);
+        turn.ended_at = Some(base + Duration::seconds(2));
+        turn.status =
+            TurnStatus::Aborted(agentprof_core::episode::AbortInfo::new("test".into(), base));
+        let episodes = Episodes::default();
+        let line = build_row(
+            0,
+            false,
+            Some(Duration::seconds(2)),
+            2000,
+            40,
+            Some(&turn),
+            &episodes,
+        );
+        let first = &line.spans[0];
+        assert_eq!(first.style.fg, Some(Color::Blue));
+        assert!(first.style.add_modifier.contains(Modifier::UNDERLINED));
+    }
+
+    #[test]
+    fn build_row_turn_with_tool_calls_has_no_blue_prefix() {
+        use agentprof_core::episode::{Span as EpisodeSpan, ToolCall, ToolEpisode};
+        let turn = turn_with_tool("T1", 0, 2, "bash");
+        let mut episodes = Episodes::default();
+        let mut ep = ToolEpisode::new("bash".into(), ToolSource::Builtin);
+        let ended = turn.ended_at.unwrap_or(turn.started_at);
+        ep.calls
+            .push(ToolCall::new(EpisodeSpan::new(turn.started_at, ended)));
+        episodes.tools.insert("bash".into(), ep);
+        let line = build_row(
+            0,
+            false,
+            Some(Duration::seconds(2)),
+            2000,
+            40,
+            Some(&turn),
+            &episodes,
+        );
+        let first = &line.spans[0];
+        assert_ne!(
+            first.style.fg,
+            Some(Color::Blue),
+            "tool-bearing turn prefix must NOT be Blue"
+        );
+    }
+
+    #[test]
+    fn selected_turn_footer_line_thinking_only_says_thinking_only() {
+        let base = Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap();
+        let mut t = Turn::new("t1".into(), base);
+        t.ended_at = Some(base + Duration::seconds(1));
+        let line = selected_turn_footer_line(0, Some(&t), &Episodes::default(), 80);
+        assert!(
+            line.contains("thinking only"),
+            "footer must surface thinking-only marker: {line}"
+        );
+        assert!(line.contains("(no tool calls)"), "got: {line}");
+    }
+
+    #[test]
+    fn build_row_open_turn_with_no_tool_calls_is_not_blue() {
+        // An in-flight turn (ended_at=None) with empty tool_calls must NOT
+        // be marked Blue. Otherwise watch mode would flash Blue briefly on
+        // every new turn before tools arrive. See review I-1.
+        let base = Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap();
+        let turn = Turn::new("T1".into(), base);
+        // tool_calls is empty by default; ended_at is None (open).
+        let episodes = Episodes::default();
+        let line = build_row(
+            0,
+            false,
+            None, // duration unknown for open turn
+            2000,
+            40,
+            Some(&turn),
+            &episodes,
+        );
+        let first = &line.spans[0];
+        assert_ne!(
+            first.style.fg,
+            Some(Color::Blue),
+            "open turn (ended_at=None) must not get Blue prefix even with empty tool_calls"
+        );
+    }
+
+    #[test]
+    fn footer_thinking_marker_dropped_when_budget_too_tight() {
+        // Thinking-only turn (no tool_calls, ended). Mirrors the
+        // `selected_turn_footer_line_thinking_only_says_thinking_only`
+        // fixture but uses a tight budget.
+        //
+        // Body: "T1 selected:  (no tool calls)" = 29 chars.
+        // " · thinking only" adds 16 → 45 total, far exceeding budget=30.
+        // All-or-nothing: marker (and hint) must be dropped, body kept.
+        let base = Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap();
+        let mut t = Turn::new("t1".into(), base);
+        t.ended_at = Some(base + Duration::seconds(1));
+        let line = selected_turn_footer_line(0, Some(&t), &Episodes::default(), 30);
+        assert!(
+            !line.contains("thinking"),
+            "thinking marker must be dropped when budget too tight: {line}"
+        );
+        assert!(
+            line.contains("(no tool calls)"),
+            "body must be preserved: {line}"
+        );
+    }
+
+    #[test]
+    fn build_row_thinking_only_selected_aborted_composes_all_three() {
+        // Triple composition: thinking-only (Blue fg) + selected (REVERSED)
+        // + aborted (UNDERLINED via post-pass). All three must coexist on
+        // the prefix span — none clobber the others.
+        let base = Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap();
+        let mut turn = Turn::new("T1".into(), base);
+        turn.ended_at = Some(base + Duration::seconds(2));
+        turn.status =
+            TurnStatus::Aborted(agentprof_core::episode::AbortInfo::new("test".into(), base));
+        // tool_calls remains empty → thinking-only
+        let episodes = Episodes::default();
+        let line = build_row(
+            0,
+            true, // selected
+            Some(Duration::seconds(2)),
+            2000,
+            40,
+            Some(&turn),
+            &episodes,
+        );
+        let first = &line.spans[0];
+        assert_eq!(
+            first.style.fg,
+            Some(Color::Blue),
+            "Blue must survive REVERSED + UNDERLINED"
+        );
+        assert!(
+            first.style.add_modifier.contains(Modifier::REVERSED),
+            "REVERSED must survive Blue + UNDERLINED"
+        );
+        assert!(
+            first.style.add_modifier.contains(Modifier::UNDERLINED),
+            "UNDERLINED must survive Blue + REVERSED"
         );
     }
 }

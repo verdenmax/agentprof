@@ -137,7 +137,7 @@ impl<'a> AppRunner<'a> {
 
 fn draw_help_overlay(frame: &mut Frame<'_>, full: Rect) {
     let w = full.width.min(60);
-    let h = full.height.min(27);
+    let h = full.height.min(28);
     let x = full.x + (full.width.saturating_sub(w)) / 2;
     let y = full.y + (full.height.saturating_sub(h)) / 2;
     let area = Rect::new(x, y, w, h);
@@ -166,6 +166,7 @@ fn draw_help_overlay(frame: &mut Frame<'_>, full: Rect) {
         "                  cyan=Builtin, magenta=MCP, yellow=Skill)",
         "  ░ (dim gray)    LLM thinking time (no tool running; in-turn cost)",
         "  ·               Padding (turn ended; row shorter than longest turn)",
+        "  T-id (blue)     Thinking-only turn (no tool calls)",
         "",
         "Deep flamegraph: `analyze --export speedscope` → speedscope.app",
     ]
