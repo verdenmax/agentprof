@@ -66,6 +66,38 @@ impl Turn {
             skill_calls: Vec::new(),
         }
     }
+
+    /// Returns `true` if any tool call in this turn is a user-blocking tool
+    /// (i.e. its name appears in
+    /// [`crate::analyzer::tool_rank::USER_BLOCKING_TOOLS`]).
+    ///
+    /// User-blocking tools (e.g. `ask_user`) wait on human input; their
+    /// wall-time is dominated by user thinking, not by agent or machine
+    /// work. Renderers that scale visual elements by turn duration should
+    /// exclude these turns from "max duration" calculations to avoid
+    /// squashing the visualization (see ADR-0005 §6 for the same split
+    /// applied to the Tool Rank table; this method extends the same fix
+    /// to the `FlamegraphView` as an M1.6.4 follow-up).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::episode::{CallRef, Turn};
+    /// use chrono::{TimeZone, Utc};
+    ///
+    /// let t0 = Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap();
+    /// let mut turn = Turn::new("t1".into(), t0);
+    /// assert!(!turn.is_user_blocking());
+    ///
+    /// turn.tool_calls.push(CallRef::new("ask_user".into(), 0));
+    /// assert!(turn.is_user_blocking());
+    /// ```
+    #[must_use]
+    pub fn is_user_blocking(&self) -> bool {
+        self.tool_calls
+            .iter()
+            .any(|c| crate::analyzer::tool_rank::USER_BLOCKING_TOOLS.contains(&c.name.as_str()))
+    }
 }
 
 /// Terminal status of a `Turn`.
@@ -138,6 +170,8 @@ mod tests {
     use super::*;
     use chrono::TimeZone;
 
+    use crate::episode::call_ref::CallRef;
+
     #[test]
     fn span_instant_is_zero_duration() {
         let t = Utc.with_ymd_and_hms(2026, 5, 27, 0, 0, 0).unwrap();
@@ -152,5 +186,38 @@ mod tests {
         assert_eq!(turn.status, TurnStatus::Open);
         assert_eq!(turn.ended_at, None);
         assert!(turn.tool_calls.is_empty());
+    }
+
+    #[test]
+    fn empty_turn_is_not_user_blocking() {
+        let t = Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap();
+        assert!(!Turn::new("t".into(), t).is_user_blocking());
+    }
+
+    #[test]
+    fn turn_with_only_non_blocking_tools_is_not_user_blocking() {
+        let t = Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap();
+        let mut turn = Turn::new("t".into(), t);
+        turn.tool_calls.push(CallRef::new("bash".into(), 0));
+        turn.tool_calls.push(CallRef::new("edit".into(), 1));
+        assert!(!turn.is_user_blocking());
+    }
+
+    #[test]
+    fn turn_with_ask_user_is_user_blocking() {
+        let t = Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap();
+        let mut turn = Turn::new("t".into(), t);
+        turn.tool_calls.push(CallRef::new("ask_user".into(), 0));
+        assert!(turn.is_user_blocking());
+    }
+
+    #[test]
+    fn turn_with_mix_is_user_blocking_when_any_tool_blocks() {
+        let t = Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap();
+        let mut turn = Turn::new("t".into(), t);
+        turn.tool_calls.push(CallRef::new("bash".into(), 0));
+        turn.tool_calls.push(CallRef::new("ask_user".into(), 1));
+        turn.tool_calls.push(CallRef::new("edit".into(), 2));
+        assert!(turn.is_user_blocking());
     }
 }

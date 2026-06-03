@@ -113,12 +113,6 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState<'_>) {
     let gantt_width = inner.width.saturating_sub(prefix_width);
 
     let turns = &state.report.turn_summary;
-    let max_dur = turns
-        .iter()
-        .filter_map(|t| t.duration.map(|d| d.num_milliseconds()))
-        .max()
-        .unwrap_or(1)
-        .max(1);
 
     // Polish #1: build turn-by-id lookup once per render (was O(N×M) per-
     // row iter().find(); now O(N) build + O(M) lookups).
@@ -128,6 +122,40 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState<'_>) {
         .iter()
         .map(|t| (t.id.as_str(), t))
         .collect();
+
+    // Compute max_dur EXCLUDING user-blocking turns (whose wall-time is
+    // dominated by human-thinking-time, not agent work — e.g. an `ask_user`
+    // turn where the user spent 10 minutes deciding). Without this filter,
+    // a single such outlier squashes every other turn's gantt-bar width to
+    // near-zero, making the visualization effectively useless.
+    //
+    // Fallback: if EVERY turn is user-blocking (rare degenerate case),
+    // fall back to the original "max across all turns" so we don't divide
+    // by 1 ms.
+    //
+    // Mirrors ADR-0005 §6 + the user-blocking split in the Tool Rank table
+    // (see [`agentprof_core::analyzer::tool_rank`]).
+    let max_dur_excl_blocking = turns
+        .iter()
+        .filter_map(|row| {
+            let turn = turn_by_id.get(row.turn_id.as_str())?;
+            if turn.is_user_blocking() {
+                None
+            } else {
+                row.duration.map(|d| d.num_milliseconds())
+            }
+        })
+        .max();
+
+    let max_dur = max_dur_excl_blocking
+        .or_else(|| {
+            turns
+                .iter()
+                .filter_map(|t| t.duration.map(|d| d.num_milliseconds()))
+                .max()
+        })
+        .unwrap_or(1)
+        .max(1);
 
     // Edge-triggered viewport: only scroll when selected leaves the window.
     // Persisted via Cell on AppState so the cursor can move freely within
@@ -311,5 +339,76 @@ mod tests {
         let t10 = t0 + Duration::seconds(10);
         let segs = segment_layout(t0, t10, &[(t0, t10, 0)], 0);
         assert!(segs.is_empty());
+    }
+
+    /// Build a `Turn` for tests with `started_at`/`ended_at` set and one
+    /// tool call by name.
+    fn turn_with_tool(id: &str, started_s: i64, ended_s: i64, tool: &str) -> Turn {
+        use agentprof_core::episode::CallRef;
+        let base = Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap();
+        let mut turn = Turn::new(id.into(), base + Duration::seconds(started_s));
+        turn.ended_at = Some(base + Duration::seconds(ended_s));
+        turn.status = TurnStatus::Completed;
+        turn.tool_calls.push(CallRef::new(tool.into(), 0));
+        turn
+    }
+
+    /// Replicates the `max_dur` calculation from `render()` so we can
+    /// unit-test it without instantiating a full ratatui Frame + `AppState`.
+    fn compute_max_dur(turns: &[Turn]) -> i64 {
+        let turn_by_id: std::collections::HashMap<&str, &Turn> =
+            turns.iter().map(|t| (t.id.as_str(), t)).collect();
+
+        let max_excl = turns
+            .iter()
+            .filter_map(|t| {
+                let turn = turn_by_id.get(t.id.as_str())?;
+                if turn.is_user_blocking() {
+                    None
+                } else {
+                    t.ended_at.map(|e| (e - t.started_at).num_milliseconds())
+                }
+            })
+            .max();
+
+        max_excl
+            .or_else(|| {
+                turns
+                    .iter()
+                    .filter_map(|t| t.ended_at.map(|e| (e - t.started_at).num_milliseconds()))
+                    .max()
+            })
+            .unwrap_or(1)
+            .max(1)
+    }
+
+    #[test]
+    fn max_dur_excludes_user_blocking_turns() {
+        // 3 turns:
+        // - T1: 5s normal turn (`bash`)
+        // - T2: 600s (10min) user-blocking turn (`ask_user`)
+        // - T3: 5s normal turn (`edit`)
+        //
+        // Expected: max_dur for scaling = 5000 ms (the non-blocking max),
+        //           NOT 600000 ms (which would squash T1+T3 to ~0 cells).
+        let turns = vec![
+            turn_with_tool("t1", 0, 5, "bash"),
+            turn_with_tool("t2", 10, 610, "ask_user"),
+            turn_with_tool("t3", 700, 705, "edit"),
+        ];
+        assert_eq!(compute_max_dur(&turns), 5_000);
+    }
+
+    #[test]
+    fn max_dur_falls_back_when_all_turns_are_user_blocking() {
+        // Degenerate case: only user-blocking turns exist. Filter would
+        // produce None — must fall back to original max-across-all so we
+        // don't divide by 1 ms.
+        let turns = vec![turn_with_tool("t1", 0, 300, "ask_user")];
+        assert_eq!(
+            compute_max_dur(&turns),
+            300_000,
+            "fallback must use all-turns max when filter empties"
+        );
     }
 }
