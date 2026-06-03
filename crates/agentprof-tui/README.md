@@ -41,7 +41,7 @@ See [`docs/architecture.md`](../../docs/architecture.md) §3 (system layering) a
 | `app::state` | `AppState` + `dispatch` (pure-logic state machine) |
 | `app` (root) | `AppRunner` (wires state + views + event loop) |
 | `watch` (M1.6.3) | `WatchRunner` + `WatchData` enum + `RefreshKind` / `ReloadError` + cross-session `AggSortKey`. Owns the live-refresh event loop; the file watcher itself lives in `agentprof-cli`. |
-| `views::flamegraph` | Per-turn horizontal gantt + `segment_layout` + `build_gantt_cells` (3-state row: `█` tool / `░` LLM thinking / `·` padding) |
+| `views::flamegraph` | Per-turn horizontal gantt + `segment_layout` + `build_gantt_cells` (3-state row: `█` tool / `░` LLM thinking / `·` padding) + `build_styled_cells_with_source` (colors `█` by [`ToolSource`](../agentprof-core/src/model/tool_source.rs): Builtin=cyan, MCP=magenta, Skill=yellow; reuses `theme::tool_source_color`) + `selected_turn_footer_line` (footer beneath the gantt listing the selected turn's tool calls with per-call durations, e.g. `T3 selected:  bash(120ms) +2 more`) |
 | `views::roi` | Interactive tool rank with sort cycling + `recent_calls` |
 | `views::aggregate` | By-Mode + By-Hook tables (single session) + `group_by_mode`; M1.6.3 adds a cross-session arm rendering `AnyAggregateReport` for `aggregate --export tui` and `watch aggregate ...` |
 | `views::format` | Shared display helpers (`human_short`) |

@@ -11,12 +11,20 @@
 //! Each turn row mixes three character types in its gantt area:
 //!
 //! - `█` (U+2588 FULL BLOCK) — a tool / hook / skill is executing during this time slice.
+//!   Colored by [`agentprof_core::model::ToolSource`] (Builtin=cyan, MCP=magenta, Skill=yellow)
+//!   via [`crate::theme::tool_source_color`]; Hook segments aren't yet color-coded (they live
+//!   in `hook_calls`, not `tool_calls`).
 //! - `░` (U+2591 LIGHT SHADE) — the turn is in-flight but no tool is running (LLM thinking time:
 //!   reasoning, generating output tokens, interpreting tool output). This time IS part of the
 //!   turn's wall-time and is real cost.
 //! - `·` (U+00B7 MIDDLE DOT) — padding: the turn ended before this position. The character only
 //!   exists because this row is shorter than the longest non-blocking turn (which sets the
 //!   horizontal scale). This time is NOT part of the turn.
+//!
+//! Below the gantt rows, a single-line footer (see [`selected_turn_footer_line`]) lists the
+//! currently-selected turn's tool calls with per-call durations, e.g.
+//! `T3 selected:  bash(120ms) read_file(85ms) +2 more`. Truncates from the right with
+//! `+K more` when the line exceeds the footer width.
 //!
 //! User-blocking turns (e.g. containing an `ask_user` call where the user spent minutes on
 //! the keyboard or AFK) are excluded from the "longest turn" calculation per
@@ -27,6 +35,7 @@
 //! See `docs/superpowers/specs/2026-05-30-m1.5-tui-design.md` §6.1.
 
 use agentprof_core::episode::{Episodes, Turn, TurnStatus};
+use agentprof_core::model::ToolSource;
 use chrono::Duration;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -35,6 +44,7 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
 use crate::app::state::AppState;
+use crate::theme::tool_source_color;
 use crate::views::format::human_short;
 
 /// Pure-math layout helper for `render`.
@@ -115,6 +125,7 @@ pub fn segment_layout(
 /// bottom shifts viewport down by 1; pressing `↑` past the top shifts it
 /// up by 1; movement within the visible window does not scroll. This is
 /// the canonical scroll-to-follow pattern.
+#[allow(clippy::too_many_lines)]
 pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState<'_>) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -129,6 +140,20 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState<'_>) {
 
     let prefix_width: u16 = 18;
     let gantt_width = inner.width.saturating_sub(prefix_width);
+
+    // Reserve 1 line at the bottom of `inner` for the selected-turn footer
+    // (e.g. "T3 selected:  bash(120ms) read_file(85ms) +2 more"). The
+    // footer lives INSIDE the bordered Flamegraph block so the existing
+    // Detail strip (`chunks[1]`) is unchanged.
+    let (rows_area, footer_area) = if inner.height >= 2 {
+        let split = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(1)])
+            .split(inner);
+        (split[0], Some(split[1]))
+    } else {
+        (inner, None)
+    };
 
     let turns = &state.report.turn_summary;
 
@@ -178,7 +203,7 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState<'_>) {
     // Edge-triggered viewport: only scroll when selected leaves the window.
     // Persisted via Cell on AppState so the cursor can move freely within
     // the viewport (instead of being glued to the bottom edge every frame).
-    let visible_rows = (inner.height as usize).max(1);
+    let visible_rows = (rows_area.height as usize).max(1);
     let mut viewport_top = state.flame_viewport_top.get();
     if state.flame_selected < viewport_top {
         viewport_top = state.flame_selected;
@@ -210,7 +235,27 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState<'_>) {
     }
 
     let para = Paragraph::new(lines);
-    frame.render_widget(para, inner);
+    frame.render_widget(para, rows_area);
+
+    // Footer line: selected turn's tool calls with per-call durations.
+    // Helps the user see *what* the highlighted row spent its time on,
+    // not just *how much* time it spent.
+    if let Some(footer_rect) = footer_area {
+        let selected_turn = turns
+            .get(state.flame_selected)
+            .and_then(|row| turn_by_id.get(row.turn_id.as_str()).copied());
+        let footer_text = selected_turn_footer_line(
+            state.flame_selected,
+            selected_turn,
+            state.episodes,
+            footer_rect.width,
+        );
+        let footer = Paragraph::new(TextSpan::styled(
+            footer_text,
+            Style::default().add_modifier(Modifier::DIM),
+        ));
+        frame.render_widget(footer, footer_rect);
+    }
 
     // Detail strip.
     let detail_block = Block::default().borders(Borders::ALL).title(" Detail ");
@@ -279,9 +324,31 @@ fn build_row<'a>(
                 })
                 .collect();
             let segs = segment_layout(started, ended, &call_tuples, scaled);
+            // Per-cell ToolSource parallel to the char buffer, used to color
+            // `█` cells by source (Builtin / MCP / Skill). `None` for cells
+            // that are not part of any tool segment (thinking-time `░` or
+            // padding `·`).
+            let mut sources: Vec<Option<ToolSource>> = vec![None; gantt_w as usize];
+            for (cs, cl, seg_idx) in &segs {
+                let Some(call_ref) = t.tool_calls.get(*seg_idx) else {
+                    continue;
+                };
+                let Some(source) = episodes
+                    .tools
+                    .get(&call_ref.name)
+                    .map(|ep| ep.source.clone())
+                else {
+                    continue;
+                };
+                let start = (*cs as usize).min(sources.len());
+                let end = (start + *cl as usize).min(sources.len());
+                for slot in &mut sources[start..end] {
+                    *slot = Some(source.clone());
+                }
+            }
             // Build a String of gantt_w cells; overlay segments.
             let buf = build_gantt_cells(scaled, gantt_w, &segs);
-            cells = build_styled_cells(&buf);
+            cells = build_styled_cells_with_source(&buf, &sources);
         }
     }
     let mut all = spans;
@@ -299,15 +366,176 @@ fn build_row<'a>(
     Line::from(all)
 }
 
-fn build_styled_cells<'a>(buf: &[char]) -> Vec<TextSpan<'a>> {
-    // For M1.5 we do not color-per-segment in the buffer (would require
-    // per-cell styling and a bigger refactor). Display whole gantt row in one
-    // span, neutral cyan — color-by-source is reserved for a polish pass
-    // in M1.6. (Documented as Open Question §14 in the spec.)
-    vec![TextSpan::styled(
-        buf.iter().collect::<String>(),
-        Style::default().fg(Color::Cyan),
-    )]
+/// Build per-cell styled spans for one gantt row, coloring `█` cells by
+/// [`ToolSource`].
+///
+/// `buf` contains the gantt characters as produced by [`build_gantt_cells`]
+/// (`█` / `░` / `·`). `sources` is a parallel slice of the same length where
+/// each entry is the [`ToolSource`] of the tool call occupying that cell, or
+/// `None` for cells that are not part of any tool segment (thinking-time
+/// `░` or padding `·`).
+///
+/// Cells are styled as follows:
+///
+/// - `█` + `Some(source)` → foreground = [`tool_source_color`] (Builtin → cyan,
+///   MCP → magenta, Skill → yellow; matches `RoiView`).
+/// - `█` + `None` → fallback cyan (defensive; should not occur in practice
+///   because every `█` originates from a tool segment that has a known
+///   [`ToolSource`]).
+/// - `░` → [`Modifier::DIM`] gray (thinking time).
+/// - `·` → dark-gray + [`Modifier::DIM`] (padding past the turn's wall-time).
+///
+/// Consecutive cells with the same style are merged into a single
+/// [`TextSpan`] to keep the rendered output compact.
+///
+/// # Panics
+///
+/// Does not panic on a length mismatch between `buf` and `sources`: cells
+/// past the shorter slice are treated as having no source.
+///
+/// # Examples
+///
+/// ```
+/// use agentprof_core::model::ToolSource;
+/// use agentprof_tui::views::flamegraph::build_styled_cells_with_source;
+/// let buf = ['░', '█', '█', '·'];
+/// let sources = [None, Some(ToolSource::Builtin), Some(ToolSource::Builtin), None];
+/// let spans = build_styled_cells_with_source(&buf, &sources);
+/// // The two adjacent `█` Builtin cells merge into a single span.
+/// assert_eq!(spans.len(), 3);
+/// assert_eq!(spans[1].content, "██");
+/// ```
+#[must_use]
+pub fn build_styled_cells_with_source<'a>(
+    buf: &[char],
+    sources: &[Option<ToolSource>],
+) -> Vec<TextSpan<'a>> {
+    let mut out: Vec<TextSpan<'a>> = Vec::new();
+    let mut current: Option<(Style, String)> = None;
+    for (i, ch) in buf.iter().enumerate() {
+        let style = cell_style(*ch, sources.get(i).and_then(Option::as_ref));
+        match &mut current {
+            Some((s, run)) if *s == style => run.push(*ch),
+            _ => {
+                if let Some((s, run)) = current.take() {
+                    out.push(TextSpan::styled(run, s));
+                }
+                let mut run = String::new();
+                run.push(*ch);
+                current = Some((style, run));
+            }
+        }
+    }
+    if let Some((s, run)) = current {
+        out.push(TextSpan::styled(run, s));
+    }
+    out
+}
+
+/// Foreground/modifier style for a single gantt cell.
+///
+/// Pure helper extracted so [`build_styled_cells_with_source`] can be a
+/// straightforward run-length compressor.
+fn cell_style(ch: char, source: Option<&ToolSource>) -> Style {
+    match ch {
+        '█' => source.map_or_else(
+            || Style::default().fg(Color::Cyan),
+            |s| Style::default().fg(tool_source_color(s)),
+        ),
+        '░' => Style::default().add_modifier(Modifier::DIM),
+        '·' => Style::default()
+            .fg(Color::DarkGray)
+            .add_modifier(Modifier::DIM),
+        _ => Style::default(),
+    }
+}
+
+/// Build the selected-turn footer line shown below the gantt rows.
+///
+/// Format: `"T{n} selected:  bash(120ms) read_file(85ms) +K more"` where
+/// `n` is the 1-based turn index, durations come from
+/// [`agentprof_core::episode::Span::duration`], and `+K more` appears if
+/// truncation from the right was required to fit `max_width` columns. When
+/// the selected turn has no tool calls, the line reads
+/// `"T{n} selected:  (no tool calls)"`. When `turn` is `None` (e.g. an
+/// out-of-range selection index), the line reads `"(no turn selected)"`.
+///
+/// Hooks and Skill invocations are intentionally omitted — only entries in
+/// [`Turn::tool_calls`] are listed.
+///
+/// # Examples
+///
+/// ```
+/// use agentprof_core::episode::Episodes;
+/// use agentprof_tui::views::flamegraph::selected_turn_footer_line;
+/// // No turn → fixed placeholder.
+/// let line = selected_turn_footer_line(0, None, &Episodes::default(), 80);
+/// assert_eq!(line, "(no turn selected)");
+/// ```
+#[must_use]
+pub fn selected_turn_footer_line(
+    turn_idx: usize,
+    turn: Option<&Turn>,
+    episodes: &Episodes,
+    max_width: u16,
+) -> String {
+    let Some(t) = turn else {
+        return "(no turn selected)".to_string();
+    };
+    let prefix = format!("T{} selected:  ", turn_idx + 1);
+    if t.tool_calls.is_empty() {
+        return format!("{prefix}(no tool calls)");
+    }
+
+    // Format each call as "name(human_short(dur))". Unknown calls (no
+    // matching ToolEpisode entry) are skipped — they would render as
+    // "name(?)" which is noise the user can't act on.
+    let entries: Vec<String> = t
+        .tool_calls
+        .iter()
+        .filter_map(|r| {
+            let call = episodes.tools.get(&r.name)?.calls.get(r.index)?;
+            let dur = human_short(call.span.duration());
+            Some(format!("{name}({dur})", name = r.name))
+        })
+        .collect();
+
+    if entries.is_empty() {
+        return format!("{prefix}(no tool calls)");
+    }
+
+    let budget = usize::from(max_width);
+    fit_entries(&prefix, &entries, budget)
+}
+
+/// Pack as many `entries` (joined by a single space) into the budget as
+/// possible after `prefix`, appending `" +K more"` when entries had to be
+/// dropped. Truncates from the right (drops the *last* entries first).
+fn fit_entries(prefix: &str, entries: &[String], budget: usize) -> String {
+    if budget == 0 {
+        return String::new();
+    }
+    let mut keep = entries.len();
+    loop {
+        let body = entries[..keep].join(" ");
+        let dropped = entries.len() - keep;
+        let suffix = if dropped == 0 {
+            String::new()
+        } else {
+            format!(" +{dropped} more")
+        };
+        let total_len = prefix.len() + body.len() + suffix.len();
+        if total_len <= budget || keep == 0 {
+            // When keep == 0 and even just `prefix + " +K more"` exceeds
+            // budget, truncate by char count from the right of the line.
+            let mut line = format!("{prefix}{body}{suffix}");
+            if line.chars().count() > budget {
+                line = line.chars().take(budget).collect();
+            }
+            return line;
+        }
+        keep -= 1;
+    }
 }
 
 /// Build the per-cell gantt character buffer for one turn row.
@@ -534,5 +762,157 @@ mod tests {
         // turn's actual wall-time.
         let buf = build_gantt_cells(4, 8, &[(6, 2, 0)]);
         assert_eq!(buf.iter().collect::<String>(), "░░░░····");
+    }
+
+    #[test]
+    fn build_styled_cells_colors_tool_blocks_by_source() {
+        // Layout: ░ █(Builtin) █(Builtin) █(MCP) █(Skill) ░ ·
+        //         thinking, two-cell Builtin run, one MCP, one Skill,
+        //         then thinking + padding.
+        let buf = ['░', '█', '█', '█', '█', '░', '·'];
+        let sources = [
+            None,
+            Some(ToolSource::Builtin),
+            Some(ToolSource::Builtin),
+            Some(ToolSource::Mcp {
+                server: "github".into(),
+            }),
+            Some(ToolSource::Skill {
+                name: "lint".into(),
+            }),
+            None,
+            None,
+        ];
+
+        let spans = build_styled_cells_with_source(&buf, &sources);
+        // Expected spans (run-length compressed by style):
+        //   "░"  dim
+        //   "██" cyan (Builtin)
+        //   "█"  magenta (Mcp)
+        //   "█"  yellow (Skill)
+        //   "░"  dim
+        //   "·"  dark gray + dim
+        assert_eq!(spans.len(), 6, "spans: {spans:?}");
+        assert_eq!(spans[0].content, "░");
+        assert!(
+            spans[0].style.add_modifier.contains(Modifier::DIM),
+            "thinking cell should be DIM"
+        );
+        assert_eq!(spans[1].content, "██");
+        assert_eq!(spans[1].style.fg, Some(Color::Cyan), "Builtin → cyan");
+        assert_eq!(spans[2].content, "█");
+        assert_eq!(spans[2].style.fg, Some(Color::Magenta), "MCP → magenta");
+        assert_eq!(spans[3].content, "█");
+        assert_eq!(spans[3].style.fg, Some(Color::Yellow), "Skill → yellow");
+        assert_eq!(spans[4].content, "░");
+        assert_eq!(spans[5].content, "·");
+        assert_eq!(spans[5].style.fg, Some(Color::DarkGray));
+    }
+
+    #[test]
+    fn build_styled_cells_handles_no_sources_thinking_only() {
+        // All `None` sources, mix of ░ and · only (no █). Verify no fg
+        // color is set for thinking cells (they should rely on DIM only,
+        // not a foreground color override).
+        let buf = ['░', '░', '░', '·', '·'];
+        let sources = [None, None, None, None, None];
+        let spans = build_styled_cells_with_source(&buf, &sources);
+        // Expect 2 spans: "░░░" (dim, no fg) + "··" (DarkGray + dim).
+        assert_eq!(spans.len(), 2);
+        assert_eq!(spans[0].content, "░░░");
+        assert_eq!(spans[0].style.fg, None, "thinking has no fg override");
+        assert!(spans[0].style.add_modifier.contains(Modifier::DIM));
+        assert_eq!(spans[1].content, "··");
+        assert_eq!(spans[1].style.fg, Some(Color::DarkGray));
+    }
+
+    #[test]
+    fn build_styled_cells_falls_back_to_cyan_when_source_missing_for_block() {
+        // Defensive path: a `█` cell with no source entry (length
+        // mismatch, or `None` slot) should still render — fall back to
+        // cyan so it stays visible.
+        let buf = ['█', '█'];
+        let sources: [Option<ToolSource>; 0] = [];
+        let spans = build_styled_cells_with_source(&buf, &sources);
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].content, "██");
+        assert_eq!(spans[0].style.fg, Some(Color::Cyan));
+    }
+
+    #[test]
+    fn selected_turn_footer_line_lists_calls_with_durations() {
+        use agentprof_core::episode::{CallRef, Span as EpisodeSpan, ToolCall, ToolEpisode};
+        let base = Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap();
+        // Build a Turn with 2 tool calls: bash + edit.
+        let mut t = Turn::new("t1".into(), base);
+        t.ended_at = Some(base + Duration::seconds(2));
+        t.status = TurnStatus::Completed;
+        t.tool_calls.push(CallRef::new("bash".into(), 0));
+        t.tool_calls.push(CallRef::new("edit".into(), 0));
+        // Episodes carry the per-call timing.
+        let mut episodes = Episodes::default();
+        let mut bash_ep = ToolEpisode::new("bash".into(), ToolSource::Builtin);
+        bash_ep.calls.push(ToolCall::new(EpisodeSpan::new(
+            base,
+            base + Duration::milliseconds(120),
+        )));
+        episodes.tools.insert("bash".into(), bash_ep);
+        let mut edit_ep = ToolEpisode::new("edit".into(), ToolSource::Builtin);
+        edit_ep.calls.push(ToolCall::new(EpisodeSpan::new(
+            base + Duration::milliseconds(500),
+            base + Duration::milliseconds(720),
+        )));
+        episodes.tools.insert("edit".into(), edit_ep);
+
+        let line = selected_turn_footer_line(2, Some(&t), &episodes, 200);
+        assert!(
+            line.starts_with("T3 selected:  "),
+            "footer should start with 1-based label: {line:?}",
+        );
+        assert!(line.contains("bash(120ms)"), "got: {line:?}");
+        assert!(line.contains("edit(220ms)"), "got: {line:?}");
+        assert!(!line.contains('+'), "no truncation expected: {line:?}");
+    }
+
+    #[test]
+    fn selected_turn_footer_line_empty_tool_calls() {
+        let base = Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap();
+        let mut t = Turn::new("t1".into(), base);
+        t.ended_at = Some(base + Duration::seconds(1));
+        let line = selected_turn_footer_line(0, Some(&t), &Episodes::default(), 80);
+        assert_eq!(line, "T1 selected:  (no tool calls)");
+    }
+
+    #[test]
+    fn selected_turn_footer_line_none_turn() {
+        let line = selected_turn_footer_line(5, None, &Episodes::default(), 80);
+        assert_eq!(line, "(no turn selected)");
+    }
+
+    #[test]
+    fn selected_turn_footer_line_truncates_with_more_suffix() {
+        use agentprof_core::episode::{CallRef, Span as EpisodeSpan, ToolCall, ToolEpisode};
+        let base = Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap();
+        let mut t = Turn::new("t1".into(), base);
+        t.ended_at = Some(base + Duration::seconds(10));
+        let mut episodes = Episodes::default();
+        // 5 calls of the same tool; force truncation by giving budget
+        // that only fits 2 entries + the " +3 more" suffix.
+        let mut ep = ToolEpisode::new("bash".into(), ToolSource::Builtin);
+        for i in 0..5_i64 {
+            t.tool_calls
+                .push(CallRef::new("bash".into(), usize::try_from(i).unwrap()));
+            ep.calls.push(ToolCall::new(EpisodeSpan::new(
+                base + Duration::milliseconds(i * 100),
+                base + Duration::milliseconds(i * 100 + 80),
+            )));
+        }
+        episodes.tools.insert("bash".into(), ep);
+
+        // Narrow budget: "T1 selected:  bash(80ms) bash(80ms) +3 more" = 44.
+        let line = selected_turn_footer_line(0, Some(&t), &episodes, 44);
+        assert!(line.starts_with("T1 selected:  "), "got: {line:?}");
+        assert!(line.ends_with(" +3 more"), "got: {line:?}");
+        assert!(line.len() <= 44, "got: {line:?} (len {})", line.len());
     }
 }
