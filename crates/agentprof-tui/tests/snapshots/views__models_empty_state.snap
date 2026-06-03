@@ -1,0 +1,35 @@
+---
+source: crates/agentprof-tui/tests/views.rs
+assertion_line: 81
+expression: buffer_to_symbol_grid(&buffer)
+---
+┌ Models — session token usage ────────────────────────────────────────────────────────────────────┐
+│                                                                                                  │
+│                (no model usage data — session has not emitted shutdown event yet)                │
+│                                                                                                  │
+│                    Token totals are reported on `session.shutdown`. If you're                    │
+│                  in live watch mode, wait for the agent to exit (or hit Ctrl-D).                 │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                    Esc / 1 switches to view 1                                    │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘

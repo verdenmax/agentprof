@@ -236,3 +236,19 @@ fn cross_session_by_day_snapshot() {
     let buf = term.backend().buffer().clone();
     insta::assert_snapshot!("cross_session_by_day", buffer_to_symbol_grid(&buf));
 }
+
+// --- F1.7 Models view snapshots ---
+
+#[test]
+fn snapshot_models_with_data() {
+    // Uses the F1.7 with-session-shutdown fixture which has 2 models'
+    // modelMetrics. Locks the table render + sort + totals.
+    snapshot_view("with-session-shutdown", View::Models, "models_with_data");
+}
+
+#[test]
+fn snapshot_models_empty_state() {
+    // Uses an existing fixture WITHOUT session.shutdown — Models view
+    // falls through to the centered empty-state placeholder.
+    snapshot_view("builtin-tools-only", View::Models, "models_empty_state");
+}
