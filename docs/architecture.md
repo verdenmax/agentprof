@@ -909,8 +909,10 @@ syntax error 等）软降级到默认 stderr — tracing 永远不阻塞 CLI 启
 
 **PII**：session 路径默认 sha256[..8] hex hash（由
 `agentprof_core::observability::pii::{hash_path, hash_short}` 提供）；
-`AGENTPROF_LOG_FULL_PATHS=1` 仅 cli 层 opt-out；core / adapters 层固定 hash
-以确保即使重定向到第三方 log 收集系统也不泄漏文件系统路径。Trade-off：
+`AGENTPROF_LOG_FULL_PATHS=1` **系统级 opt-out** —— `hash_path` 自身在每次调用
+时读环境变量，故 cli (L1 `cmd.*`) / adapters (L2 `adapter.*`) / core (L3
+`analyzer.*` / `aggregator.*`) **全部 4 层** span 都会同步切换为原始路径
+emission，无需各层重复实现（M1.6.4 final-review follow-up 修复）。Trade-off：
 8-hex 字符存在理论 collision 风险但 PII safety 优先（见
 [ADR-0010 D-5](internals/adr-0010-tracing-infrastructure.md)）。
 

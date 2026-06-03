@@ -44,9 +44,14 @@ pub struct LogConfig {
     /// Destination writer (stderr or file).
     pub writer: LogWriter,
 
-    /// If `true`, emission helpers should NOT redact session paths
-    /// (i.e. `hash_path()` is bypassed). Set via env
-    /// `AGENTPROF_LOG_FULL_PATHS=1`.
+    /// Mirrors `AGENTPROF_LOG_FULL_PATHS=1`. **Informational only as
+    /// of the M1.6.4 final-review follow-up** — the runtime source of
+    /// truth is the env var itself, read by
+    /// [`agentprof_core::observability::pii::hash_path`] on every call
+    /// (so the opt-out works at all 4 span layers, not just the cli).
+    /// This field is kept for diagnostics + backwards compat with code
+    /// that already reads it (covered by `config::tests`).
+    #[allow(dead_code)] // resolved-but-not-consumed; see field doc.
     pub full_paths: bool,
 
     /// If `true`, `enter_tui_log_guard` should NOT auto-switch to a

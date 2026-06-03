@@ -350,7 +350,7 @@ Both flags are clap `global = true` — they work on every subcommand
 | `AGENTPROF_LOG` | Backwards-compatible level filter (same syntax as `--log-level`). |
 | `AGENTPROF_LOG_LEVEL` | Alias for `--log-level`; flag wins. |
 | `AGENTPROF_LOG_FILE` | Alias for `--log-file`; flag wins. |
-| `AGENTPROF_LOG_FULL_PATHS` | If `1`, emit raw session paths instead of `hash_path` short-hashes (cli layer only — `agentprof-core` / `agentprof-adapters` always hash). |
+| `AGENTPROF_LOG_FULL_PATHS` | If `1`, emit raw session paths instead of `hash_path` short-hashes. **System-wide**: `hash_path` itself reads the env var on every call, so the opt-out applies at all 4 span layers (cli `cmd.*`, adapters `adapter.*`, core `analyzer.*` / `aggregator.*`). |
 
 ### TUI auto-redirect
 

@@ -252,3 +252,38 @@ fn watch_run_writes_log_events_to_file() {
         output.status.code()
     );
 }
+
+#[test]
+fn full_paths_env_var_exposes_raw_path_at_all_layers() {
+    // Regression test for m1.6.4-final-followup-full-paths-l2-l3-gap.
+    // Setting AGENTPROF_LOG_FULL_PATHS=1 should surface the raw path
+    // at the L2 adapter.parse span, not just the L1 cmd.analyze span.
+
+    let fixture_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("CARGO_MANIFEST_DIR has parent")
+        .join("agentprof-adapters/tests/fixtures/copilot/cross-turn-tool");
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_agentprof"))
+        .env("AGENTPROF_LOG_FULL_PATHS", "1")
+        .env_remove("AGENTPROF_LOG_FILE")
+        .env_remove("AGENTPROF_LOG_LEVEL")
+        .env_remove("AGENTPROF_LOG")
+        .args(["--log-level", "debug", "analyze", "--root"])
+        .arg(&fixture_root)
+        .stderr(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .output()
+        .expect("run agentprof");
+
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    // Fragment guaranteed to appear in the raw fixture path; absent
+    // from any 8-hex-char hash.
+    let fixture_substring = "cross-turn-tool";
+    assert!(
+        stderr.contains(fixture_substring),
+        "expected raw path containing '{fixture_substring}' at L2 \
+         adapter.parse layer when AGENTPROF_LOG_FULL_PATHS=1; got stderr:\n{stderr}"
+    );
+}

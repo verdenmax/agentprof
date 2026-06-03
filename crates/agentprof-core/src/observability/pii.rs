@@ -11,6 +11,24 @@ use std::path::Path;
 /// byte representation (lossy-converted to UTF-8 to tolerate non-UTF-8
 /// paths). Deterministic across runs and across operating systems.
 ///
+/// # Opt-out
+///
+/// When the environment variable `AGENTPROF_LOG_FULL_PATHS` is set to
+/// exactly `"1"`, `hash_path` returns `path.display().to_string()`
+/// instead of the hash. The check is performed inside `hash_path`
+/// itself, so the opt-out applies at **every** emission layer (L1
+/// `cmd.*` spans in the cli, L2 `adapter.*` spans in
+/// `agentprof-adapters`, L3 `analyzer.*` / `aggregator.*` spans in
+/// `agentprof-core`) — set the env var before running the CLI and
+/// every span field that goes through `hash_path` will show the raw
+/// path.
+///
+/// Cost: one `std::env::var_os` call per `hash_path` invocation. At
+/// realistic per-CLI-run rates (per session × per layer) this is
+/// negligible compared to the SHA-256 hashing itself. If a future
+/// workload makes it measurable, cache the result in a
+/// `std::sync::OnceLock<bool>` at module level.
+///
 /// # PII trade-off
 ///
 /// 8 hex chars = 32 bits. Birthday-bound collision probability ≈ 50 %
@@ -40,7 +58,21 @@ use std::path::Path;
 /// ```
 #[must_use]
 pub fn hash_path(p: &Path) -> String {
-    hash_short(&p.to_string_lossy())
+    if full_paths_enabled() {
+        p.display().to_string()
+    } else {
+        hash_short(&p.to_string_lossy())
+    }
+}
+
+/// Returns `true` iff `AGENTPROF_LOG_FULL_PATHS=1` in the environment.
+///
+/// Reads `std::env::var_os` once per call (no caching). Used
+/// internally by [`hash_path`].
+fn full_paths_enabled() -> bool {
+    std::env::var_os("AGENTPROF_LOG_FULL_PATHS")
+        .as_deref()
+        .is_some_and(|os| os == std::ffi::OsStr::new("1"))
 }
 
 /// Stable 8-character lowercase hex prefix of SHA-256(input bytes).
@@ -76,6 +108,7 @@ mod tests {
 
     #[test]
     fn hash_path_is_deterministic() {
+        let _guard = EnvGuard::unset("AGENTPROF_LOG_FULL_PATHS");
         let a = hash_path(&PathBuf::from("/home/alice/.cache/copilot/abc"));
         let b = hash_path(&PathBuf::from("/home/alice/.cache/copilot/abc"));
         assert_eq!(a, b, "same input must hash to same output");
@@ -83,6 +116,7 @@ mod tests {
 
     #[test]
     fn hash_path_distinguishes_inputs() {
+        let _guard = EnvGuard::unset("AGENTPROF_LOG_FULL_PATHS");
         let a = hash_path(&PathBuf::from("/home/alice/.cache/copilot/abc"));
         let b = hash_path(&PathBuf::from("/home/alice/.cache/copilot/xyz"));
         assert_ne!(a, b, "different inputs must hash to different outputs");
@@ -90,6 +124,7 @@ mod tests {
 
     #[test]
     fn hash_path_returns_8_hex_chars() {
+        let _guard = EnvGuard::unset("AGENTPROF_LOG_FULL_PATHS");
         let h = hash_path(&PathBuf::from("/x"));
         assert_eq!(h.len(), 8);
         assert!(
@@ -100,6 +135,7 @@ mod tests {
 
     #[test]
     fn hash_path_handles_empty() {
+        let _guard = EnvGuard::unset("AGENTPROF_LOG_FULL_PATHS");
         let _ = hash_path(&PathBuf::new());
     }
 
@@ -121,5 +157,90 @@ mod tests {
             h.chars().all(|c| c.is_ascii_hexdigit()),
             "must be ASCII hex"
         );
+    }
+
+    #[test]
+    fn hash_path_returns_raw_when_full_paths_set() {
+        let _guard = EnvGuard::set("AGENTPROF_LOG_FULL_PATHS", "1");
+        let p = PathBuf::from("/home/alice/.cache/x");
+        assert_eq!(hash_path(&p), "/home/alice/.cache/x");
+    }
+
+    #[test]
+    fn hash_path_returns_hash_when_full_paths_unset() {
+        let _guard = EnvGuard::unset("AGENTPROF_LOG_FULL_PATHS");
+        let p = PathBuf::from("/home/alice/.cache/x");
+        let h = hash_path(&p);
+        assert_eq!(h.len(), 8);
+        assert!(h.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn hash_path_returns_hash_when_full_paths_other_value() {
+        // Only the literal "1" enables; "true" does not.
+        let _guard = EnvGuard::set("AGENTPROF_LOG_FULL_PATHS", "true");
+        let p = PathBuf::from("/x");
+        let h = hash_path(&p);
+        assert_eq!(h.len(), 8);
+    }
+
+    /// RAII env-var guard for tests. Saves the previous value,
+    /// sets/unsets via `std::env::{set_var, remove_var}`, and restores
+    /// on drop. Tests using this MUST be serial (env is process-global);
+    /// the `_lock` field holds a process-wide mutex
+    /// ([`ENV_TEST_MUTEX`]) to serialize them.
+    struct EnvGuard {
+        key: String,
+        prev: Option<std::ffi::OsString>,
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    static ENV_TEST_MUTEX: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        ENV_TEST_MUTEX
+            .get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    impl EnvGuard {
+        fn set(key: &str, value: &str) -> Self {
+            let lock = env_lock();
+            let prev = std::env::var_os(key);
+            // TODO(MSRV): wrap in `unsafe { ... }` once MSRV bumps to
+            // Rust 1.80+ (set_var/remove_var become `unsafe fn`).
+            // Tests are serialized via `env_lock` above.
+            std::env::set_var(key, value);
+            Self {
+                key: key.to_string(),
+                prev,
+                _lock: lock,
+            }
+        }
+
+        fn unset(key: &str) -> Self {
+            let lock = env_lock();
+            let prev = std::env::var_os(key);
+            // TODO(MSRV): wrap in `unsafe { ... }` once MSRV bumps to
+            // Rust 1.80+ (set_var/remove_var become `unsafe fn`).
+            std::env::remove_var(key);
+            Self {
+                key: key.to_string(),
+                prev,
+                _lock: lock,
+            }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            // TODO(MSRV): wrap in `unsafe { ... }` once MSRV bumps to
+            // Rust 1.80+ (set_var/remove_var become `unsafe fn`).
+            match self.prev.take() {
+                Some(v) => std::env::set_var(&self.key, v),
+                None => std::env::remove_var(&self.key),
+            }
+        }
     }
 }

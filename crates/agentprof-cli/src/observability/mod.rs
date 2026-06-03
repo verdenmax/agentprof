@@ -8,7 +8,12 @@
 //! - [`LogConfig`] / [`LogWriter`] / [`LogConfig::resolve_from_env_and_flags`]
 //! - [`TracingHandle`] / [`init_tracing`]
 //! - [`TuiLogGuard`] / [`enter_tui_log_guard`]
-//! - [`maybe_hash_path`]
+//!
+//! Path redaction for span fields is handled by
+//! [`agentprof_core::observability::pii::hash_path`], which itself
+//! honours `AGENTPROF_LOG_FULL_PATHS=1` at every emission layer (no
+//! cli-side wrapper needed — see the
+//! `m1.6.4-final-followup-full-paths-l2-l3-gap` fix in CHANGELOG).
 
 pub mod config;
 pub mod init;
@@ -26,32 +31,3 @@ pub use init::{init_tracing, TracingHandle};
 pub use tui_guard::enter_tui_log_guard;
 #[allow(unused_imports)]
 pub use tui_guard::TuiLogGuard;
-
-/// Return `path.display().to_string()` if `cfg.full_paths` is true,
-/// otherwise [`agentprof_core::observability::pii::hash_path`].
-///
-/// Path hashing is the default for tracing emissions in
-/// `agentprof-cli`; users opt out via `AGENTPROF_LOG_FULL_PATHS=1`
-/// (reflected in [`LogConfig::full_paths`]). See spec D-5.
-///
-/// Adapter / analyzer / aggregator crates (`agentprof-core`,
-/// `agentprof-adapters`) cannot reach `cfg` and so hash
-/// unconditionally; this opt-out is intentionally cli-only.
-///
-/// # Examples
-///
-/// ```text
-/// // bin-crate: see tests/cli_tracing.rs for executable coverage.
-/// use agentprof_cli::observability::{LogConfig, maybe_hash_path};
-/// let cfg = LogConfig::default();
-/// let s = maybe_hash_path(&cfg, std::path::Path::new("/tmp/x"));
-/// assert_eq!(s.len(), 8); // hashed by default
-/// ```
-#[must_use]
-pub fn maybe_hash_path(cfg: &LogConfig, path: &std::path::Path) -> String {
-    if cfg.full_paths {
-        path.display().to_string()
-    } else {
-        agentprof_core::observability::pii::hash_path(path)
-    }
-}

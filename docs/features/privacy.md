@@ -219,9 +219,12 @@ and emit the raw path. Use this when reproducing a bug locally where you
 need to grep `~/.copilot/session-state/...` from the log itself; **do
 not** ship the resulting log unredacted.
 
-The opt-out is implemented in
-[`agentprof_cli::observability::maybe_hash_path`](../../crates/agentprof-cli/src/observability/init.rs)
-and is the **only** mechanism that disables the path hash — there is no
+The opt-out is implemented inside
+[`agentprof_core::observability::pii::hash_path`](../../crates/agentprof-core/src/observability/pii.rs)
+itself (it reads `AGENTPROF_LOG_FULL_PATHS` per call), so the opt-out
+applies system-wide at every emission layer — L1 `cmd.*` (cli), L2
+`adapter.*` (adapters), L3 `analyzer.*` / `aggregator.*` (core). It is
+the **only** mechanism that disables the path hash — there is no
 config-file equivalent, by design (one-shot env var keeps the opt-out
 visible to ops on the command line).
 

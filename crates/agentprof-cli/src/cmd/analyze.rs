@@ -174,10 +174,12 @@ pub fn run(
     // Compute a redacted span field for the session selector. The `Path`
     // variant otherwise Display-formats the raw filesystem path, which
     // is PII (rubber-duck Critical #2). We redact it via
-    // [`maybe_hash_path`] so the span's `session` field honours the
-    // `AGENTPROF_LOG_FULL_PATHS=1` opt-out (spec D-5).
+    // [`agentprof_core::observability::pii::hash_path`], which itself
+    // honours `AGENTPROF_LOG_FULL_PATHS=1` at every emission layer
+    // (M1.6.4 final-review follow-up — see CHANGELOG entry
+    // `m1.6.4-final-followup-full-paths-l2-l3-gap`).
     let session_field = match &cmd.session {
-        SessionSelector::Path(p) => crate::observability::maybe_hash_path(cfg, p),
+        SessionSelector::Path(p) => agentprof_core::observability::pii::hash_path(p),
         SessionSelector::Latest => "latest".to_string(),
         SessionSelector::Previous => "previous".to_string(),
         SessionSelector::Uuid(u) => u.clone(),
@@ -237,7 +239,7 @@ pub fn run(
     }
 
     let rendered = render_report(&report, &episodes, &raw.meta, &cmd)?;
-    write_output(&rendered, cmd.output.as_deref(), cfg)?;
+    write_output(&rendered, cmd.output.as_deref())?;
     Ok(())
 }
 
@@ -421,7 +423,7 @@ fn render_report(
     }
 }
 
-fn write_output(content: &str, path: Option<&Path>, cfg: &crate::cmd::LogConfig) -> Result<()> {
+fn write_output(content: &str, path: Option<&Path>) -> Result<()> {
     match path {
         None => {
             print!("{content}");
@@ -433,7 +435,7 @@ fn write_output(content: &str, path: Option<&Path>, cfg: &crate::cmd::LogConfig)
             })?;
             tracing::info!(
                 bytes = content.len(),
-                path = %crate::observability::maybe_hash_path(cfg, p),
+                path = %agentprof_core::observability::pii::hash_path(p),
                 "wrote output file"
             );
             Ok(())
