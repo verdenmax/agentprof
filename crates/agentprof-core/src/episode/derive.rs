@@ -315,6 +315,7 @@ impl DeriveState {
                 turn_id: open.turn_id,
                 status: ToolCallStatus::Success, // Task 10b will read actual success bit
                 user_requested: open.user_requested,
+                arguments: None,
             };
             self.commit_tool_call(&open.name, &open.source, call);
         } else {
@@ -337,6 +338,7 @@ impl DeriveState {
                 turn_id: self.open_turn_idx.map(|i| self.turns[i].id.clone()),
                 status: ToolCallStatus::OrphanSynthesizedStart,
                 user_requested: false,
+                arguments: None,
             };
             self.commit_tool_call(&name, &source, call);
             self.warnings.push(DeriveWarning::SynthesizedStart {
@@ -516,6 +518,7 @@ impl DeriveState {
                     message: Some("aborted".to_string()),
                 },
                 user_requested: open.user_requested,
+                arguments: None,
             };
             self.commit_tool_call(&open.name, &open.source, call);
             return;
@@ -573,6 +576,7 @@ impl DeriveState {
                 turn_id: open.turn_id,
                 status: ToolCallStatus::OpenAtEndOfSession,
                 user_requested: open.user_requested,
+                arguments: None,
             };
             let start_event_id = format!("open-tool-{}", open.name);
             self.commit_tool_call(&open.name, &open.source, call);

@@ -48,6 +48,21 @@ pub struct ToolCall {
     pub status: ToolCallStatus,
     /// `true` if the call originated from `ToolUserRequested` (manual approval).
     pub user_requested: bool,
+    /// Tool arguments JSON value, when the adapter captured and emitted
+    /// it via [`crate::adapter::Event::payload_tool_requests`]. `None`
+    /// when either (a) the adapter did not implement that method for
+    /// the relevant variant, or (b) no tool-request event with a
+    /// matching `tool_call_id` was found in the session. Case (b)
+    /// covers orphan completes, mid-session resumes, and (in principle)
+    /// any non-orphan call whose request event was lost or filtered —
+    /// `derive_episodes` will still attempt the lookup for orphan
+    /// completes (the args-map collection in PASS 0 is independent of
+    /// the tool start/complete pairing).
+    ///
+    /// Skipped in JSON output when `None` to keep the schema clean for
+    /// archives produced by adapters that don't yet plumb args.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arguments: Option<serde_json::Value>,
 }
 
 impl ToolCall {
@@ -59,6 +74,7 @@ impl ToolCall {
             turn_id: None,
             status: ToolCallStatus::Success,
             user_requested: false,
+            arguments: None,
         }
     }
 }
@@ -104,5 +120,69 @@ mod tests {
         assert_eq!(call.status, ToolCallStatus::Success);
         assert!(!call.user_requested);
         assert_eq!(call.turn_id, None);
+    }
+}
+
+#[cfg(test)]
+mod arguments_field_tests {
+    use super::*;
+    use chrono::{TimeZone, Utc};
+
+    fn one_sec_span() -> Span {
+        Span::new(
+            Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap(),
+            Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 1).unwrap(),
+        )
+    }
+
+    #[test]
+    fn tool_call_default_arguments_is_none() {
+        let tc = ToolCall::new(one_sec_span());
+        assert!(tc.arguments.is_none());
+    }
+
+    #[test]
+    fn tool_call_serde_roundtrip_with_arguments() {
+        let mut tc = ToolCall::new(one_sec_span());
+        tc.arguments = Some(serde_json::json!({"cmd": "ls", "verbose": true}));
+        let json = serde_json::to_string(&tc).unwrap();
+        let back: ToolCall = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.arguments, tc.arguments);
+    }
+
+    #[test]
+    fn tool_call_arguments_skipped_when_none_in_json() {
+        let tc = ToolCall::new(one_sec_span());
+        let json = serde_json::to_string(&tc).unwrap();
+        assert!(
+            !json.contains("\"arguments\""),
+            "None arguments should be skipped: {json}"
+        );
+    }
+
+    #[test]
+    fn tool_call_arguments_present_when_some_in_json() {
+        let mut tc = ToolCall::new(one_sec_span());
+        tc.arguments = Some(serde_json::json!({"x": 1}));
+        let json = serde_json::to_string(&tc).unwrap();
+        assert!(
+            json.contains("\"arguments\""),
+            "Some arguments should serialize: {json}"
+        );
+    }
+
+    #[test]
+    fn tool_call_deserializes_legacy_json_without_arguments_field() {
+        // Pre-F1 archives (written before ToolCall.arguments existed) must
+        // still deserialize cleanly. This locks the `#[serde(default)]`
+        // attribute against accidental removal.
+        let legacy = r#"{
+            "span": {"started_at":"2026-06-03T00:00:00Z","ended_at":"2026-06-03T00:00:01Z"},
+            "turn_id": null,
+            "status": "Success",
+            "user_requested": false
+        }"#;
+        let tc: ToolCall = serde_json::from_str(legacy).unwrap();
+        assert!(tc.arguments.is_none());
     }
 }
