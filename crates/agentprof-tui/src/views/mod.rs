@@ -53,3 +53,4 @@ pub mod aggregate;
 pub mod flamegraph;
 pub mod format;
 pub mod roi;
+pub mod turn_detail;
