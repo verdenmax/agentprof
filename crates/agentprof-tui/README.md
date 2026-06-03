@@ -41,7 +41,7 @@ See [`docs/architecture.md`](../../docs/architecture.md) §3 (system layering) a
 | `app::state` | `AppState` + `dispatch` (pure-logic state machine) |
 | `app` (root) | `AppRunner` (wires state + views + event loop) |
 | `watch` (M1.6.3) | `WatchRunner` + `WatchData` enum + `RefreshKind` / `ReloadError` + cross-session `AggSortKey`. Owns the live-refresh event loop; the file watcher itself lives in `agentprof-cli`. |
-| `views::flamegraph` | Per-turn horizontal gantt + `segment_layout` |
+| `views::flamegraph` | Per-turn horizontal gantt + `segment_layout` + `build_gantt_cells` (3-state row: `█` tool / `░` LLM thinking / `·` padding) |
 | `views::roi` | Interactive tool rank with sort cycling + `recent_calls` |
 | `views::aggregate` | By-Mode + By-Hook tables (single session) + `group_by_mode`; M1.6.3 adds a cross-session arm rendering `AnyAggregateReport` for `aggregate --export tui` and `watch aggregate ...` |
 | `views::format` | Shared display helpers (`human_short`) |

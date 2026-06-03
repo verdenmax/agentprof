@@ -40,6 +40,8 @@ prefix used in commit messages).
 
 ### Changed
 
+- **FlamegraphView visual clarity (M1.6.4 follow-up wave continued)**: LLM thinking time inside a turn now renders as `░` (U+2591 LIGHT SHADE) instead of plain space, so the three gantt states are visually distinct: `█` tool execution / `░` thinking / `·` padding. Mostly a UX win for users with sessions where LLM reasoning dominates per-turn wall-time. Existing snapshots refreshed.
+
 - **B-3 (M1.6.4 follow-up wave, 2026-06-03)** [`b376d18`]: `agentprof_core::export::speedscope::emit_turn` and `emit_orphans` refactored to take a shared `EmitCtx<'a>` struct bundling shared context refs (frame index, output Vec, warnings, etc.). `#[allow(clippy::too_many_arguments)]` removed. `speedscope::lookup` gains a `debug_assert!(idx.contains_key(name))` so debug builds catch misregistered frames; release builds keep the silent 0 fallback. No production behaviour change.
 
 - All 13 production `eprintln!` calls in `agentprof-cli::cmd::*` have been converted to `tracing::{warn, info, error}!` (M1.6.4). **User-visible diff**: warnings that previously appeared as `agentprof: warning: ...` on stderr now appear in `tracing_subscriber::fmt` format (e.g. `WARN agentprof_cli::cmd::analyze: ...`). Shell scripts grepping stderr by the old prefix should switch to grepping for level tokens (`WARN` / `ERROR` / `INFO`) or use `--log-file <path>` to redirect tracing output away from stderr entirely. One `eprintln!` is intentionally kept in `main.rs` for the top-level error printer (must reach stderr even when tracing is pointed at a file). See [ADR-0010 D-7](docs/internals/adr-0010-tracing-infrastructure.md).

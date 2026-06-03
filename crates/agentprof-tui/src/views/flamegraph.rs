@@ -4,7 +4,25 @@
 //! fills the inner content area; other rows scale proportionally. Within a
 //! row, each [`agentprof_core::episode::ToolCall`] is drawn as a segment at
 //! `(call.span.start - turn.start) / turn.duration` of row width, colored by
-//! [`agentprof_core::model::ToolSource`]. Whitespace = "LLM thinking time".
+//! [`agentprof_core::model::ToolSource`].
+//!
+//! ## Rendered output
+//!
+//! Each turn row mixes three character types in its gantt area:
+//!
+//! - `█` (U+2588 FULL BLOCK) — a tool / hook / skill is executing during this time slice.
+//! - `░` (U+2591 LIGHT SHADE) — the turn is in-flight but no tool is running (LLM thinking time:
+//!   reasoning, generating output tokens, interpreting tool output). This time IS part of the
+//!   turn's wall-time and is real cost.
+//! - `·` (U+00B7 MIDDLE DOT) — padding: the turn ended before this position. The character only
+//!   exists because this row is shorter than the longest non-blocking turn (which sets the
+//!   horizontal scale). This time is NOT part of the turn.
+//!
+//! User-blocking turns (e.g. containing an `ask_user` call where the user spent minutes on
+//! the keyboard or AFK) are excluded from the "longest turn" calculation per
+//! [`Turn::is_user_blocking`]; otherwise such a turn's wall-time would dwarf others and
+//! squash every normal turn's gantt-bar to ≤ 1 cell. See ADR-0005 §6 for the same split
+//! applied to the Tool Rank table.
 //!
 //! See `docs/superpowers/specs/2026-05-30-m1.5-tui-design.md` §6.1.
 
@@ -262,16 +280,7 @@ fn build_row<'a>(
                 .collect();
             let segs = segment_layout(started, ended, &call_tuples, scaled);
             // Build a String of gantt_w cells; overlay segments.
-            let mut buf: Vec<char> = vec![' '; gantt_w as usize];
-            for (cs, cl, _) in &segs {
-                for c in (*cs as usize)..((*cs as usize) + (*cl as usize)).min(buf.len()) {
-                    buf[c] = '█';
-                }
-            }
-            // Trailing edge for scaled length.
-            for cell in buf.iter_mut().take(gantt_w as usize).skip(scaled as usize) {
-                *cell = '·';
-            }
+            let buf = build_gantt_cells(scaled, gantt_w, &segs);
             cells = build_styled_cells(&buf);
         }
     }
@@ -299,6 +308,55 @@ fn build_styled_cells<'a>(buf: &[char]) -> Vec<TextSpan<'a>> {
         buf.iter().collect::<String>(),
         Style::default().fg(Color::Cyan),
     )]
+}
+
+/// Build the per-cell gantt character buffer for one turn row.
+///
+/// The buffer has length `gantt_w` and contains exactly three character
+/// kinds, in this fixed precedence (later overrides earlier):
+///
+/// 1. `░` (U+2591 LIGHT SHADE) — initial fill. Cells that survive both
+///    later passes represent **LLM thinking time** (in-turn slices with
+///    no tool / hook / skill running).
+/// 2. `█` (U+2588 FULL BLOCK) — overlaid for every cell inside any segment
+///    in `segs` (`(cell_start, cell_len, _)` as produced by
+///    [`segment_layout`]). Represents tool / hook / skill execution.
+/// 3. `·` (U+00B7 MIDDLE DOT) — overlaid for every cell past `scaled`,
+///    i.e. cells representing wall-time the turn did not occupy because
+///    this row is shorter than the longest non-blocking turn. NOT part
+///    of the turn — pure visual padding.
+///
+/// `scaled` is clipped to `gantt_w` (the trailing-padding loop is a no-op
+/// when `scaled >= gantt_w`). Segments past `scaled` are overwritten by
+/// the padding pass — by design defensive against bad inputs.
+///
+/// # Examples
+///
+/// ```
+/// use agentprof_tui::views::flamegraph::build_gantt_cells;
+/// // 10-cell row, scaled=6 (so cells 6..10 will be padding),
+/// // one tool segment at cells 2..4.
+/// let buf = build_gantt_cells(6, 10, &[(2, 2, 0)]);
+/// assert_eq!(
+///     buf.iter().collect::<String>(),
+///     "░░██░░····",
+/// );
+/// ```
+#[must_use]
+pub fn build_gantt_cells(scaled: u16, gantt_w: u16, segs: &[(u16, u16, usize)]) -> Vec<char> {
+    let width = gantt_w as usize;
+    let mut buf: Vec<char> = vec!['░'; width];
+    for (cs, cl, _) in segs {
+        let start = *cs as usize;
+        let end = (start + *cl as usize).min(width);
+        for cell in &mut buf[start.min(width)..end] {
+            *cell = '█';
+        }
+    }
+    for cell in buf.iter_mut().skip(scaled as usize) {
+        *cell = '·';
+    }
+    buf
 }
 
 #[cfg(test)]
@@ -410,5 +468,71 @@ mod tests {
             300_000,
             "fallback must use all-turns max when filter empties"
         );
+    }
+
+    #[test]
+    fn render_cell_chars_distinguish_thinking_tool_padding() {
+        // Two synthetic turns rendered to the same 40-cell gantt area.
+        //
+        // Both have one tool call covering cells 8..16 (8 cells of █).
+        //
+        // T1 (= longest non-blocking turn): scaled == gantt_w == 40, so
+        // the row has NO padding — cells outside the tool segment are
+        // pure thinking time.
+        //   - cells  0.. 8  → ░ (thinking before tool)
+        //   - cells  8..16  → █ (tool execution)
+        //   - cells 16..40  → ░ (thinking after tool)
+        let t1 = build_gantt_cells(40, 40, &[(8, 8, 0)]);
+        let t1_str: String = t1.iter().collect();
+        assert_eq!(t1.len(), 40);
+        assert_eq!(t1_str.chars().filter(|&c| c == '░').count(), 32);
+        assert_eq!(t1_str.chars().filter(|&c| c == '█').count(), 8);
+        assert_eq!(
+            t1_str.chars().filter(|&c| c == '·').count(),
+            0,
+            "longest turn must have zero padding cells"
+        );
+        // Spot-check the boundary cells.
+        assert_eq!(t1[7], '░');
+        assert_eq!(t1[8], '█');
+        assert_eq!(t1[15], '█');
+        assert_eq!(t1[16], '░');
+
+        // T2 (shorter, e.g. wall-time = 40% of T1): scaled = 16, so cells
+        // 16..40 are padding past the turn's actual end.
+        //   - cells  0.. 8  → ░ (thinking before tool)
+        //   - cells  8..16  → █ (tool execution)
+        //   - cells 16..40  → · (padding)
+        let t2 = build_gantt_cells(16, 40, &[(8, 8, 0)]);
+        let t2_str: String = t2.iter().collect();
+        assert_eq!(t2.len(), 40);
+        assert_eq!(t2_str.chars().filter(|&c| c == '░').count(), 8);
+        assert_eq!(t2_str.chars().filter(|&c| c == '█').count(), 8);
+        assert_eq!(t2_str.chars().filter(|&c| c == '·').count(), 24);
+        assert_eq!(t2[7], '░');
+        assert_eq!(t2[8], '█');
+        assert_eq!(t2[15], '█');
+        assert_eq!(t2[16], '·');
+        assert_eq!(t2[39], '·');
+    }
+
+    #[test]
+    fn build_gantt_cells_pure_thinking_no_tools_no_padding() {
+        // No tool calls, no padding (scaled == gantt_w): every cell is
+        // thinking. Pre-fix this would have been all-spaces — visually
+        // indistinguishable from padding.
+        let buf = build_gantt_cells(10, 10, &[]);
+        assert_eq!(buf.iter().collect::<String>(), "░░░░░░░░░░");
+    }
+
+    #[test]
+    fn build_gantt_cells_segments_past_scaled_are_overwritten_by_padding() {
+        // Defensive: if `segment_layout` ever produced a segment past
+        // `scaled` (it shouldn't, since segments are clipped to the
+        // `scaled` row width), the trailing padding pass must still win
+        // — otherwise the rendered row would be inconsistent with the
+        // turn's actual wall-time.
+        let buf = build_gantt_cells(4, 8, &[(6, 2, 0)]);
+        assert_eq!(buf.iter().collect::<String>(), "░░░░····");
     }
 }
