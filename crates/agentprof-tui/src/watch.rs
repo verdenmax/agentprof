@@ -439,6 +439,14 @@ impl WatchRunner {
                         frame, body_area, detail, &transient,
                     );
                 } else {
+                    // F1.7 Known limitation: only View::Models is
+                    // dispatched; Flamegraph/Roi/Aggregate all fall
+                    // through to aggregate::render. The `view`
+                    // round-trip works (state persists), but the
+                    // render dispatch is incomplete — pre-existing
+                    // M1.6.3 limitation surfaced by F1.7's view
+                    // round-trip fix. F1.7.1 follow-up will extend
+                    // this match to dispatch all 4 view arms.
                     match transient.view {
                         crate::views::View::Models => {
                             crate::views::models::render(frame, body_area, &transient);

@@ -75,6 +75,13 @@ prefix used in commit messages).
 
 ### Changed
 
+- **BREAKING (tui — internal)**: `agentprof_tui::views::View` enum gained `Models` variant (key `4`).
+  Out-of-tree consumers pattern-matching exhaustively will need a `View::Models => ...` arm
+  or a `_ =>` catch-all. `agentprof-tui` is a workspace leaf with no external consumers
+  expected, but the change is semantically breaking per Rust semver. Consider applying
+  `#[non_exhaustive]` to `View` in a follow-up to prevent recurrence (also breaking).
+  See [ADR-0012](docs/internals/adr-0012-session-model-metrics-and-models-view.md) D-9.
+
 - **FlamegraphView visual clarity (M1.6.4 follow-up wave continued)**: LLM thinking time inside a turn now renders as `░` (U+2591 LIGHT SHADE) instead of plain space, so the three gantt states are visually distinct: `█` tool execution / `░` thinking / `·` padding. Mostly a UX win for users with sessions where LLM reasoning dominates per-turn wall-time. Existing snapshots refreshed.
 
 - **B-3 (M1.6.4 follow-up wave, 2026-06-03)** [`b376d18`]: `agentprof_core::export::speedscope::emit_turn` and `emit_orphans` refactored to take a shared `EmitCtx<'a>` struct bundling shared context refs (frame index, output Vec, warnings, etc.). `#[allow(clippy::too_many_arguments)]` removed. `speedscope::lookup` gains a `debug_assert!(idx.contains_key(name))` so debug builds catch misregistered frames; release builds keep the silent 0 fallback. No production behaviour change.
@@ -94,6 +101,8 @@ prefix used in commit messages).
 ### Fixed
 
 - `agentprof-tui`: WatchRunner `view` round-trip — pre-F1.7 architectural bug discovered during T10 self-review: `WatchRunner` did NOT round-trip `AppState.view` across the transient AppState, so number-key view switches (`1`/`2`/`3` historically, `4` after F1.7) were silently dropped on the next render. Now `WatchViewState.view: View` field added (defaults `Aggregate` for M1.6.3 backward compat) + round-tripped in render / `run` dispatch / `dispatch_event_for_test` paths. F1.7 Models view is now actually reachable in watch mode. Regression test `watch_runner_dispatch_number_keys_persist_view_across_events` locks 1/2/3/4 all working; existing `watch_runner_dispatch_4_switches_to_models_view` strengthened to assert the view-switch (was previously only asserting `models_selected`). Pre-existing `watch_runner_dispatch_enter_opens_detail_view` test updated to explicitly press `1` first (Aggregate is the new default; previously the test relied on the implicit `AppState::default()` view=Flamegraph leak).
+
+  **Known limitation**: render dispatch is still incomplete in watch mode — `WatchRunner::render_into`'s `match transient.view` block only handles `View::Models` (new in F1.7) and `_ => aggregate::render`, so pressing `1`/`2` in watch mode updates `WatchViewState.view` correctly but the rendered output stays on Aggregate. Pre-existing M1.6.3 limitation surfaced by F1.7's view round-trip fix. Tracked as F1.7.1 follow-up: extend the match to dispatch all four `View::*` arms, matching `AppRunner::render_into`. See ADR-0012 D-13.
 - **FlamegraphView padding `·` invisible on dark terminals**: padding cells now render `Color::DarkGray` *without* `Modifier::DIM`. Previously `DarkGray + DIM` collapsed to imperceptible on black-background terminals (most dark themes), so users saw `█····` rows as just `█` with empty space — making it look like the gantt was broken or the colored block was the only content. Plain `DarkGray` keeps padding subtle but visible. Regression test added in `views::flamegraph::tests::build_styled_cells_handles_all_cell_types` + `build_styled_cells_handles_no_sources_thinking_only`. Reported via real-session feedback from a black-background terminal.
 - **FlamegraphView scaling: switch from max to p95** to resist agent-side outlier turns. Previously even after excluding user-blocking turns (`b5c1429`), a single agent-driven long-tail turn (e.g. one containing a `task` call running 48 minutes) would set `max_dur` so high that all normal 5-30s turns rendered as ≤2 cells of `█/░` followed by all padding. Now the gantt scales by p95 of non-user-blocking turn durations; outlier rows clamp to gantt width via the existing `.min(gantt_w)` guard so they remain visible. Standard practice in profiler tooling (Speedscope / flamegraph.pl). Reported via real-session feedback after `b5c1429` fix landed.
 - **FlamegraphView scaling (M1.6.4 follow-up wave continued)**: `max_dur` calculation in `agentprof-tui::views::flamegraph` now excludes user-blocking turns (e.g. those containing an `ask_user` call where the user spent minutes/hours thinking). Previously, a single hours-long `ask_user` turn would set `max_dur` so high that all other turns scaled to near-zero gantt-bar width, making the visualization useless. Fallback to original behavior when *every* turn is user-blocking (degenerate case). Adds `Turn::is_user_blocking()` method on `agentprof-core::episode::Turn`. Mirrors the existing user-blocking split in the Tool Rank table (ADR-0005 §6).
@@ -108,6 +117,11 @@ prefix used in commit messages).
 - `with-skill-invoked` fixture: added a `skill__<name>__<tool>` execution so the `ToolSource::Skill` source-label rendering branch is actually exercised by snapshot tests; Source column now shows `skill/synthetic` (M1.5 audit #7).
 
 ### Docs
+
+#### F1.7 (session model metrics + Models view)
+
+- `docs/adapters.md` — new "Optional: `Event::payload_model_metrics` (F1.7)" subsection documenting the recommended-but-optional impl for adapters wishing to enable rich Models view UX. Silent "no model usage data" empty-state fallback otherwise. Per ADR-0012 D-4 + D-7.
+- Workspace `README.md` — TUI section bumped from "Three views" to "Four views"; added ModelsView (`4`) paragraph + extended key-bindings line to include `4`. (Previous F1.7 tasks shipped same-commit L2 README updates for `crates/agentprof-{core,adapters,tui}/README.md`; this commit fills the L1 workspace-README gap.)
 
 #### F1 (TurnDetailView + args plumbing)
 

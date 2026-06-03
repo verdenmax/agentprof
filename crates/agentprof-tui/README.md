@@ -38,7 +38,7 @@ See [`docs/architecture.md`](../../docs/architecture.md) §3 (system layering) a
 |---|---|
 | `app::terminal` | `install_panic_hook` + `enter` + `leave` (idempotent) |
 | `app::event` | `Event` enum + crossterm event mapper |
-| `app::state` | `AppState` + `dispatch` (pure-logic state machine) |
+| `app::state` | `AppState` + `dispatch` (pure-logic state machine); F1.7 adds `AppState.models_selected: usize` field tracking the Models view selection cursor (driven by `scroll_to_top` / `scroll_to_bottom` for `gg` / `G`) |
 | `app` (root) | `AppRunner` (wires state + views + event loop) |
 | `watch` (M1.6.3) | `WatchRunner` + `WatchData` enum + `RefreshKind` / `ReloadError` + cross-session `AggSortKey`. Owns the live-refresh event loop; the file watcher itself lives in `agentprof-cli`. |
 | `views::flamegraph` | Per-turn horizontal gantt + `segment_layout` + `build_gantt_cells` (3-state row: `█` tool / `░` LLM thinking / `·` padding) + `build_styled_cells_with_source` (colors `█` by [`ToolSource`](../agentprof-core/src/model/tool_source.rs): Builtin=cyan, MCP=magenta, Skill=yellow; reuses `theme::tool_source_color`) + Blue `T-id` prefix marks thinking-only turns (empty `tool_calls`) + 5-char output-tokens column between duration and gantt (via `format_tokens_short`; `None` → centered dash) + `selected_turn_footer_line` (footer beneath the gantt listing the selected turn's tool calls with per-call durations, e.g. `T3 selected:  bash(120ms) +2 more`; appends `· thinking only` when the selected turn has no tool calls) |
@@ -193,6 +193,19 @@ detail view is dropped and the footer shows
 **not sticky**: it persists only until the next reload — a subsequent
 successful reload clears it, regardless of whether that reload sets
 its own new banner.
+
+**ModelsView in watch mode** (F1.7 Task 10): `4` opens the Models view exactly as in `analyze --export tui`. The selection cursor (`WatchViewState.models_selected`) and the active view (`WatchViewState.view`, defaults to `Aggregate` for M1.6.3 backward compat) both round-trip across the transient `AppState` on every render / dispatch tick, so number-key view switches persist across `RefreshKind::Reload` events. When `session.shutdown` arrives mid-watch, the next reload populates `AnalysisReport.model_metrics` and the Models view body switches from empty-state to the table on the next render. Cross-session aggregate mode (`watch aggregate ...`) does NOT surface the Models view (the metrics are session-level; cross-session aggregation is out of scope per ADR-0012 D-13).
+
+**Known limitation (F1.7):** `WatchRunner::render_into` currently
+dispatches only `View::Models` (new in F1.7) and falls back to
+`views::aggregate::render` for all other views (`Flamegraph`, `Roi`,
+`Aggregate`). This means pressing keys `1` / `2` / `3` in watch mode
+updates the view state but the rendered output stays on aggregate
+until `Tab` cycles to Models or back. This is a pre-existing M1.6.3
+limitation that F1.7's `view` round-trip fix exposed (state now
+persists across events but render dispatch is incomplete). Tracked as
+F1.7.1 follow-up: extend `WatchRunner::render_into` to dispatch all
+four `View::*` arms, matching `AppRunner::render_into`.
 
 ### CLI wiring
 

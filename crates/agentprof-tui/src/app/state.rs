@@ -448,7 +448,11 @@ fn scroll_up(state: &mut AppState<'_>) {
             // no scrollable element; ↑/↓ are intentionally no-ops here.
             // M1.6 may add a focused-pane concept allowing scroll within
             // the (potentially long) hook table.
-            // F1.7 Models view scroll handler lands in Task 9.
+            // F1.7: Models view dispatches Up/Down/k/j via
+            // dispatch_models_view_key (consumed before reaching
+            // scroll_up); this arm is reached only if a future code
+            // path forwards arrow keys here. Aggregate intentionally
+            // stays no-op.
         }
     }
 }
@@ -484,7 +488,11 @@ fn scroll_down(state: &mut AppState<'_>) {
             // no scrollable element; ↑/↓ are intentionally no-ops here.
             // M1.6 may add a focused-pane concept allowing scroll within
             // the (potentially long) hook table.
-            // F1.7 Models view scroll handler lands in Task 9.
+            // F1.7: Models view dispatches Up/Down/k/j via
+            // dispatch_models_view_key (consumed before reaching
+            // scroll_down); this arm is reached only if a future code
+            // path forwards arrow keys here. Aggregate intentionally
+            // stays no-op.
         }
     }
 }

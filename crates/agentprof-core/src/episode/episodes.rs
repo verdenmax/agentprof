@@ -78,5 +78,6 @@ mod tests {
         assert!(e.mode_segments.is_empty());
         assert!(e.aborts.is_empty());
         assert!(e.warnings.is_empty());
+        assert!(e.model_metrics.is_none(), "model_metrics defaults to None");
     }
 }

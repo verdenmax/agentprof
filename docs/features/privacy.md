@@ -72,6 +72,7 @@ information (SII), graded by sensitivity.
 | `hook_rank[i].name` (`sessionStart`, `postToolUse`) | 🟢 LOW | Public vocabulary |
 | `*.is_user_blocking`, `*.status`, `*.synthesized_*` | 🟢 LOW | Boolean / enum flags |
 | `parse_warnings`, `warnings` counts and `error` text | 🟢 LOW | Error messages may quote line numbers + serde-level "missing field X" strings; no payload values |
+| `analysis_report.model_metrics[<model>].{input_tokens, output_tokens, cache_read_tokens, cache_write_tokens}` (F1.7) | 🟢 LOW | Aggregate per-model counters; not attributable to specific prompts/users. See [§10](#10-per-model-token-metrics-modelmetrics-f17) for full detail |
 
 ## 3. Manual redaction cheat sheet
 
@@ -304,3 +305,84 @@ a future privacy RFC. Until then, users should be aware that:
 span attribute that emits a raw session path or any other 🔴 HIGH
 content from §2 without going through `hash_path` / `hash_short`, file
 the same `[privacy]` issue.)
+
+## 10. Per-model token metrics (`model_metrics`, F1.7)
+
+As of F1.7 (2026-06), `agentprof_core::analyzer::AnalysisReport` carries
+an optional `model_metrics: Option<BTreeMap<String, ModelUsage>>` field
+populated from `Event::payload_model_metrics()` (currently only
+implemented by the Copilot CLI adapter — it reads
+`session.shutdown.modelMetrics`). Each `ModelUsage` exposes four `u64`
+counters: `input_tokens`, `output_tokens`, `cache_read_tokens`,
+`cache_write_tokens`.
+
+### Risk
+
+🟢 **LOW** — these are aggregate per-model token counters scoped to a
+single session. They are not attributable to a specific prompt, file,
+or user input; they leak only "which models were used by this session
+and roughly how much".
+
+### Surfaces
+
+- **TUI Models view** (key `4` in `analyze --export tui`, `watch`) —
+  interactive display only, not persisted.
+- **JSON export** (`analyze --export json`) — emitted under the
+  `model_metrics` key. Field is
+  `#[serde(skip_serializing_if = "Option::is_none")]`, so the key is
+  absent entirely for adapters that don't implement
+  `Event::payload_model_metrics` (Claude, Codex today) or for sessions
+  without a `session.shutdown` event. Example:
+
+  ```json
+  {
+    "model_metrics": {
+      "claude-opus-4.7-1m-internal": {
+        "input_tokens": 98327,
+        "output_tokens": 47523,
+        "cache_read_tokens": 3444639,
+        "cache_write_tokens": 721860
+      }
+    }
+  }
+  ```
+
+- **HTML / Markdown / CSV exports** — surfaced via the same
+  `AnalysisReport` rollup (any format that serializes the full report).
+
+### Adjacent fields
+
+The `<model>` map keys are model identifiers as reported by the adapter
+(e.g. `claude-opus-4.7-1m-internal`). These overlap with the existing
+🔴 HIGH-tier `turn_summary[i].model` field (see §2) — internal /
+preview model identifiers leak the same way through either surface.
+
+### Mitigation
+
+Strip from JSON before sharing:
+
+```bash
+agentprof analyze --agent copilot --session <id> --export json \
+  | jq 'del(.model_metrics)'
+```
+
+Or anonymize model names while preserving token counts:
+
+```bash
+... | jq '
+  .model_metrics |= (
+    to_entries
+    | map(.key |= (split("-")[0:2] | join("-")))
+    | from_entries
+  )
+'
+```
+
+### Provenance
+
+Token values come straight from Copilot CLI's
+`session.shutdown.modelMetrics` free-form `serde_json::Value` tree;
+`agentprof` walks it with `.get("usage")?.get("<key>").and_then(as_u64)`
+per [ADR-0012 D-7](../internals/adr-0012-session-model-metrics-and-models-view.md).
+No transformation, sampling, or estimation is applied — what the CLI
+reports is what gets serialized.

@@ -193,7 +193,7 @@ For repository structure and crate boundaries, see
 
 ## TUI (M1.5 + F1)
 
-`agentprof analyze --export tui` opens an interactive ratatui terminal UI on top of the same `AnalysisReport` the markdown / JSON exporters consume. Three views, all driven from one session:
+`agentprof analyze --export tui` opens an interactive ratatui terminal UI on top of the same `AnalysisReport` the markdown / JSON exporters consume. Four views, all driven from one session:
 
 **FlamegraphView (`1`):** Per-turn horizontal gantt; each row is one turn. Three cell types: `█` colored by [`ToolSource`](crates/agentprof-core/src/model/tool_source.rs) (Builtin / MCP / Skill) = tool execution, `░` = LLM thinking time (in-turn, no tool running), `·` = padding (turn ended; shorter than the longest non-user-blocking turn). Selected turn shows a footer line with its tool call breakdown (e.g. `T3 selected: bash(120ms) read_file(85ms) +2 more · Enter for detail`); press `Enter` to open a full-screen detail view listing every tool call in the turn. Args are populated for Copilot CLI sessions; other adapters show `(not captured)` until they implement `Event::payload_tool_requests`.
 
@@ -222,7 +222,9 @@ For repository structure and crate boundaries, see
 
 **AggregateView (`3`):** Single-session breakdown — By Mode (interactive / plan / autopilot) + By Hook.
 
-Key bindings: `1`/`2`/`3` switch view, `Tab` cycles, `↑`/`↓` or `k`/`j` selects (viewport follows), `Enter` opens the detail view for the selected turn (`Esc` to return), `G` / `gg` jump to last / first row (vim-style), `t`/`c`/`s`/`p` cycles RoiView sort, `?` opens help, `q` / Ctrl-C quits.
+**ModelsView (`4`):** Session-level per-model token rollup (input / output / cache_read / cache_write), sorted by input desc with a bold totals footer row. Populated from `AnalysisReport.model_metrics` (sourced from `session.shutdown.modelMetrics` for Copilot CLI sessions; other adapters opt in by implementing `Event::payload_model_metrics`). Shows a centered "(no model usage data — session has not emitted shutdown event yet)" placeholder when the rollup is unavailable. `Esc` returns to Flamegraph.
+
+Key bindings: `1`/`2`/`3`/`4` switch view, `Tab` cycles, `↑`/`↓` or `k`/`j` selects (viewport follows), `Enter` opens the detail view for the selected turn (`Esc` to return), `G` / `gg` jump to last / first row (vim-style), `t`/`c`/`s`/`p` cycles RoiView sort, `?` opens help, `q` / Ctrl-C quits.
 
 **For deeper per-call timeline analysis** (zoom, search, frame stack, drag-and-drop into a browser), the TUI Flamegraph is intentionally lightweight — use `agentprof analyze --export speedscope <session>` and load the resulting JSON into <https://speedscope.app> for the full interactive profiler. TUI Flamegraph is for "quickly skim which turn is slow + what tool category dominates"; Speedscope is for "drill into per-call traces".
 

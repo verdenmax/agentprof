@@ -116,3 +116,22 @@ at tool-close time. Returns `Option<&str>` — `Some` for variants whose
 payload carries `tool_call_id` (typically `ToolExecStart`,
 `ToolExecComplete`, `ToolUserRequested`), `None` otherwise. See
 ADR-0011 D-3 + D-6-revised for rationale.
+
+### Optional: `Event::payload_model_metrics` (F1.7)
+
+Adapters that want their users to see per-model session-level token
+totals (input / output / cache_read / cache_write) in the TUI
+`Models` view (key `4`) SHOULD implement this method. Return
+`Some(BTreeMap<String, ModelUsage>)` for the event variant that
+carries the rollup; `None` otherwise. Default returns `None`;
+adapters without an override silently ship the "no model usage
+data" empty-state in the Models view.
+
+Last-wins on multiple emitting events (matches `Turn::model`
+semantics). For Copilot CLI, the data lives in
+`session.shutdown.modelMetrics[model].usage` — see
+`crates/agentprof-adapters/src/copilot/event.rs` for the
+canonical free-form `serde_json::Value` walker that's robust
+against wire schema drift.
+
+See ADR-0012 D-4 + D-7 for rationale.
