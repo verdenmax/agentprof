@@ -407,7 +407,9 @@ config  [show | edit | path]                   # 🚧 规划中 — Phase 2
 打印路径）。env fallback：`AGENTPROF_LOG_FILE`。
 
 `AGENTPROF_LOG_FULL_PATHS=1` — 关闭 session 路径默认的 sha256[..8] hash
-（仅影响 cli 层 emission；core / adapters 层固定 hash 以避免 PII 泄漏）。
+（系统级 opt-out：`agentprof_core::observability::pii::hash_path` 自身在每次调用
+都读 env var，所以 L1 cmd / L2 adapter / L3 analyzer + aggregator 四层 span
+同步生效。详见 2026-06-03 fix `83d2ed0`）。
 
 详见 [ADR-0010](internals/adr-0010-tracing-infrastructure.md) 与 §15.5 Observability。
 

@@ -3,10 +3,10 @@
 > **本文件是项目总入口。** 如果你是第一次进入本仓库（或时隔一段时间回来），**先读这里**，再去任何其他文档。
 >
 > **文件名**：`tasks/ROADMAP.md`
-> **版本**：1.2
-> **最后更新**：2026-06-02
-> **当前 commit**：`feat/m1.6.4-tracing` 分支 HEAD（运行 `git log -1 --oneline` 查看最新）；最近一个重大 milestone merge = `9abd694` (post-output-audit)
-> **当前阶段**：**Phase 0 + 1 (MVP)** — M1.1 / M1.2 / M1.3 / M1.4 ✅ 完成（含 4 轮 M1.4 followups），**M1.5 ✅ 完成**（TUI + ADR-0006 panic-safe lifecycle），**M1.6.1 ✅ 完成**（`list` 子命令 + 8 个 M1.5 audit polish 项），**M1.6.2 ✅ 完成**（`aggregate` 子命令 + ADR-0008），**M1.6.3 ✅ 完成 2026-06-01**（`watch` 子命令 + `aggregate --export tui` 激活 + ADR-0009），**M1.6.4 ✅ 完成 2026-06-02**（`--export speedscope|html` shipped 2026-05-31 + ADR-0007；tracing 基础设施 shipped 2026-06-02 + ADR-0010：全工程结构化 tracing across all 5 crates，13 `eprintln!` → `tracing`，全局 `--log-level` / `--log-file`，TUI 自动 XDG state log，PII hash，4 层 span 拓扑），M1.6.5 / M1.7 待开始
+> **版本**：1.4
+> **最后更新**：2026-06-03
+> **当前 commit**：`main` HEAD `766b8f0`（post-M1.6.4 + follow-up wave）；最近一个 milestone merge = `8abc590` (M1.6.4)，后续 8 个 cleanup commits（`d87adec` → `766b8f0`，2026-06-03 M1.6.4 follow-up wave）
+> **当前阶段**：**Phase 0 + 1 (MVP)** — M1.1 / M1.2 / M1.3 / M1.4 ✅ 完成（含 4 轮 M1.4 followups），**M1.5 ✅ 完成**（TUI + ADR-0006 panic-safe lifecycle），**M1.6.1 ✅ 完成**（`list` 子命令 + 8 个 M1.5 audit polish 项），**M1.6.2 ✅ 完成**（`aggregate` 子命令 + ADR-0008），**M1.6.3 ✅ 完成 2026-06-01**（`watch` 子命令 + `aggregate --export tui` 激活 + ADR-0009），**M1.6.4 ✅ 完成 2026-06-02**（`--export speedscope|html` shipped 2026-05-31 + ADR-0007；tracing 基础设施 shipped 2026-06-02 + ADR-0010：全工程结构化 tracing across all 5 crates，13 `eprintln!` → `tracing`，全局 `--log-level` / `--log-file`，TUI 自动 XDG state log，PII hash，4 层 span 拓扑），**2026-06-03 M1.6.4 follow-up wave ✅ 完成**（8 commits: `d87adec` → `766b8f0`），M1.6.5 (MCP waste, deferred to 0.2.0) / M1.7 (v0.1.0 release) 待开始
 > **下一步入口**：`tasks/001-mvp-agent-token-profiler.md` §10 Milestone 1.7（v0.1.0 release via `github-release` skill）；M1.6.5（MCP waste analysis）属于 post-MVP 增量，可推到 0.2.0
 >
 > **重大 pivot**（ADR-0001 events-first，详见 §4.1 / §4.2）：M1.2 不再做 ClaudeAdapter，改做 **CopilotAdapter**（real wire data 直接可得）；tokenizer / ROI / waste / aggregate 全部从 M1.3 推迟到 M1.5+。Claude / Codex / Gemini 适配器推迟到 Phase 2 / 3。
@@ -108,10 +108,10 @@ Phase 3   扩展适配：Codex CLI / Copilot CLI / Gemini / Cursor
 
 | 维度 | 当前状态 |
 |---|---|
-| **Git** | `main` 分支（运行 `git log -1 --oneline` 查看 HEAD）；最近 4 个 milestone merges：M1.4 audit followups + turn-metadata-extraction + mode-vocabulary-alignment + post-output-audit |
+| **Git** | `main` 分支 HEAD `766b8f0`（运行 `git log -1 --oneline` 查看最新）；最近 milestone merges：M1.5 → M1.6.1 → M1.6.2 → M1.6.3 → M1.6.4 (`8abc590`, 2026-06-02)；其后 2026-06-03 **M1.6.4 follow-up wave**（8 cleanup commits `d87adec` → `766b8f0`：post-merge 文档审计 / cleanup batch 1 / `hash_path` env-var L1-only gap fix / crate-boundary 规则澄清 / B-3 + B-4 + B-5 + B-6 speedscope+HTML follow-ups） |
 | **Crate** | 5 lib/bin + 1 xtask。`agentprof-core` / `agentprof-adapters` / `agentprof-cli` 已实现到 M1.4；**`agentprof-tui` ✅ M1.5 已交付**（3 视图 + panic-safe lifecycle + 3 insta snapshots，详见 [ADR-0006](../docs/internals/adr-0006-panic-safe-tui.md)）；`agentprof-storage` 仍是 `//!` 骨架（Phase 2） |
-| **Phase** | Phase 0 / Phase 1（MVP），**M1.1 / M1.2 / M1.3 / M1.4 / M1.5 / M1.6.1 / M1.6.2 / M1.6.3 / M1.6.4 ✅ 完成**（M1.6.4 含 Speedscope+HTML shipped 2026-05-31 与 tracing 基础设施 shipped 2026-06-02），M1.6.5 (MCP waste) / M1.7 (release) ❌ 未开始；`export` 子命令已取消 |
-| **测试** | ~230+ tests pass，含 ~70 个 insta 快照（episode_derive / analyzer_on_fixtures / CLI 集成 / 单元）+ **12** 个 fixture（含 `with-post-tool-use-hooks` 锁定 Copilot CLI 1.0.x 三个 Optional schema 字段的 parser fix） |
+| **Phase** | Phase 0 / Phase 1（MVP），**M1.1 / M1.2 / M1.3 / M1.4 / M1.5 / M1.6.1 / M1.6.2 / M1.6.3 / M1.6.4 ✅ 完成**（M1.6.4 含 Speedscope+HTML shipped 2026-05-31 与 tracing 基础设施 shipped 2026-06-02；2026-06-03 follow-up wave 落地 8 个 cleanup commits），M1.6.5 (MCP waste, 推到 0.2.0) / M1.7 (release) ❌ 未开始；`export` 子命令已取消 |
+| **测试** | **~500 tests pass**（具体 499，`cargo test --workspace --all-features` 验证），含 **48** 个 insta 快照（episode_derive / analyzer_on_fixtures / CLI 集成 / 单元）+ **19** 个 fixture（12 原始 + 4 from M1.6.x + 3 from 2026-06-03 B-6 follow-up wave 的 combination fixtures） |
 | **CI** | 已配（lint + test matrix + deny + docs + docs-sync + nightly-msrv + release skeleton），未在 GitHub 上运行（remote 未配） |
 | **远端** | 未推（本地 `main` only） |
 | **Release** | 未发，下次 release = v0.1.0（M1.7 出口） |
@@ -120,7 +120,7 @@ Phase 3   扩展适配：Codex CLI / Copilot CLI / Gemini / Cursor
 
 | Phase | 任务文件 | Milestone | 完成度 | Release | 状态 |
 |---|---|---|---|---|---|
-| **0+1 MVP** | 001 | M1.1–M1.7 | 8/8 shippable surface（M1.1 / M1.2 / M1.3 / M1.4 / M1.5 ✅ + M1.6.1 + M1.6.2 + M1.6.3 + M1.6.4）= **~98%**（剩 M1.7 release） | v0.1.0 | 🟡 In progress |
+| **0+1 MVP** | 001 | M1.1–M1.7 | 8/8 shippable surface ≈ **~98%** (M1.1–M1.6.4 ✅; 剩 M1.7 v0.1.0 release; MVP feature work 已完成) | v0.1.0 | 🟡 In progress |
 | **2** | 002 (TBD) | M2.1–M2.x | 0% | v0.2.0 | ⚪ Planned |
 | **3** | 003 (TBD) | M3.1–M3.x | 0% | v1.0.0 | ⚪ Planned |
 | **Beyond** | 004+ (TBD) | — | — | post-1.0 | 💭 Vision |
@@ -137,7 +137,7 @@ Phase 3   扩展适配：Codex CLI / Copilot CLI / Gemini / Cursor
 
 | # | 文件 | 范围 | 状态 | Milestone 完成度 | 计划 release |
 |---|---|---|---|---|---|
-| **001** | [`001-mvp-agent-token-profiler.md`](./001-mvp-agent-token-profiler.md) | **Phase 0 + 1 MVP**：Copilot adapter（pivot from Claude）+ Episode aggregation + CLI `analyze` (md/json) + TUI flamegraph + list/aggregate/watch/export | 🟡 In-Progress | 8/8 shippable surface（M1.1 / M1.2 / M1.3 / M1.4 / M1.5 ✅ + M1.6.1 + M1.6.2 + M1.6.3 + M1.6.4）= **~98%** | **v0.1.0** |
+| **001** | [`001-mvp-agent-token-profiler.md`](./001-mvp-agent-token-profiler.md) | **Phase 0 + 1 MVP**：Copilot adapter（pivot from Claude）+ Episode aggregation + CLI `analyze` (md/json) + TUI flamegraph + list/aggregate/watch/export | 🟡 In-Progress | 8/8 shippable surface ≈ **~98%** (M1.1–M1.6.4 ✅; 剩 M1.7 v0.1.0 release) | **v0.1.0** |
 
 ### 3.2 计划中的 task 文件（占位）
 
@@ -206,7 +206,9 @@ Phase 3   扩展适配：Codex CLI / Copilot CLI / Gemini / Cursor
               ┌──────────────────────────────────────┐
               │ M1.6 list / aggregate / export       │
               │      / watch + speedscope + html     │
-              │ ❌ [Phase 1 完成]                    │
+              │ ✅ [Phase 1 完成]                    │
+              │   (M1.6.1 / .2 / .3 / .4 全部 ship;  │
+              │    .5 MCP waste 推到 0.2.0)           │
               └─────────┬────────────────────────────┘
                         │
                         ▼
@@ -312,7 +314,7 @@ Pre-1.0（即 `0.X.Y`）期间，允许 minor bump 包含 breaking change（但�
 | L-6 | ~~**TUI 完全未实现**~~ → **✅ 已交付 M1.5**（3 视图：FlamegraphView / RoiView / AggregateView，panic-safe lifecycle，3 insta snapshots + 2 CLI tests） | ✅ FIXED | [`crates/agentprof-tui/README.md`](../crates/agentprof-tui/README.md) + [ADR-0006](../docs/internals/adr-0006-panic-safe-tui.md) + [spec](../docs/superpowers/specs/2026-05-30-m1.5-tui-design.md) + [plan](../docs/superpowers/plans/2026-05-30-m1.5-tui.md) | — |
 | L-7 | **无 SQLite 持久化**：每次 `analyze` 都全量解析；跨 session aggregate 无处可存 | 🟢 EXPECTED | [`crates/agentprof-storage/README.md`](../crates/agentprof-storage/README.md) | Phase 2 (M2.1) |
 | L-8 | **只支持 Copilot CLI**：Claude / Codex / Gemini adapter 未实现 | 🟢 EXPECTED | [`crates/agentprof-adapters/README.md`](../crates/agentprof-adapters/README.md) "Supported agents" | Phase 3 (M3.1 Claude / M3.2 Codex) |
-| L-9 | **schema 兼容性只在 1 个 frozen session 验证过**：post-output-audit 在 11 806 行 session 上验证了 17 % → 0 % drop rate，但其它 Copilot CLI 版本、其它 session 风格（如纯 sub-agent / 纯交互式 / 长 plan 模式）可能仍有未发现的 schema 漏洞 | 🟡 MEDIUM | [ADR-0005 §6 "Tests"](../docs/internals/adr-0005-analyzer-and-payload-name.md#update-6-post-output-audit-fixes-parse-warning-visibility-schema-mismatches-user-blocking-split) + 现有 11 个 fixture | 每发现新 schema 漏洞时增加 fixture（持续工作） |
+| L-9 | **schema 兼容性只在 1 个 frozen session 验证过**：post-output-audit 在 11 806 行 session 上验证了 17 % → 0 % drop rate，但其它 Copilot CLI 版本、其它 session 风格（如纯 sub-agent / 纯交互式 / 长 plan 模式）可能仍有未发现的 schema 漏洞 | 🟡 MEDIUM | [ADR-0005 §6 "Tests"](../docs/internals/adr-0005-analyzer-and-payload-name.md#update-6-post-output-audit-fixes-parse-warning-visibility-schema-mismatches-user-blocking-split) + 现有 19 个 fixture（含 2026-06-03 M1.6.4 follow-up wave B-6 加的 3 个 combination fixtures：`tool-and-skill-same-turn` / `two-skills-one-turn` / `orphan-skill-mix`） | 每发现新 schema 漏洞时增加 fixture（持续工作） |
 | L-10 | **`ParseWarning::OutOfOrder` 不带 line_no**：用户看到 "Parse warnings: 1 / OutOfOrder: 1" 后无法快速定位是哪两行时间戳倒置 | 🟢 LOW | `crates/agentprof-core/src/error.rs` `ParseWarning::OutOfOrder` 变体定义 | 视用户反馈，可能 M1.5+ 加 detail |
 | L-11 | **`xtask anonymize` / `xtask audit-pii` 不存在**：fixture / report 的脱敏目前全靠人工 `sed`，没有自动化保护 | 🟡 MEDIUM | [`docs/features/privacy.md`](../docs/features/privacy.md) §5 "Future automation" | 待定（可能 Phase 2 与隐私 flag 一起） |
 | L-12 | **CI 无 `/home/<user>/` grep guard**：意外 commit 真实路径不会被自动拦截 | 🟢 LOW | 同上 §5 | 待定 |
@@ -436,6 +438,8 @@ Pre-1.0（即 `0.X.Y`）期间，允许 minor bump 包含 breaking change（但�
 | 2026-05-26 | 初版：项目总入口 + 文档地图 + Phase 时间线 + task 索引 + 依赖图 + release cadence + 长期愿景 | TBD |
 | 2026-05-30 | v1.1：同步至 M1.4 + 4 轮 followups 后实状（4/7 = 57% MVP），承认 events-first pivot；**新增 §6 Known Limitations & Future Work 集中索引**（12 条已知缺陷 + 9 条未来工作 + 3 条用户明确保留的设计决策）；旧 §6/7/8/9 顺延为 §7/8/9/10 | `6c26972` + 本 commit |
 | 2026-06-02 | v1.2：M1.6.4 ✅ 完成（追加 tracing 基础设施 ship 2026-06-02 + ADR-0010）— 同步 header / §2.2 / §2.3 / §3.1 / §4.2 / L-4 | 本 commit |
+| 2026-06-02 | v1.3：M1.6.4 ✅ merged（`8abc590`）— Speedscope+HTML (2026-05-31, ADR-0007) + tracing 基础设施 (2026-06-02, ADR-0010)。8 milestone surface 全部 ship。 | `8abc590` |
+| 2026-06-03 | v1.4：**M1.6.4 follow-up wave**（8 cleanup commits：`d87adec` → `766b8f0`）—— post-merge 文档审计（`d87adec`）；cleanup batch 1 8 review nits（`4301125`）；`hash_path` 在 L2/L3 span 也 honor `AGENTPROF_LOG_FULL_PATHS`（Critical L1-only gap 修复，`83d2ed0`）；crate-boundary 规则澄清允许 dev-deps（`95fd059`）；B-3 / B-4 / B-5 / B-6 speedscope+HTML follow-ups（EmitCtx refactor `b376d18`；3 new `ExportWarning` variants `c54a1af`；`Display` impls + defensive html escape `afae0e8`；3 new combination fixtures `766b8f0`）。同步 header / §2.2 / §2.3 / §4.1 graph / §6.1 L-9 fixture count / §10 anchors。**注**：commit `4301125 chore(m1.6.5): cleanup batch 1` 主题用了 `m1.6.5` token 是误用 —— 实际属于本次 follow-up wave，**不是** M1.6.5 milestone（reserved for MCP server waste analysis at §6.1 L-4，deferred to 0.2.0 per `docs/plan.md §8`）。 | `766b8f0` |
 
 ---
 
@@ -450,6 +454,15 @@ git log main --oneline -20
 最近的 milestone merges（不会变；写死作为锚点）：
 
 ```
+766b8f0  test(fixtures): B-6 add tool+skill / multi-skill / orphan+skill (M1.6.4 follow-up wave)
+afae0e8  fix(html,speedscope): B-5 render robustness (M1.6.4 follow-up wave)
+c54a1af  fix(speedscope): B-4 timestamp robustness (M1.6.4 follow-up wave)
+b376d18  chore(speedscope): B-3 cleanup — debug_assert + EmitCtx refactor (M1.6.4 follow-up wave)
+95fd059  docs(arch): clarify crate-boundary rule allows dev-deps (M1.6.4 follow-up wave)
+83d2ed0  fix(core): hash_path honors AGENTPROF_LOG_FULL_PATHS at all layers (M1.6.4 follow-up wave)
+4301125  chore(m1.6.5): cleanup batch 1 — 8 M1.6.4 review nits  ← 主题 `m1.6.5` token 是误用；实属 follow-up wave
+d87adec  docs(m1.6.4): post-merge audit (M1.6.4 follow-up wave)
+8abc590  Merge branch 'feat/m1.6.4-tracing' into main          ← M1.6.4 milestone merge
 9abd694  Merge fix/post-output-audit: close 3 audit findings + privacy doc
 e0318ed  fix(mode-vocabulary): align Mode enum to real Copilot wire
 010c9af  feat(turn-metadata): populate Turn.model / .mode / .output_tokens

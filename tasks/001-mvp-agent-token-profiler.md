@@ -1,10 +1,10 @@
 # PRD: agentprof MVP —— AI Agent Token Profiler
 
 > **文件名**：`tasks/001-mvp-agent-token-profiler.md`
-> **版本**：1.2
-> **创建日期**：2026-05-25 · **最后更新**：2026-06-01
-> **状态**：**In-Progress — M1.1 / M1.2 / M1.3 / M1.4 / M1.5 / M1.6.1 / M1.6.2 / M1.6.3 / M1.6.4 ✅ 已交付**（8/8 shippable surface ≈ 98 %，剩 M1.7 release；M1.6.4 含 Speedscope+HTML shipped 2026-05-31 与 tracing 基础设施 shipped 2026-06-02 + ADR-0010）；M1.6.5 / M1.7 ❌ 未开始
-> **当前 commit**：`main` HEAD（`git log -1 --oneline`）；最近一个重大 milestone merge = `9abd694` (post-output-audit)
+> **版本**：1.3
+> **创建日期**：2026-05-25 · **最后更新**：2026-06-03
+> **状态**：**In-Progress — M1.1 / M1.2 / M1.3 / M1.4 / M1.5 / M1.6.1 / M1.6.2 / M1.6.3 / M1.6.4 ✅ 已交付**（8/8 shippable surface ≈ 98 %，剩 M1.7 release；MVP feature work 已完成。M1.6.4 含 Speedscope+HTML shipped 2026-05-31 与 tracing 基础设施 shipped 2026-06-02 + ADR-0010；2026-06-03 **M1.6.4 follow-up wave** ✅ 完成 — 8 cleanup commits `d87adec` → `766b8f0`）；M1.6.5 (MCP waste, deferred to 0.2.0) / M1.7 (v0.1.0 release) ❌ 未开始
+> **当前 commit**：`main` HEAD `766b8f0`（`git log -1 --oneline`）；最近 milestone merge = `8abc590` (M1.6.4)，其后 2026-06-03 follow-up wave 8 commits
 >
 > **重大 pivot（ADR-0001 events-first）**：M1.2 不做 ClaudeAdapter，改做 **CopilotAdapter**（real wire data 直接可得）。Tokenizer / ROI / waste / aggregate 全部从 M1.3 推迟到 M1.5+ 或 Phase 2。FR-2（Tokenizer）/ FR-6（Speedscope/HTML/CSV）/ FR-7（Config + Storage）目前完成度 0%，**这是 pivot 的预期行为**，不是落后。
 >
@@ -184,7 +184,7 @@ agentprof-adapters             agentprof-tui                   agentprof-storage
 > | FR-6 导出 | 2/4 (md + json) | 0/1 | — | **50%** | speedscope / html / csv 计划 M1.6 |
 > | FR-7 配置 + 存储 | 0/3 | 0/2 | 0/1 | **0%** | 计划 Phase 2 (M2.1 SQLite) |
 
-> **FR-1 已交付清单（Copilot adapter）**：`Adapter` trait + `CopilotAdapter` + `agentprof_adapters::copilot::*`（28 named CopilotEvent variants + WithEnvelope + Unknown）+ 4 个 payload-* trait method（name / model / output_tokens / mode）+ 11 个 fixture + 60+ unit/round-trip/path tests。详见 `CHANGELOG.md [Unreleased]` 中各 sub-section（M1.2 / M1.3 / M1.4 / audit followups / turn-metadata / mode-vocab / post-output-audit）。
+> **FR-1 已交付清单（Copilot adapter）**：`Adapter` trait + `CopilotAdapter` + `agentprof_adapters::copilot::*`（28 named CopilotEvent variants + WithEnvelope + Unknown）+ 4 个 payload-* trait method（name / model / output_tokens / mode）+ **19 个 fixture**（含 2026-06-03 M1.6.4 follow-up wave B-6 加的 3 个 combination fixtures：`tool-and-skill-same-turn` / `two-skills-one-turn` / `orphan-skill-mix`）+ 60+ unit/round-trip/path tests。详见 `CHANGELOG.md [Unreleased]` 中各 sub-section（M1.2 / M1.3 / M1.4 / audit followups / turn-metadata / mode-vocab / post-output-audit / M1.6.x / 2026-06-03 follow-up wave）。
 
 ### FR-1：适配器（agentprof-adapters）
 
@@ -877,8 +877,6 @@ M1.1 (skeleton, ✅ done) ──┬──→ M1.2 (claude adapter)
 >
 > Original sub-task tree preserved below for historical context; tasks 1.6.1 (list) / 1.6.2 (aggregate) / 1.6.4 (Speedscope + HTML) ✅; tasks 1.6.5 / 1.6.6 / 1.6.7 in future milestones; task 1.6.3 (export) cancelled.
 
-> **状态**：❌ 未开始
->
 > Phase 1 收口：把跨 session 聚合、单独导出命令、Speedscope + HTML 输出全部补齐。
 > 关联 FR：FR-5.2 ~ FR-5.6 / FR-6.3 / FR-6.4 | 关联 US：US-4 / US-5 / US-6
 
@@ -909,7 +907,7 @@ M1.1 (skeleton, ✅ done) ──┬──→ M1.2 (claude adapter)
 #### Task 1.6.4：`watch` 子命令（P1）
 
 - **Sub-task 1.6.4.1**：用 `notify` crate watch agent 默认目录 + 配置覆盖
-- **Sub-task 1.6.4.2**：事件 debounce 500ms（防止文件写入分片触发多次）
+- **Sub-task 1.6.4.2**：事件 debounce 500ms（防止文件写入分片触发多次）_(updated: 250 ms shipped — see M1.6.3 Status block above)_
 - **Sub-task 1.6.4.3**：检测到新 jsonl 或 mtime 变化 → 自动 reanalyze 并 push 给 TUI
 - **Sub-task 1.6.4.4**：手动测试：跑一个真 Claude 会话，观察 TUI 实时刷新
 
@@ -1054,8 +1052,9 @@ M1.1 (skeleton, ✅ done) ──┬──→ M1.2 (claude adapter)
 | 日期 | 变更内容 | 原因 |
 |---|---|---|
 | 2026-05-25 | 初始 PRD + 实施计划版本（覆盖 Phase 0 + Phase 1 MVP） | 项目骨架完成后正式立项 |
+| 2026-06-03 | v1.3 doc-sync：header / FR-1 已交付清单 fixture 数 (11 → 19) / 移除 §M1.6 块开头的 `状态：❌ 未开始` 矛盾行 / L912 历史 500ms 注 / §13 下一步执行入口（→ M1.7）。覆盖 2026-06-03 M1.6.4 follow-up wave 8 commits (`d87adec` → `766b8f0`)。 | post-merge audit fixes |
 
 ---
 
-> **下一步执行入口**：从 Milestone 1.2 开始，按 9 阶段 pipeline 推进（见 `.github/copilot-instructions.md` §5）。
-> 推荐第一步：进 Stage 1，invoke `brainstorming` skill 产出 `docs/superpowers/specs/2026-05-26-claude-adapter-design.md`，先决定 Task 1.2.1 的 fixture 数据怎么取、ToolSource 推断规则的细节。
+> **下一步执行入口**：M1.7 v0.1.0 release（post-MVP-cleanup state）— 走 `github-release` skill。
+> 推荐第一步：进 Stage 1，invoke `brainstorming` skill 产出 `docs/superpowers/specs/2026-XX-XX-m1.7-release-design.md`。

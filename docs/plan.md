@@ -115,7 +115,7 @@ playwright.click   |   1240        |   0   |     ∞ (waste)   | ✗ kill
 
 ## 6. 实施路径
 
-> **进度同步（2026-06-02）**：MVP **8/8 milestone shippable surface 完成 ≈ 98%**（M1.1 ✅ skeleton / M1.2 ✅ Copilot adapter / M1.3 ✅ Episode aggregation / M1.4 ✅ CLI `analyze` 含 4 轮 followups / M1.5 ✅ TUI + ADR-0006 panic-safe / **M1.6.1 ✅ `list` 子命令 + 8 audit polish** / **M1.6.2 ✅ `aggregate` 子命令 + ADR-0008** / **M1.6.3 ✅ `watch` 子命令 + `aggregate --export tui` 激活 + ADR-0009** / **M1.6.4 ✅ `--export speedscope|html` + ADR-0007（2026-05-31）+ tracing 基础设施 + ADR-0010（2026-06-02 — 全工程 tracing canonicalisation：13 `eprintln!` → `tracing`，全局 `--log-level` / `--log-file`，TUI 自动 XDG state log，PII hash，4 层 span 拓扑）**）。MVP feature work 全部完成，剩 M1.7 v0.1.0 release。详见 [`tasks/ROADMAP.md`](../tasks/ROADMAP.md) 和 [`CHANGELOG.md`](../CHANGELOG.md)。
+> **进度同步（2026-06-03）**：MVP **8/8 shippable surface ≈ 98% (M1.1–M1.6.4 ✅; 剩 M1.7 v0.1.0 release)** — M1.1 ✅ skeleton / M1.2 ✅ Copilot adapter / M1.3 ✅ Episode aggregation / M1.4 ✅ CLI `analyze` 含 4 轮 followups / M1.5 ✅ TUI + ADR-0006 panic-safe / **M1.6.1 ✅ `list` 子命令 + 8 audit polish** / **M1.6.2 ✅ `aggregate` 子命令 + ADR-0008** / **M1.6.3 ✅ `watch` 子命令 + `aggregate --export tui` 激活 + ADR-0009** / **M1.6.4 ✅ `--export speedscope|html` + ADR-0007（2026-05-31）+ tracing 基础设施 + ADR-0010（2026-06-02）** / 2026-06-03 **M1.6.4 follow-up wave** ✅（8 cleanup commits `d87adec` → `766b8f0`：post-merge audit / `hash_path` env-var L1-only gap fix / crate-boundary 澄清 / B-3 EmitCtx + B-4 ExportWarning + B-5 Display impls + B-6 combination fixtures）。MVP feature work 全部完成，剩 M1.7 v0.1.0 release。详见 [`tasks/ROADMAP.md`](../tasks/ROADMAP.md) 和 [`CHANGELOG.md`](../CHANGELOG.md)。
 >
 > **events-first pivot（ADR-0001）**：原 Phase 0 / 1 计划见下；实际路径有以下重大调整：
 >
@@ -170,7 +170,7 @@ playwright.click   |   1240        |   0   |     ∞ (waste)   | ✗ kill
 
 ## 8. 下一步行动
 
-> **2026-06-02 更新**：MVP 8/8 shippable surface ≈ 98% 已交付（M1.1–M1.5 ✅ + M1.6.1 ✅ + M1.6.2 ✅ + M1.6.3 ✅ + M1.6.4 ✅，含 tracing 基础设施 2026-06-02 ship）。MVP feature work 已完成；剩 M1.7 v0.1.0 release。M1.6.5（MCP waste）属于增量增强，可推到 0.2.0。
+> **2026-06-03 更新**：MVP 8/8 shippable surface ≈ 98% (M1.1–M1.6.4 ✅; 剩 M1.7 v0.1.0 release) 已交付。MVP feature work 已完成；2026-06-03 M1.6.4 follow-up wave（8 cleanup commits `d87adec` → `766b8f0`）落地。剩 M1.7 v0.1.0 release。M1.6.5（MCP waste）属于增量增强，可推到 0.2.0。
 
 **当前位置**：M1.6.4 ✅ 已 ship 2026-06-02（tracing 基础设施：13 `eprintln!` → `tracing`，全局 `--log-level` / `--log-file`，TUI 自动 XDG state log，PII hash，4 层 span 拓扑，ADR-0010）→ 下一步推荐：
 
