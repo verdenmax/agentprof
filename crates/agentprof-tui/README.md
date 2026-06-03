@@ -45,7 +45,7 @@ See [`docs/architecture.md`](../../docs/architecture.md) §3 (system layering) a
 | `views::roi` | Interactive tool rank with sort cycling + `recent_calls` |
 | `views::aggregate` | By-Mode + By-Hook tables (single session) + `group_by_mode`; M1.6.3 adds a cross-session arm rendering `AnyAggregateReport` for `aggregate --export tui` and `watch aggregate ...` |
 | `views::format` | Shared display helpers (`human_short`) |
-| `views::turn_detail` (F1) | `TurnDetailState` state struct + pure formatters (`format_args_preview`, `wrap_args_full`, `status_sigil`) + `render_turn_detail(frame, area, &TurnDetailState, &AppState)` full-screen renderer; AppRunner wiring lands in F1 Task 7 |
+| `views::turn_detail` (F1) | `TurnDetailState` state struct + pure formatters (`format_args_preview`, `wrap_args_full`, `status_sigil`) + `render_turn_detail(frame, area, &TurnDetailState, &AppState)` full-screen renderer; wired into `AppRunner` via `AppState.detail_view: Option<TurnDetailState>` — `Enter` on a Flamegraph turn opens it, `Esc` returns, `j`/`k`/`G`/`gg` navigate, `Enter` toggles args expand, `1`/`2`/`3` pop and switch view |
 | `theme` | `ToolSource → Color` + status modifiers |
 | `error` | `TuiError` (`#[non_exhaustive]` thiserror) |
 

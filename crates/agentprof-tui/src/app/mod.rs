@@ -120,10 +120,14 @@ impl<'a> AppRunner<'a> {
 
     fn render_into(&self, frame: &mut Frame<'_>) {
         let area = frame.area();
-        match self.state.view {
-            View::Flamegraph => flamegraph::render(frame, area, &self.state),
-            View::Roi => roi::render(frame, area, &self.state),
-            View::Aggregate => aggregate::render(frame, area, &self.state),
+        if let Some(detail) = self.state.detail_view.as_ref() {
+            crate::views::turn_detail::render_turn_detail(frame, area, detail, &self.state);
+        } else {
+            match self.state.view {
+                View::Flamegraph => flamegraph::render(frame, area, &self.state),
+                View::Roi => roi::render(frame, area, &self.state),
+                View::Aggregate => aggregate::render(frame, area, &self.state),
+            }
         }
         if self.state.help_open {
             draw_help_overlay(frame, area);

@@ -84,6 +84,15 @@ pub struct AppState<'a> {
     /// press (be lenient: the other key still executes, we just exit the
     /// pending state). See [`dispatch`].
     pub(crate) pending_gg: bool,
+    /// Optional full-screen detail view for the currently-selected turn.
+    ///
+    /// `Some` after the user presses `Enter` on a turn row in
+    /// [`crate::views::flamegraph`]; cleared by `Esc` or `1` / `2` / `3`
+    /// (which pop the detail view then switch top-level view).
+    ///
+    /// See [`crate::views::turn_detail::TurnDetailState`] for the inner
+    /// per-detail-view state (selected tool index, expand set, pending-gg).
+    pub detail_view: Option<crate::views::turn_detail::TurnDetailState>,
     /// Source report (turn / tool / hook rollups).
     pub report: &'a AnalysisReport,
     /// Source episodes (per-call timing for `FlamegraphView`).
@@ -122,6 +131,7 @@ impl<'a> AppState<'a> {
             flame_viewport_top: std::cell::Cell::new(0),
             roi_viewport_top: std::cell::Cell::new(0),
             pending_gg: false,
+            detail_view: None,
             report,
             episodes,
         }
@@ -167,6 +177,21 @@ pub fn dispatch(state: &mut AppState<'_>, event: Event) -> Action {
     }
     if matches!(k.code, KeyCode::Char('q')) {
         return Action::Quit;
+    }
+
+    // Detail-view dispatch — when `state.detail_view` is `Some`, certain
+    // keys go exclusively to the detail state. `1` / `2` / `3` pop detail
+    // and fall through to the existing number-key view-switch dispatch
+    // below. `?` pops the detail's own pending-gg and falls through to the
+    // help-overlay toggle. `q` / Ctrl-C are intentionally handled BEFORE
+    // this branch so they always quit. Unknown keys are swallowed (with
+    // pending-gg cleared) to avoid leaking key state back into top-level
+    // view handlers. See [`dispatch_detail`].
+    if state.detail_view.is_some() {
+        match dispatch_detail(state, &k) {
+            DetailFlow::Handled => return Action::None,
+            DetailFlow::FallThrough => {}
+        }
     }
 
     // Vim-style G / gg motion. Handle BEFORE other key dispatch so the
@@ -226,6 +251,22 @@ pub fn dispatch(state: &mut AppState<'_>, event: Event) -> Action {
         }
     }
 
+    // Open detail view: Enter on Flamegraph with a valid turn selection.
+    // (When `detail_view` is already `Some`, the detail-view dispatch
+    // branch above intercepts Enter and routes it to `toggle_expand`.)
+    if state.view == View::Flamegraph
+        && state.detail_view.is_none()
+        && matches!(k.code, KeyCode::Enter)
+    {
+        let idx = state.flame_selected;
+        if let Some(turn) = state.episodes.turns.get(idx) {
+            state.detail_view = Some(crate::views::turn_detail::TurnDetailState::new(
+                turn.id.clone(),
+            ));
+        }
+        return Action::None;
+    }
+
     match k.code {
         KeyCode::Tab => state.view = state.view.next(),
         KeyCode::BackTab => state.view = state.view.prev(),
@@ -237,6 +278,115 @@ pub fn dispatch(state: &mut AppState<'_>, event: Event) -> Action {
     }
 
     Action::None
+}
+
+/// Outcome of [`dispatch_detail`].
+///
+/// Used so the per-detail-view branch in [`dispatch`] can either fully
+/// handle a key (`Handled`, the dispatcher returns `Action::None`) or pop
+/// the detail view and ask the top-level dispatcher to keep processing
+/// (`FallThrough`, used for `1`/`2`/`3` view switches and `?` help toggle).
+#[derive(Debug, PartialEq, Eq)]
+enum DetailFlow {
+    Handled,
+    FallThrough,
+}
+
+/// Detail-view key dispatch helper.
+///
+/// Precondition: `state.detail_view.is_some()`. Returns
+/// [`DetailFlow::Handled`] when the key was consumed entirely by the
+/// detail view; returns [`DetailFlow::FallThrough`] for `1` / `2` / `3`
+/// (after popping `detail_view`) and `?` so the caller continues into the
+/// top-level number-key / help-overlay handlers.
+///
+/// Borrow note: `count` is computed via a short immutable borrow of
+/// `state.detail_view` + a disjoint read of `state.episodes` (split-borrow
+/// safe). Each per-arm mutation uses a fresh `as_mut()` scope so the
+/// `Esc` and `1/2/3` arms can clear `state.detail_view` without conflict.
+fn dispatch_detail(state: &mut AppState<'_>, k: &crossterm::event::KeyEvent) -> DetailFlow {
+    let count = state.detail_view.as_ref().map_or(0, |d| {
+        state
+            .episodes
+            .turns
+            .iter()
+            .find(|t| t.id == d.turn_id)
+            .map_or(0, |t| t.tool_calls.len())
+    });
+    // Mirror the top-level dual spelling for `G` (Shift+g): some
+    // terminals emit `Char('G')` directly, others emit `Char('g')` +
+    // `KeyModifiers::SHIFT`.
+    let is_capital_g = matches!(k.code, KeyCode::Char('G'))
+        || (matches!(k.code, KeyCode::Char('g')) && k.modifiers.contains(KeyModifiers::SHIFT));
+    let is_lowercase_g =
+        matches!(k.code, KeyCode::Char('g')) && !k.modifiers.contains(KeyModifiers::SHIFT);
+
+    if is_capital_g {
+        if let Some(d) = state.detail_view.as_mut() {
+            d.jump_last(count);
+            d.pending_gg = false;
+        }
+        return DetailFlow::Handled;
+    }
+    if is_lowercase_g {
+        if let Some(d) = state.detail_view.as_mut() {
+            if d.pending_gg {
+                d.jump_first();
+                d.pending_gg = false;
+            } else {
+                d.pending_gg = true;
+            }
+        }
+        return DetailFlow::Handled;
+    }
+
+    match k.code {
+        KeyCode::Esc => {
+            state.detail_view = None;
+            state.pending_gg = false;
+            DetailFlow::Handled
+        }
+        KeyCode::Enter => {
+            if let Some(d) = state.detail_view.as_mut() {
+                d.toggle_expand();
+                d.pending_gg = false;
+            }
+            DetailFlow::Handled
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            if let Some(d) = state.detail_view.as_mut() {
+                d.move_up();
+                d.pending_gg = false;
+            }
+            DetailFlow::Handled
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            if let Some(d) = state.detail_view.as_mut() {
+                d.move_down(count);
+                d.pending_gg = false;
+            }
+            DetailFlow::Handled
+        }
+        KeyCode::Char('1' | '2' | '3') => {
+            // Pop detail; let the top-level number-key block switch view.
+            state.detail_view = None;
+            state.pending_gg = false;
+            DetailFlow::FallThrough
+        }
+        KeyCode::Char('?') => {
+            // Let the top-level help-overlay toggle run.
+            if let Some(d) = state.detail_view.as_mut() {
+                d.pending_gg = false;
+            }
+            DetailFlow::FallThrough
+        }
+        _ => {
+            if let Some(d) = state.detail_view.as_mut() {
+                d.pending_gg = false;
+            }
+            DetailFlow::Handled
+        }
+    }
 }
 
 fn scroll_up(state: &mut AppState<'_>) {
@@ -753,5 +903,293 @@ mod tests {
         dispatch(&mut s, key(KeyCode::Char('g')));
         dispatch(&mut s, key(KeyCode::Char('g')));
         assert_eq!(s.flame_selected, 0);
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod detail_view_dispatch_tests {
+    use super::*;
+    use crate::app::Event;
+    use agentprof_core::adapter::AgentKind;
+    use agentprof_core::analyzer::AnalysisReport;
+    use agentprof_core::episode::{
+        CallRef, Episodes, Span as EpSpan, ToolCall, ToolCallStatus, ToolEpisode, Turn,
+    };
+    use agentprof_core::model::{SessionMeta, ToolSource};
+    use chrono::{TimeZone, Utc};
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    fn build_state_with_turn() -> (AnalysisReport, Episodes) {
+        let meta = SessionMeta::new("s".into(), AgentKind::Copilot, Utc::now(), false);
+        let report = AnalysisReport::new(meta);
+
+        let mut episodes = Episodes::new();
+        let span = EpSpan::new(
+            Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap(),
+            Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 1).unwrap(),
+        );
+        let mut tc = ToolCall::new(span);
+        tc.status = ToolCallStatus::Success;
+        let mut tool_ep = ToolEpisode::new("bash".into(), ToolSource::Builtin);
+        tool_ep.calls.push(tc);
+        episodes.tools.insert("bash".into(), tool_ep);
+
+        let mut turn = Turn::new(
+            "T1".into(),
+            Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap(),
+        );
+        turn.ended_at = Some(Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 2).unwrap());
+        turn.tool_calls.push(CallRef::new("bash".into(), 0));
+        episodes.turns.push(turn);
+
+        (report, episodes)
+    }
+
+    fn key(code: KeyCode) -> Event {
+        Event::Key(KeyEvent::new(code, KeyModifiers::empty()))
+    }
+
+    #[test]
+    fn detail_view_starts_none() {
+        let (r, e) = build_state_with_turn();
+        let s = AppState::new(&r, &e);
+        assert!(s.detail_view.is_none());
+    }
+
+    #[test]
+    fn enter_on_flamegraph_with_valid_selection_opens_detail() {
+        let (r, e) = build_state_with_turn();
+        let mut s = AppState::new(&r, &e);
+        s.view = View::Flamegraph;
+        s.flame_selected = 0;
+        let _ = dispatch(&mut s, key(KeyCode::Enter));
+        assert!(s.detail_view.is_some());
+        assert_eq!(s.detail_view.as_ref().unwrap().turn_id, "T1");
+    }
+
+    #[test]
+    fn esc_in_detail_closes_detail_preserves_flame_selected() {
+        let (r, e) = build_state_with_turn();
+        let mut s = AppState::new(&r, &e);
+        s.flame_selected = 0;
+        s.detail_view = Some(crate::views::turn_detail::TurnDetailState::new("T1"));
+        let _ = dispatch(&mut s, key(KeyCode::Esc));
+        assert!(s.detail_view.is_none());
+        assert_eq!(s.flame_selected, 0);
+    }
+
+    #[test]
+    fn enter_in_detail_toggles_expansion() {
+        let (r, e) = build_state_with_turn();
+        let mut s = AppState::new(&r, &e);
+        s.detail_view = Some(crate::views::turn_detail::TurnDetailState::new("T1"));
+        let _ = dispatch(&mut s, key(KeyCode::Enter));
+        assert!(s.detail_view.as_ref().unwrap().expanded_tools.contains(&0));
+        let _ = dispatch(&mut s, key(KeyCode::Enter));
+        assert!(!s.detail_view.as_ref().unwrap().expanded_tools.contains(&0));
+    }
+
+    #[test]
+    fn jk_in_detail_navigate_tool_calls() {
+        let (r, e) = build_state_with_turn();
+        let mut s = AppState::new(&r, &e);
+        let mut detail = crate::views::turn_detail::TurnDetailState::new("T1");
+        detail.selected_tool_idx = 0;
+        s.detail_view = Some(detail);
+        // Only 1 call in this fixture, so move_down is no-op.
+        let _ = dispatch(&mut s, key(KeyCode::Char('j')));
+        assert_eq!(s.detail_view.as_ref().unwrap().selected_tool_idx, 0);
+        let _ = dispatch(&mut s, key(KeyCode::Char('k')));
+        assert_eq!(s.detail_view.as_ref().unwrap().selected_tool_idx, 0);
+    }
+
+    #[test]
+    fn number_keys_in_detail_pop_then_switch_view() {
+        let (r, e) = build_state_with_turn();
+        let mut s = AppState::new(&r, &e);
+        s.view = View::Flamegraph;
+        s.detail_view = Some(crate::views::turn_detail::TurnDetailState::new("T1"));
+        let _ = dispatch(&mut s, key(KeyCode::Char('2')));
+        assert!(s.detail_view.is_none(), "1/2/3 pops detail");
+        assert_eq!(s.view, View::Roi, "and switches view");
+    }
+
+    #[test]
+    fn enter_on_flamegraph_invalid_selection_no_panic() {
+        let meta = SessionMeta::new("s".into(), AgentKind::Copilot, Utc::now(), false);
+        let report = AnalysisReport::new(meta);
+        let episodes = Episodes::new(); // no turns
+        let mut s = AppState::new(&report, &episodes);
+        s.view = View::Flamegraph;
+        s.flame_selected = 0;
+        let _ = dispatch(&mut s, key(KeyCode::Enter));
+        assert!(s.detail_view.is_none(), "no-op when no turn at index");
+    }
+
+    #[test]
+    fn q_quits_even_in_detail_view() {
+        let (r, e) = build_state_with_turn();
+        let mut s = AppState::new(&r, &e);
+        s.detail_view = Some(crate::views::turn_detail::TurnDetailState::new("T1"));
+        let act = dispatch(&mut s, key(KeyCode::Char('q')));
+        assert!(matches!(act, Action::Quit));
+    }
+
+    fn build_state_with_three_tools() -> (AnalysisReport, Episodes) {
+        let meta = SessionMeta::new("s".into(), AgentKind::Copilot, Utc::now(), false);
+        let report = AnalysisReport::new(meta);
+        let mut episodes = Episodes::new();
+        let make_span = |s, e| {
+            EpSpan::new(
+                Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, s).unwrap(),
+                Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, e).unwrap(),
+            )
+        };
+        // Three different tool names so they live in separate ToolEpisode entries.
+        let mut ep_bash = ToolEpisode::new("bash".into(), ToolSource::Builtin);
+        let mut tc1 = ToolCall::new(make_span(0, 1));
+        tc1.status = ToolCallStatus::Success;
+        ep_bash.calls.push(tc1);
+        episodes.tools.insert("bash".into(), ep_bash);
+
+        let mut ep_edit = ToolEpisode::new("edit".into(), ToolSource::Builtin);
+        let mut tc2 = ToolCall::new(make_span(1, 2));
+        tc2.status = ToolCallStatus::Success;
+        ep_edit.calls.push(tc2);
+        episodes.tools.insert("edit".into(), ep_edit);
+
+        let mut ep_view = ToolEpisode::new("view".into(), ToolSource::Builtin);
+        let mut tc3 = ToolCall::new(make_span(2, 3));
+        tc3.status = ToolCallStatus::Success;
+        ep_view.calls.push(tc3);
+        episodes.tools.insert("view".into(), ep_view);
+
+        let mut turn = Turn::new(
+            "T1".into(),
+            Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap(),
+        );
+        turn.ended_at = Some(Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 3).unwrap());
+        turn.tool_calls.push(CallRef::new("bash".into(), 0));
+        turn.tool_calls.push(CallRef::new("edit".into(), 0));
+        turn.tool_calls.push(CallRef::new("view".into(), 0));
+        episodes.turns.push(turn);
+
+        (report, episodes)
+    }
+
+    #[test]
+    fn question_in_detail_opens_help_keeps_detail() {
+        let (r, e) = build_state_with_turn();
+        let mut s = AppState::new(&r, &e);
+        s.detail_view = Some(crate::views::turn_detail::TurnDetailState::new("T1"));
+        let _ = dispatch(&mut s, key(KeyCode::Char('?')));
+        assert!(s.help_open, "? must open help overlay even from detail");
+        assert!(s.detail_view.is_some(), "detail must survive help toggle");
+    }
+
+    #[test]
+    fn capital_g_in_detail_jumps_to_last() {
+        let (r, e) = build_state_with_three_tools();
+        let mut s = AppState::new(&r, &e);
+        s.detail_view = Some(crate::views::turn_detail::TurnDetailState::new("T1"));
+        // Capital G via Char('G') (one common terminal emulator spelling).
+        let _ = dispatch(&mut s, key(KeyCode::Char('G')));
+        assert_eq!(
+            s.detail_view.as_ref().unwrap().selected_tool_idx,
+            2,
+            "G must jump to last tool call (index count-1 in 3-tool fixture)"
+        );
+    }
+
+    #[test]
+    fn gg_two_press_in_detail_jumps_to_first() {
+        let (r, e) = build_state_with_three_tools();
+        let mut s = AppState::new(&r, &e);
+        let mut detail = crate::views::turn_detail::TurnDetailState::new("T1");
+        detail.selected_tool_idx = 2;
+        s.detail_view = Some(detail);
+        // First g: sets pending_gg.
+        let _ = dispatch(&mut s, key(KeyCode::Char('g')));
+        assert!(
+            s.detail_view.as_ref().unwrap().pending_gg,
+            "first g sets detail.pending_gg"
+        );
+        // Second g: jumps to first.
+        let _ = dispatch(&mut s, key(KeyCode::Char('g')));
+        assert_eq!(
+            s.detail_view.as_ref().unwrap().selected_tool_idx,
+            0,
+            "gg jumps to first tool call"
+        );
+        assert!(
+            !s.detail_view.as_ref().unwrap().pending_gg,
+            "second g clears detail.pending_gg"
+        );
+    }
+
+    #[test]
+    fn g_then_non_g_in_detail_clears_pending_gg() {
+        let (r, e) = build_state_with_three_tools();
+        let mut s = AppState::new(&r, &e);
+        s.detail_view = Some(crate::views::turn_detail::TurnDetailState::new("T1"));
+        // First g sets pending_gg.
+        let _ = dispatch(&mut s, key(KeyCode::Char('g')));
+        assert!(s.detail_view.as_ref().unwrap().pending_gg);
+        // Any non-g key should clear pending_gg (lenient invariant).
+        let _ = dispatch(&mut s, key(KeyCode::Char('j')));
+        assert!(
+            !s.detail_view.as_ref().unwrap().pending_gg,
+            "non-g key clears detail.pending_gg even if otherwise consumed"
+        );
+    }
+
+    #[test]
+    fn g_in_detail_does_not_set_top_level_pending_gg() {
+        // Critical invariant: detail's vim G/gg is isolated from
+        // AppState::pending_gg. Otherwise pressing g in detail then Esc
+        // back to flamegraph would leave a stray pending_gg.
+        let (r, e) = build_state_with_three_tools();
+        let mut s = AppState::new(&r, &e);
+        s.detail_view = Some(crate::views::turn_detail::TurnDetailState::new("T1"));
+        let _ = dispatch(&mut s, key(KeyCode::Char('g')));
+        assert!(
+            !s.pending_gg,
+            "top-level pending_gg must remain false when g is pressed in detail"
+        );
+        assert!(
+            s.detail_view.as_ref().unwrap().pending_gg,
+            "but detail's own pending_gg is set"
+        );
+    }
+
+    #[test]
+    fn jk_in_detail_navigate_three_tools_with_clamping() {
+        let (r, e) = build_state_with_three_tools();
+        let mut s = AppState::new(&r, &e);
+        s.detail_view = Some(crate::views::turn_detail::TurnDetailState::new("T1"));
+        // Start at 0 → j moves to 1.
+        let _ = dispatch(&mut s, key(KeyCode::Char('j')));
+        assert_eq!(s.detail_view.as_ref().unwrap().selected_tool_idx, 1);
+        // j again → 2 (last).
+        let _ = dispatch(&mut s, key(KeyCode::Char('j')));
+        assert_eq!(s.detail_view.as_ref().unwrap().selected_tool_idx, 2);
+        // j again → still 2 (clamped, count=3).
+        let _ = dispatch(&mut s, key(KeyCode::Char('j')));
+        assert_eq!(
+            s.detail_view.as_ref().unwrap().selected_tool_idx,
+            2,
+            "j at last must clamp, not wrap or overflow"
+        );
+        // k back to 1.
+        let _ = dispatch(&mut s, key(KeyCode::Char('k')));
+        assert_eq!(s.detail_view.as_ref().unwrap().selected_tool_idx, 1);
+        // Two more k → clamp at 0.
+        let _ = dispatch(&mut s, key(KeyCode::Char('k')));
+        let _ = dispatch(&mut s, key(KeyCode::Char('k')));
+        assert_eq!(s.detail_view.as_ref().unwrap().selected_tool_idx, 0);
+        // k at 0 → still 0.
+        let _ = dispatch(&mut s, key(KeyCode::Char('k')));
+        assert_eq!(s.detail_view.as_ref().unwrap().selected_tool_idx, 0);
     }
 }
