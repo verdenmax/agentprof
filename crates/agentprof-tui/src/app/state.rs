@@ -150,10 +150,12 @@ impl<'a> AppState<'a> {
 ///
 /// Key bindings (M1.5 post-shipping UX fix — supersedes spec §7's
 /// conflict-resolution rule):
-/// - `1`/`2`/`3` ALWAYS switch view (Flamegraph / Roi / Aggregate)
+/// - `1`/`2`/`3`/`4` ALWAYS switch view (Flamegraph / Roi / Aggregate / Models)
 /// - `t`/`c`/`s`/`p` cycle `RoiView` sort key (`TotalDur` / `Calls` / `SuccessRate` / `P50`);
 ///   only meaningful when view == Roi, ignored elsewhere
-/// - `Tab` / `Shift-Tab` cycle views
+/// - `Tab` / `Shift-Tab` cycle views; vim `l` / `h` are aliases for the same
+///   forward / backward cycle (F1.8 follow-up — parity with vim window
+///   navigation)
 /// - `↑` / `↓` or vim `k` / `j` scroll/select
 /// - `G` jump to last selectable row; `gg` (two-key sequence) jump to first row
 /// - `q` / Ctrl-C quit
@@ -285,8 +287,14 @@ pub fn dispatch(state: &mut AppState<'_>, event: Event) -> Action {
     }
 
     match k.code {
-        KeyCode::Tab => state.view = state.view.next(),
-        KeyCode::BackTab => state.view = state.view.prev(),
+        // Tab / Shift-Tab cycle views. Vim `l` (right) / `h` (left) are
+        // aliases for the same forward / backward cycle — parity with
+        // vim window navigation and with the `j` / `k` aliases for
+        // ↑ / ↓ scrolling already present below. Roi sort keys
+        // (`t` / `c` / `s` / `p`) are matched earlier above and never
+        // reach this arm, so `h` / `l` don't conflict with Roi sort.
+        KeyCode::Tab | KeyCode::Char('l') => state.view = state.view.next(),
+        KeyCode::BackTab | KeyCode::Char('h') => state.view = state.view.prev(),
         KeyCode::Char('?') => state.help_open = true,
         KeyCode::Up | KeyCode::Char('k') => scroll_up(state),
         KeyCode::Down | KeyCode::Char('j') => scroll_down(state),
@@ -384,8 +392,11 @@ fn dispatch_detail(state: &mut AppState<'_>, k: &crossterm::event::KeyEvent) -> 
             }
             DetailFlow::Handled
         }
-        KeyCode::Char('1' | '2' | '3' | '4') => {
-            // Pop detail; let the top-level number-key block switch view.
+        KeyCode::Char('1' | '2' | '3' | '4' | 'h' | 'l') => {
+            // Pop detail; let the top-level number-key / Tab block switch
+            // view. `h` / `l` are vim aliases for `Shift-Tab` / `Tab`
+            // (cycle prev / next view) — mirroring the same parity in
+            // the top-level dispatch arm.
             state.detail_view = None;
             state.pending_gg = false;
             DetailFlow::FallThrough
@@ -614,6 +625,137 @@ mod tests {
         assert_eq!(s.view, View::Flamegraph);
         dispatch(&mut s, key(KeyCode::BackTab));
         assert_eq!(s.view, View::Models);
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // Vim `h` / `l` view cycle aliases (F1.8 follow-up)
+    // ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn l_cycles_view_forward_like_tab() {
+        // `l` (vim right) must be an exact alias for `Tab`: cycle to the
+        // next view in the same order (Flamegraph → Roi → Aggregate →
+        // Models → Flamegraph).
+        let r = empty_report();
+        let e = Episodes::new();
+        let mut s = AppState::new(&r, &e);
+        assert_eq!(s.view, View::Flamegraph);
+        dispatch(&mut s, key(KeyCode::Char('l')));
+        assert_eq!(s.view, View::Roi);
+        dispatch(&mut s, key(KeyCode::Char('l')));
+        assert_eq!(s.view, View::Aggregate);
+        dispatch(&mut s, key(KeyCode::Char('l')));
+        assert_eq!(s.view, View::Models);
+        dispatch(&mut s, key(KeyCode::Char('l')));
+        assert_eq!(s.view, View::Flamegraph);
+    }
+
+    #[test]
+    fn h_cycles_view_backward_like_shift_tab() {
+        // `h` (vim left) must be an exact alias for `Shift-Tab`: cycle
+        // to the previous view (Flamegraph → Models → Aggregate → Roi →
+        // Flamegraph).
+        let r = empty_report();
+        let e = Episodes::new();
+        let mut s = AppState::new(&r, &e);
+        assert_eq!(s.view, View::Flamegraph);
+        dispatch(&mut s, key(KeyCode::Char('h')));
+        assert_eq!(s.view, View::Models);
+        dispatch(&mut s, key(KeyCode::Char('h')));
+        assert_eq!(s.view, View::Aggregate);
+        dispatch(&mut s, key(KeyCode::Char('h')));
+        assert_eq!(s.view, View::Roi);
+        dispatch(&mut s, key(KeyCode::Char('h')));
+        assert_eq!(s.view, View::Flamegraph);
+    }
+
+    #[test]
+    fn h_l_work_from_every_view() {
+        // Regression guard: ensure `h` / `l` are not accidentally
+        // captured by per-view handlers (e.g. Roi's `t/c/s/p` sort keys
+        // or the Models view dispatcher) before reaching the global
+        // Tab-equivalent arm.
+        let r = empty_report();
+        let e = Episodes::new();
+        for start in [View::Flamegraph, View::Roi, View::Aggregate, View::Models] {
+            let mut s = AppState::new(&r, &e);
+            s.view = start;
+            dispatch(&mut s, key(KeyCode::Char('l')));
+            assert_eq!(
+                s.view,
+                start.next(),
+                "`l` from {start:?} should advance to next view"
+            );
+            let mut s = AppState::new(&r, &e);
+            s.view = start;
+            dispatch(&mut s, key(KeyCode::Char('h')));
+            assert_eq!(
+                s.view,
+                start.prev(),
+                "`h` from {start:?} should rewind to previous view"
+            );
+        }
+    }
+
+    #[test]
+    fn l_from_detail_view_pops_and_cycles() {
+        // While the TurnDetailView is open, `l` should pop the detail
+        // (returning the user to the underlying view) AND cycle forward
+        // — mirroring the existing `1` / `2` / `3` / `4` pop-and-switch
+        // behavior so vim users don't get stuck in detail mode.
+        let r = empty_report();
+        let e = Episodes::new();
+        let mut s = AppState::new(&r, &e);
+        s.view = View::Flamegraph;
+        s.detail_view = Some(crate::views::turn_detail::TurnDetailState::new(
+            "t1".to_string(),
+        ));
+        dispatch(&mut s, key(KeyCode::Char('l')));
+        assert!(
+            s.detail_view.is_none(),
+            "`l` in detail view must pop the detail overlay"
+        );
+        assert_eq!(s.view, View::Roi, "view must cycle forward after popping");
+    }
+
+    #[test]
+    fn h_from_detail_view_pops_and_cycles() {
+        let r = empty_report();
+        let e = Episodes::new();
+        let mut s = AppState::new(&r, &e);
+        s.view = View::Flamegraph;
+        s.detail_view = Some(crate::views::turn_detail::TurnDetailState::new(
+            "t1".to_string(),
+        ));
+        dispatch(&mut s, key(KeyCode::Char('h')));
+        assert!(
+            s.detail_view.is_none(),
+            "`h` in detail view must pop the detail overlay"
+        );
+        assert_eq!(
+            s.view,
+            View::Models,
+            "view must cycle backward after popping"
+        );
+    }
+
+    #[test]
+    fn h_l_do_not_conflict_with_roi_sort_keys() {
+        // Roi's sort keys are `t` / `c` / `s` / `p` — `h` and `l` are
+        // explicitly NOT in that set. Verify pressing `h` / `l` in Roi
+        // cycles view rather than mutating roi_sort.
+        let r = one_row_report();
+        let e = Episodes::new();
+        let mut s = AppState::new(&r, &e);
+        s.view = View::Roi;
+        let initial_sort = s.roi_sort;
+        dispatch(&mut s, key(KeyCode::Char('l')));
+        assert_eq!(s.view, View::Aggregate, "`l` in Roi must cycle view");
+        assert_eq!(s.roi_sort, initial_sort, "`l` must not mutate Roi sort key");
+        s.view = View::Roi;
+        dispatch(&mut s, key(KeyCode::Char('h')));
+        assert_eq!(s.view, View::Flamegraph, "`h` in Roi must cycle view");
+        assert_eq!(s.roi_sort, initial_sort, "`h` must not mutate Roi sort key");
     }
 
     #[test]

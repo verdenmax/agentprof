@@ -57,7 +57,7 @@ See [`docs/architecture.md`](../../docs/architecture.md) §3 (system layering) a
 | `q` / Ctrl-C | Quit (clean leave + exit 0) |
 | `1` / `2` / `3` / `4` | Switch view (Flamegraph / Roi / Aggregate / Models) |
 | `Esc` (in Models / TurnDetail) | Return to previous top-level view |
-| `Tab` / Shift-Tab | Cycle views |
+| `Tab` / Shift-Tab | Cycle views (vim aliases: `l` / `h`) |
 | `↑` / `↓` or `k` / `j` | Scroll / select (vim aliases) |
 | `G` | Jump to last row |
 | `gg` | Jump to first row (two-key vim sequence) |
