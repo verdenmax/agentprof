@@ -1,12 +1,11 @@
 ---
 source: crates/agentprof-tui/tests/views.rs
-assertion_line: 81
 expression: buffer_to_symbol_grid(&buffer)
 ---
 ┌ Flamegraph (1/3) ────────────────────────────────────────────────────────────────────────────────┐
+│ Turn   Duration Token  █ tool  ░ thinking  · padding                                             │
 │   T1       4.0s    10  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░████████████████░░░░░░░░░░░░░░···············│
 │   T2       5.0s     8  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░│
-│                                                                                                  │
 │                                                                                                  │
 │                                                                                                  │
 │                                                                                                  │

@@ -72,6 +72,67 @@ use crate::views::format::{format_tokens_short, human_short};
 /// test enforces the invariant.
 pub const PREFIX_WIDTH: u16 = 24;
 
+/// Build the sticky column-name header rendered above the gantt rows.
+///
+/// Returns a single [`Line`] that the [`render`] function places in a
+/// reserved 1-cell strip at the top of the flamegraph block (above the
+/// scrolling rows). It serves two purposes:
+///
+/// 1. Label the three prefix columns (`Turn` / `Duration` / `Token`) so
+///    new users can read the row format at a glance.
+/// 2. Provide a colored legend for the three gantt cell symbols
+///    (`█` tool · `░` thinking · `·` padding), matching the colors used
+///    by `cell_style` in data rows.
+///
+/// The first [`PREFIX_WIDTH`] chars mirror the column layout of
+/// `build_row` **exactly** (same right-aligned 5 / 10 / 5 width
+/// template) so the labels sit in the same character positions as the
+/// data values below them. The
+/// `header_line_prefix_matches_build_row_format` test enforces this
+/// invariant — if you change the format literal in `build_row`, change
+/// it here too (and bump [`PREFIX_WIDTH`] if the width changes).
+///
+/// The label `Token` (singular) is intentionally 5 chars wide to fit the
+/// fixed 5-char tokens column without overflowing [`PREFIX_WIDTH`].
+///
+/// # Examples
+///
+/// ```
+/// use agentprof_tui::views::flamegraph::{header_line, PREFIX_WIDTH};
+/// let line = header_line();
+/// let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+/// assert!(text.starts_with(&format!(
+///     "{:>5} {:>10} {:>5}  ",
+///     "Turn", "Duration", "Token"
+/// )));
+/// // The prefix portion occupies exactly PREFIX_WIDTH chars.
+/// let prefix: String = text.chars().take(PREFIX_WIDTH as usize).collect();
+/// assert_eq!(prefix.chars().count(), PREFIX_WIDTH as usize);
+/// // The legend mentions all three gantt symbols.
+/// assert!(text.contains('█'));
+/// assert!(text.contains('░'));
+/// assert!(text.contains('·'));
+/// ```
+#[must_use]
+pub fn header_line() -> Line<'static> {
+    let prefix = format!("{:>5} {:>10} {:>5}  ", "Turn", "Duration", "Token");
+    Line::from(vec![
+        TextSpan::raw(prefix),
+        // Tool block — colored cyan to match the default Builtin
+        // ToolSource color; data rows use per-source colors
+        // (Builtin=cyan / MCP=magenta / Skill=yellow). The legend
+        // simply shows the symbol shape.
+        TextSpan::styled("█", Style::default().fg(Color::Cyan)),
+        TextSpan::raw(" tool  "),
+        // Thinking — DIM modifier matches cell_style('░', _).
+        TextSpan::styled("░", Style::default().add_modifier(Modifier::DIM)),
+        TextSpan::raw(" thinking  "),
+        // Padding — DarkGray matches cell_style('·', _).
+        TextSpan::styled("·", Style::default().fg(Color::DarkGray)),
+        TextSpan::raw(" padding"),
+    ])
+}
+
 /// Pure-math layout helper for `render`.
 ///
 /// Given a turn (start/end), a list of `(call_start, call_end, segment_index)`
@@ -144,6 +205,16 @@ pub fn segment_layout(
 /// followed by the gantt strip filling the remaining width. The selected
 /// turn (`state.flame_selected`) is highlighted with reverse-video.
 ///
+/// **Sticky header** (top 1 cell of the bordered block): see
+/// [`header_line`]. Labels the prefix columns (`Turn` / `Duration` /
+/// `Token`) and provides a colored legend for the gantt symbols
+/// (`█` tool · `░` thinking · `·` padding) so the meaning of each
+/// character in the rows below is self-evident. Reserved only when
+/// `inner.height >= 3` (i.e. there is room for header + at least 1 row +
+/// footer); on very tall-but-still-tiny windows (h == 2) the footer is
+/// prioritized over the header because per-turn detail is more
+/// information-dense than the legend.
+///
 /// **Viewport (edge-triggered)**: `state.flame_viewport_top` is persisted
 /// across frames via [`std::cell::Cell`]. Render only adjusts it when
 /// `flame_selected` leaves the visible window — pressing `↓` past the
@@ -170,15 +241,34 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState<'_>) {
     // (e.g. "T3 selected:  bash(120ms) read_file(85ms) +2 more"). The
     // footer lives INSIDE the bordered Flamegraph block so the existing
     // Detail strip (`chunks[1]`) is unchanged.
-    let (rows_area, footer_area) = if inner.height >= 2 {
+    //
+    // F1.8 (sticky header): when there is room for ≥3 lines, also reserve
+    // the TOP line for [`header_line`] (column names + gantt legend).
+    // On a degenerate h == 2 window we keep the original rows+footer
+    // layout — per-turn detail is more information-dense than the legend.
+    let (header_area, rows_area, footer_area) = if inner.height >= 3 {
+        let split = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1),
+                Constraint::Min(1),
+                Constraint::Length(1),
+            ])
+            .split(inner);
+        (Some(split[0]), split[1], Some(split[2]))
+    } else if inner.height >= 2 {
         let split = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Min(1), Constraint::Length(1)])
             .split(inner);
-        (split[0], Some(split[1]))
+        (None, split[0], Some(split[1]))
     } else {
-        (inner, None)
+        (None, inner, None)
     };
+
+    if let Some(header_rect) = header_area {
+        frame.render_widget(Paragraph::new(header_line()), header_rect);
+    }
 
     let turns = &state.report.turn_summary;
 
@@ -1431,5 +1521,67 @@ mod tests {
             "PREFIX_WIDTH constant must match actual build_row prefix width — \
              if you change the format!() in build_row, update PREFIX_WIDTH too"
         );
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // Sticky header (F1.8) tests
+    // ──────────────────────────────────────────────────────────────────
+
+    /// Flatten all spans in a [`Line`] to a plain String for assertions.
+    fn line_to_string(line: &Line<'_>) -> String {
+        line.spans.iter().map(|s| s.content.as_ref()).collect()
+    }
+
+    #[test]
+    fn header_line_prefix_matches_build_row_format() {
+        // The first PREFIX_WIDTH chars of header_line MUST be the exact
+        // same template as build_row's prefix so column labels sit
+        // directly above the data values. If this fails, the layout
+        // constant changed in only one of the two functions.
+        let text = line_to_string(&header_line());
+        let prefix: String = text.chars().take(PREFIX_WIDTH as usize).collect();
+        assert_eq!(
+            prefix.chars().count(),
+            PREFIX_WIDTH as usize,
+            "header prefix must be exactly PREFIX_WIDTH chars"
+        );
+        assert_eq!(
+            prefix,
+            format!("{:>5} {:>10} {:>5}  ", "Turn", "Duration", "Token"),
+            "header prefix must match build_row's right-aligned 5/10/5 column template"
+        );
+    }
+
+    #[test]
+    fn header_line_contains_three_legend_symbols() {
+        // The user-facing purpose of the header is to teach the meaning
+        // of the gantt cell characters. All three symbols MUST appear
+        // in the legend, in any order.
+        let text = line_to_string(&header_line());
+        assert!(
+            text.contains('█'),
+            "header_line missing █ (tool block) legend: {text:?}"
+        );
+        assert!(
+            text.contains('░'),
+            "header_line missing ░ (thinking) legend: {text:?}"
+        );
+        assert!(
+            text.contains('·'),
+            "header_line missing · (padding) legend: {text:?}"
+        );
+    }
+
+    #[test]
+    fn header_line_legend_labels_present() {
+        // Each symbol must be paired with its word so a user looking at
+        // the header can map character → meaning without external docs.
+        let text = line_to_string(&header_line());
+        for word in ["tool", "thinking", "padding"] {
+            assert!(
+                text.contains(word),
+                "header_line missing legend word {word:?}: {text:?}"
+            );
+        }
     }
 }
