@@ -78,7 +78,7 @@ pub const PREFIX_WIDTH: u16 = 24;
 /// reserved 1-cell strip at the top of the flamegraph block (above the
 /// scrolling rows). It serves two purposes:
 ///
-/// 1. Label the three prefix columns (`Turn` / `Duration` / `Token`) so
+/// 1. Label the three prefix columns (`Turn` / `Duration` / `OutTK`) so
 ///    new users can read the row format at a glance.
 /// 2. Provide a colored legend for the three gantt cell symbols
 ///    (`█` tool · `░` thinking · `·` padding), matching the colors used
@@ -92,8 +92,14 @@ pub const PREFIX_WIDTH: u16 = 24;
 /// invariant — if you change the format literal in `build_row`, change
 /// it here too (and bump [`PREFIX_WIDTH`] if the width changes).
 ///
-/// The label `Token` (singular) is intentionally 5 chars wide to fit the
-/// fixed 5-char tokens column without overflowing [`PREFIX_WIDTH`].
+/// The label `OutTK` (output tokens, 5 chars) is intentionally singular
+/// and abbreviated to fit the fixed 5-char tokens column without
+/// overflowing [`PREFIX_WIDTH`]. It surfaces the per-turn `output_tokens`
+/// sum (from `assistant.message.outputTokens` events); per-turn input /
+/// cache tokens are NOT available on the Copilot wire and only appear at
+/// session level (see the Models view, key `4`). When the upstream wire
+/// schema starts exposing per-turn input / cache, this label can widen
+/// back to a more descriptive form (e.g. multiple columns).
 ///
 /// # Examples
 ///
@@ -103,7 +109,7 @@ pub const PREFIX_WIDTH: u16 = 24;
 /// let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
 /// assert!(text.starts_with(&format!(
 ///     "{:>5} {:>10} {:>5}  ",
-///     "Turn", "Duration", "Token"
+///     "Turn", "Duration", "OutTK"
 /// )));
 /// // The prefix portion occupies exactly PREFIX_WIDTH chars.
 /// let prefix: String = text.chars().take(PREFIX_WIDTH as usize).collect();
@@ -115,7 +121,7 @@ pub const PREFIX_WIDTH: u16 = 24;
 /// ```
 #[must_use]
 pub fn header_line() -> Line<'static> {
-    let prefix = format!("{:>5} {:>10} {:>5}  ", "Turn", "Duration", "Token");
+    let prefix = format!("{:>5} {:>10} {:>5}  ", "Turn", "Duration", "OutTK");
     Line::from(vec![
         TextSpan::raw(prefix),
         // Tool block — colored cyan to match the default Builtin
@@ -207,7 +213,7 @@ pub fn segment_layout(
 ///
 /// **Sticky header** (top 1 cell of the bordered block): see
 /// [`header_line`]. Labels the prefix columns (`Turn` / `Duration` /
-/// `Token`) and provides a colored legend for the gantt symbols
+/// `OutTK`) and provides a colored legend for the gantt symbols
 /// (`█` tool · `░` thinking · `·` padding) so the meaning of each
 /// character in the rows below is self-evident. Reserved only when
 /// `inner.height >= 3` (i.e. there is room for header + at least 1 row +
@@ -1547,7 +1553,7 @@ mod tests {
         );
         assert_eq!(
             prefix,
-            format!("{:>5} {:>10} {:>5}  ", "Turn", "Duration", "Token"),
+            format!("{:>5} {:>10} {:>5}  ", "Turn", "Duration", "OutTK"),
             "header prefix must match build_row's right-aligned 5/10/5 column template"
         );
     }
