@@ -429,6 +429,59 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState<'_>) {
     );
 }
 
+/// Resolve the foreground color for the 5-char T-id portion of a flame
+/// row prefix, encoding the turn's status (F1.10).
+///
+/// Precedence (highest → lowest):
+///
+/// 1. `TurnStatus::Aborted(_)` → [`Color::Red`] — the most urgent
+///    user-facing signal; pairs with the [`Modifier::UNDERLINED`]
+///    applied to the whole row by `build_row` as a color-blind backup.
+/// 2. **Open** / in-flight (`turn.ended_at.is_none()`) → [`Color::DarkGray`]
+///    — distinguishes turns still running in watch mode from completed
+///    turns at the bottom of the list.
+/// 3. **Thinking-only** (closed turn with no tool calls — e.g. pure-text
+///    replies, summary turns, plan/execute breakpoints) → [`Color::Blue`]
+///    — the legacy F1.5 marker, now confined to the 5-char T-id span
+///    instead of the full 24-char prefix (F1.10 tightening, for
+///    consistency with Aborted / Open).
+/// 4. Otherwise (closed turn with tool calls) → `None` (terminal default
+///    fg). Status colors stack additively with [`Modifier::REVERSED`]
+///    (selected row) and [`Modifier::UNDERLINED`] (aborted), so a
+///    selected-aborted turn shows REVERSED + UNDERLINED + Red T-id.
+///
+/// Returns `None` when `turn` is `None` (e.g. a stale `flame_selected`
+/// pointing past `episodes.turns.len()`).
+///
+/// # Examples
+///
+/// ```
+/// use agentprof_core::episode::{Turn, TurnStatus};
+/// use agentprof_tui::views::flamegraph::t_id_status_color;
+/// use chrono::Utc;
+/// use ratatui::style::Color;
+///
+/// let t = Turn::new("t1".into(), Utc::now());
+/// // Open turn (no `ended_at`) → DarkGray.
+/// assert_eq!(t_id_status_color(Some(&t)), Some(Color::DarkGray));
+/// // No turn → None.
+/// assert_eq!(t_id_status_color(None), None);
+/// ```
+#[must_use]
+pub fn t_id_status_color(turn: Option<&Turn>) -> Option<Color> {
+    let t = turn?;
+    if matches!(t.status, TurnStatus::Aborted(_)) {
+        return Some(Color::Red);
+    }
+    if t.ended_at.is_none() {
+        return Some(Color::DarkGray);
+    }
+    if t.tool_calls.is_empty() {
+        return Some(Color::Blue);
+    }
+    None
+}
+
 #[allow(
     clippy::too_many_arguments,
     clippy::cast_possible_truncation,
@@ -455,28 +508,37 @@ fn build_row<'a>(
         dur_str,
         tokens_str,
     );
-    let mut spans: Vec<TextSpan<'_>> = Vec::new();
-    // Thinking-only turns (no tool calls — e.g. pure text replies,
-    // plan-then-execute breakpoints, summary turns) are marked with a
-    // Blue prefix so users can distinguish them at a glance from
-    // active tool-using turns. Composes additively with REVERSED
-    // (selected) and UNDERLINED (aborted, applied below).
+    debug_assert_eq!(
+        prefix.chars().count(),
+        PREFIX_WIDTH as usize,
+        "build_row prefix must be exactly PREFIX_WIDTH chars"
+    );
+
+    // F1.10 — split the prefix into the 5-char T-id portion and the
+    // remaining 19 chars (duration + space + tokens + 2-char gutter).
+    // The T-id span carries the status color (Aborted = Red / Open =
+    // DarkGray / thinking-only = Blue / default); the rest span never
+    // carries an fg override so the duration / OutTK columns stay
+    // visually consistent across turn statuses.
     //
-    // Thinking-only = a CLOSED turn with no tool calls (pure-text reply,
-    // summary turn, etc). Open turns (ended_at=None) are intentionally
-    // excluded — an in-flight turn that hasn't dispatched its first tool
-    // yet would briefly flash Blue before the gantt fills, which is
-    // distracting in watch mode.
-    let thinking_only = turn.is_some_and(|t| t.ended_at.is_some() && t.tool_calls.is_empty());
-    let mut prefix_style = if selected {
+    // 5 + 19 = 24 = PREFIX_WIDTH. The split is by char count, not
+    // byte count, to handle the rare case where the T-id contains
+    // a multi-byte char (none today, but defensive).
+    let prefix_tid: String = prefix.chars().take(5).collect();
+    let prefix_rest: String = prefix.chars().skip(5).collect();
+
+    let base_style = if selected {
         Style::default().add_modifier(Modifier::REVERSED)
     } else {
         Style::default()
     };
-    if thinking_only {
-        prefix_style = prefix_style.fg(Color::Blue);
-    }
-    spans.push(TextSpan::styled(prefix, prefix_style));
+    // Resolve status color via the documented precedence rule:
+    // Aborted > Open > thinking-only > default. See `t_id_status_color`.
+    let tid_style = t_id_status_color(turn).map_or(base_style, |c| base_style.fg(c));
+    let spans: Vec<TextSpan<'_>> = vec![
+        TextSpan::styled(prefix_tid, tid_style),
+        TextSpan::styled(prefix_rest, base_style),
+    ];
 
     let gantt_w = gantt_width;
     let mut cells: Vec<TextSpan<'_>> = vec![TextSpan::raw(" ".repeat(gantt_w as usize))];
@@ -1446,7 +1508,10 @@ mod tests {
     }
 
     #[test]
-    fn build_row_thinking_only_aborted_composes_blue_with_underlined() {
+    fn build_row_thinking_only_aborted_t_id_is_red_not_blue() {
+        // F1.10 precedence rule: Aborted > Open > thinking-only.
+        // An aborted-thinking-only turn shows Red T-id (Aborted wins),
+        // NOT Blue (was the pre-F1.10 behavior).
         let base = Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap();
         let mut turn = Turn::new("T1".into(), base);
         turn.ended_at = Some(base + Duration::seconds(2));
@@ -1462,9 +1527,16 @@ mod tests {
             Some(&turn),
             &episodes,
         );
-        let first = &line.spans[0];
-        assert_eq!(first.style.fg, Some(Color::Blue));
-        assert!(first.style.add_modifier.contains(Modifier::UNDERLINED));
+        let tid = &line.spans[0];
+        assert_eq!(
+            tid.style.fg,
+            Some(Color::Red),
+            "aborted-thinking-only turn T-id must be Red (Aborted > Blue per F1.10 precedence)"
+        );
+        assert!(
+            tid.style.add_modifier.contains(Modifier::UNDERLINED),
+            "aborted T-id must still carry UNDERLINED as a color-blind backup signal"
+        );
     }
 
     #[test]
@@ -1557,16 +1629,19 @@ mod tests {
     }
 
     #[test]
-    fn build_row_thinking_only_selected_aborted_composes_all_three() {
-        // Triple composition: thinking-only (Blue fg) + selected (REVERSED)
-        // + aborted (UNDERLINED via post-pass). All three must coexist on
-        // the prefix span — none clobber the others.
+    fn build_row_selected_aborted_t_id_red_with_reversed_and_underlined() {
+        // F1.10: triple composition on the T-id span — selected
+        // (REVERSED) + aborted (UNDERLINED) + Aborted-precedence color
+        // (Red, NOT Blue even though thinking-only also true). All three
+        // signals must coexist on the same span — none clobber the
+        // others.
         let base = Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap();
         let mut turn = Turn::new("T1".into(), base);
         turn.ended_at = Some(base + Duration::seconds(2));
         turn.status =
             TurnStatus::Aborted(agentprof_core::episode::AbortInfo::new("test".into(), base));
-        // tool_calls remains empty → thinking-only
+        // tool_calls remains empty → would be thinking-only, but
+        // Aborted takes precedence per F1.10 §3.5.
         let episodes = Episodes::default();
         let line = build_row(
             0,
@@ -1577,19 +1652,19 @@ mod tests {
             Some(&turn),
             &episodes,
         );
-        let first = &line.spans[0];
+        let tid = &line.spans[0];
         assert_eq!(
-            first.style.fg,
-            Some(Color::Blue),
-            "Blue must survive REVERSED + UNDERLINED"
+            tid.style.fg,
+            Some(Color::Red),
+            "Aborted Red must survive REVERSED + UNDERLINED (and override Blue)"
         );
         assert!(
-            first.style.add_modifier.contains(Modifier::REVERSED),
-            "REVERSED must survive Blue + UNDERLINED"
+            tid.style.add_modifier.contains(Modifier::REVERSED),
+            "REVERSED must survive Red + UNDERLINED"
         );
         assert!(
-            first.style.add_modifier.contains(Modifier::UNDERLINED),
-            "UNDERLINED must survive Blue + REVERSED"
+            tid.style.add_modifier.contains(Modifier::UNDERLINED),
+            "UNDERLINED must survive Red + REVERSED"
         );
     }
 
@@ -1609,10 +1684,12 @@ mod tests {
             Some(&turn),
             &episodes,
         );
-        let prefix = line.spans[0].content.as_ref();
+        // F1.10: prefix is split into 2 spans (T-id + rest). Token column
+        // lives in spans[1] (the "rest" span).
+        let prefix_rest = line.spans[1].content.as_ref();
         assert!(
-            prefix.contains("1.2k"),
-            "prefix must contain abbreviated token count, got {prefix:?}"
+            prefix_rest.contains("1.2k"),
+            "prefix rest must contain abbreviated token count, got {prefix_rest:?}"
         );
     }
 
@@ -1632,11 +1709,12 @@ mod tests {
             Some(&turn),
             &episodes,
         );
-        let prefix = line.spans[0].content.as_ref();
+        // F1.10: token column lives in spans[1] (post-split).
+        let prefix_rest = line.spans[1].content.as_ref();
         // Centered dash from format_tokens_short(None) == "  -  ".
         assert!(
-            prefix.contains("  -  "),
-            "prefix must contain centered dash for None tokens, got {prefix:?}"
+            prefix_rest.contains("  -  "),
+            "prefix rest must contain centered dash for None tokens, got {prefix_rest:?}"
         );
     }
 
@@ -1656,11 +1734,27 @@ mod tests {
             None, // turn (None → no gantt cells rendered, but prefix still produced)
             &episodes,
         );
-        let prefix_chars = line.spans[0].content.chars().count();
+        // F1.10: prefix is split into 2 spans. Sum span[0] + span[1]
+        // must equal PREFIX_WIDTH (5 + 19 = 24).
+        let prefix_chars =
+            line.spans[0].content.chars().count() + line.spans[1].content.chars().count();
         assert_eq!(
             prefix_chars, PREFIX_WIDTH as usize,
-            "PREFIX_WIDTH constant must match actual build_row prefix width — \
-             if you change the format!() in build_row, update PREFIX_WIDTH too"
+            "PREFIX_WIDTH constant must match actual build_row prefix width \
+             (sum of T-id span + rest span) — if you change the format!() \
+             in build_row, update PREFIX_WIDTH too"
+        );
+        // Defense: span split must be exactly 5 + 19 to keep T-id labels
+        // aligned with the header's T-id column.
+        assert_eq!(
+            line.spans[0].content.chars().count(),
+            5,
+            "T-id span must be exactly 5 chars wide (matches the right-aligned 5-width template)"
+        );
+        assert_eq!(
+            line.spans[1].content.chars().count(),
+            19,
+            "Rest span must be exactly 19 chars (PREFIX_WIDTH - T-id width)"
         );
     }
 
@@ -1724,6 +1818,150 @@ mod tests {
                 "header_line missing legend word {word:?}: {text:?}"
             );
         }
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // T-id status color (F1.10) tests
+    // ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn t_id_status_color_returns_none_for_no_turn() {
+        assert_eq!(t_id_status_color(None), None);
+    }
+
+    #[test]
+    fn t_id_status_color_aborted_returns_red() {
+        let base = Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap();
+        let mut t = Turn::new("T1".into(), base);
+        t.ended_at = Some(base + Duration::seconds(2));
+        t.status =
+            TurnStatus::Aborted(agentprof_core::episode::AbortInfo::new("test".into(), base));
+        assert_eq!(t_id_status_color(Some(&t)), Some(Color::Red));
+    }
+
+    #[test]
+    fn t_id_status_color_open_returns_darkgray() {
+        let base = Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap();
+        let t = Turn::new("T1".into(), base);
+        // ended_at is None by default → Open / in-flight.
+        assert_eq!(t_id_status_color(Some(&t)), Some(Color::DarkGray));
+    }
+
+    #[test]
+    fn t_id_status_color_thinking_only_returns_blue() {
+        let base = Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap();
+        let mut t = Turn::new("T1".into(), base);
+        t.ended_at = Some(base + Duration::seconds(2));
+        // tool_calls empty + closed + not aborted → thinking-only.
+        assert_eq!(t_id_status_color(Some(&t)), Some(Color::Blue));
+    }
+
+    #[test]
+    fn t_id_status_color_completed_with_tools_returns_none() {
+        let base = Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap();
+        let mut t = Turn::new("T1".into(), base);
+        t.ended_at = Some(base + Duration::seconds(2));
+        t.tool_calls
+            .push(agentprof_core::episode::CallRef::new("bash".into(), 0));
+        assert_eq!(t_id_status_color(Some(&t)), None);
+    }
+
+    #[test]
+    fn t_id_status_color_aborted_open_red_wins_over_darkgray() {
+        // Precedence: Aborted > Open. A turn whose status is Aborted
+        // AND has no ended_at (defensive: should not happen in real
+        // data but logic must be robust) returns Red.
+        let base = Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap();
+        let mut t = Turn::new("T1".into(), base);
+        // ended_at remains None → would normally be Open / DarkGray.
+        t.status =
+            TurnStatus::Aborted(agentprof_core::episode::AbortInfo::new("test".into(), base));
+        assert_eq!(t_id_status_color(Some(&t)), Some(Color::Red));
+    }
+
+    #[test]
+    fn build_row_open_turn_t_id_is_darkgray() {
+        let base = Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap();
+        let turn = Turn::new("T1".into(), base);
+        // ended_at = None → Open / in-flight.
+        let episodes = Episodes::default();
+        let line = build_row(
+            0,
+            false,
+            None, // duration unknown (open)
+            2000,
+            40,
+            Some(&turn),
+            &episodes,
+        );
+        let tid = &line.spans[0];
+        assert_eq!(
+            tid.style.fg,
+            Some(Color::DarkGray),
+            "open turn T-id must be DarkGray"
+        );
+    }
+
+    #[test]
+    fn build_row_aborted_turn_t_id_is_red_and_underlined() {
+        let base = Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap();
+        let mut turn = turn_with_tool("T1", 0, 2, "bash"); // has tool calls (not thinking-only)
+        turn.status =
+            TurnStatus::Aborted(agentprof_core::episode::AbortInfo::new("test".into(), base));
+        let mut episodes = Episodes::default();
+        let mut ep = agentprof_core::episode::ToolEpisode::new("bash".into(), ToolSource::Builtin);
+        ep.calls.push(agentprof_core::episode::ToolCall::new(
+            agentprof_core::episode::Span::new(turn.started_at, turn.ended_at.unwrap()),
+        ));
+        episodes.tools.insert("bash".into(), ep);
+        let line = build_row(
+            0,
+            false,
+            Some(Duration::seconds(2)),
+            2000,
+            40,
+            Some(&turn),
+            &episodes,
+        );
+        let tid = &line.spans[0];
+        assert_eq!(tid.style.fg, Some(Color::Red), "aborted T-id must be Red");
+        assert!(
+            tid.style.add_modifier.contains(Modifier::UNDERLINED),
+            "aborted T-id must carry UNDERLINED as color-blind backup"
+        );
+    }
+
+    #[test]
+    fn build_row_thinking_only_blue_only_on_t_id_span() {
+        // F1.10 tightening: F1.5's Blue marker now confined to the
+        // 5-char T-id span. The duration/OutTK columns (spans[1]) must
+        // NOT carry the Blue fg, so they remain visually consistent
+        // across turn statuses.
+        let base = Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap();
+        let mut turn = Turn::new("T1".into(), base);
+        turn.ended_at = Some(base + Duration::seconds(2));
+        // tool_calls empty → thinking-only.
+        let episodes = Episodes::default();
+        let line = build_row(
+            0,
+            false,
+            Some(Duration::seconds(2)),
+            2000,
+            40,
+            Some(&turn),
+            &episodes,
+        );
+        let tid = &line.spans[0];
+        let rest = &line.spans[1];
+        assert_eq!(
+            tid.style.fg,
+            Some(Color::Blue),
+            "thinking-only T-id span must be Blue"
+        );
+        assert_eq!(
+            rest.style.fg, None,
+            "thinking-only rest span (duration / OutTK columns) must NOT be Blue"
+        );
     }
 
     // ──────────────────────────────────────────────────────────────────

@@ -169,7 +169,12 @@ fn draw_help_overlay(frame: &mut Frame<'_>, full: Rect) {
         "                  cyan=Builtin, magenta=MCP, yellow=Skill)",
         "  ░ (dim gray)    LLM thinking time (no tool running; in-turn cost)",
         "  ·               Padding (turn ended; row shorter than longest turn)",
-        "  T-id (blue)     Thinking-only turn (no tool calls)",
+        "",
+        "Flamegraph T-id color (F1.10 — leftmost 5-char column):",
+        "  T-id (red)       Aborted turn (also underlined as backup)",
+        "  T-id (gray)      Open / in-flight turn (no ended_at yet)",
+        "  T-id (blue)      Thinking-only closed turn (no tool calls)",
+        "  T-id (default)   Completed turn with tool calls",
         "",
         "Deep flamegraph: `analyze --export speedscope` → speedscope.app",
     ]
