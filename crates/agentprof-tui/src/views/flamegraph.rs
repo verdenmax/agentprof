@@ -221,6 +221,13 @@ pub fn segment_layout(
 /// prioritized over the header because per-turn detail is more
 /// information-dense than the legend.
 ///
+/// **Meta line** (`chunks[1]`, F1.9): single no-border row below the
+/// bordered Flamegraph block. Replaces the old 3-row bordered " Detail "
+/// block (which had three fields fully redundant with content shown
+/// elsewhere — Turn UUID, `out_tokens`, and `tools=N`). See
+/// [`format_meta_line`] for the field list, priority order, and
+/// narrow-terminal truncation rules.
+///
 /// **Viewport (edge-triggered)**: `state.flame_viewport_top` is persisted
 /// across frames via [`std::cell::Cell`]. Render only adjusts it when
 /// `flame_selected` leaves the visible window — pressing `↓` past the
@@ -231,7 +238,9 @@ pub fn segment_layout(
 pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState<'_>) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(1), Constraint::Length(3)])
+        // F1.9: chunks[1] shrank from 3 rows (bordered " Detail " block)
+        // to 1 row (no-border meta line). +2 rows reclaimed for gantt.
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
         .split(area);
 
     let block = Block::default()
@@ -406,27 +415,18 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState<'_>) {
         frame.render_widget(footer, footer_rect);
     }
 
-    // Detail strip.
-    let detail_block = Block::default().borders(Borders::ALL).title(" Detail ");
-    let detail_inner = detail_block.inner(chunks[1]);
-    frame.render_widget(detail_block, chunks[1]);
-    let detail_text = turns.get(state.flame_selected).map_or_else(
-        || "(no turn selected)".to_string(),
-        |row| {
-            format!(
-                "Turn {} | model={} mode={} out_tokens={} tools={}",
-                row.turn_id,
-                row.model.as_deref().unwrap_or("-"),
-                row.mode
-                    .as_ref()
-                    .map_or_else(|| "-".to_string(), |m| format!("{m:?}")),
-                row.output_tokens
-                    .map_or_else(|| "-".to_string(), |n| n.to_string()),
-                row.tool_call_count,
-            )
-        },
+    // F1.9 meta line — replaces the old 3-row bordered " Detail " block.
+    // Single row, no border, DIM modifier to visually separate from the
+    // gantt rows above. See [`format_meta_line`] for content format and
+    // narrow-terminal truncation rules.
+    let meta_text = format_meta_line(state, chunks[1].width);
+    frame.render_widget(
+        Paragraph::new(TextSpan::styled(
+            meta_text,
+            Style::default().add_modifier(Modifier::DIM),
+        )),
+        chunks[1],
     );
-    frame.render_widget(Paragraph::new(detail_text), detail_inner);
 }
 
 #[allow(
@@ -729,6 +729,141 @@ fn append_thinking_marker(line: String, budget: usize) -> String {
         return line;
     }
     format!("{line}{MARK}")
+}
+
+/// Build the compact meta line shown directly below the bordered
+/// Flamegraph block (F1.9 — replaces the old 3-row bordered " Detail "
+/// block).
+///
+/// Single-row summary of the selected turn that surfaces information not
+/// available elsewhere on the same screen: relative start time (from
+/// session start), uncompacted duration, tool call count, model, mode.
+/// Fields visible in the flame row itself (turn label, duration, output
+/// tokens) are intentionally not duplicated here when possible; `dur` is
+/// the one exception because the flame row's `Duration` column is fixed
+/// at 10 chars and uses [`human_short`] truncation, while this meta line
+/// can display the precise value when there is room.
+///
+/// Format:
+///
+/// ```text
+/// T3 · +1.4m in · 5.0s · 3 calls · model=gpt-5-mini · mode=Interactive
+/// ```
+///
+/// Fields are listed in priority order (drop-from-right on narrow
+/// terminals, see [`fit_priority_segments`]):
+///
+/// | Priority | Field | Source |
+/// |---|---|---|
+/// | 1 (highest) | `Tn` | `state.flame_selected + 1` (1-based) |
+/// | 2 | `+rel in` | `row.started_at - report.meta.started_at` |
+/// | 3 | `dur` | `row.duration` (or `—` for open turns) |
+/// | 4 | `N calls` | `row.tool_call_count` |
+/// | 5 | `model=...` | `row.model` (or `—`) |
+/// | 6 (lowest) | `mode=...` | `row.mode` (or `—`) |
+///
+/// When `state.flame_selected` is out of range, returns
+/// `"(no turn selected)"` (parity with [`selected_turn_footer_line`]'s
+/// fallback).
+///
+/// # Examples
+///
+/// ```
+/// use agentprof_core::adapter::AgentKind;
+/// use agentprof_core::analyzer::AnalysisReport;
+/// use agentprof_core::episode::Episodes;
+/// use agentprof_core::model::SessionMeta;
+/// use agentprof_tui::app::state::AppState;
+/// use agentprof_tui::views::flamegraph::format_meta_line;
+/// use chrono::Utc;
+///
+/// let meta = SessionMeta::new("s".into(), AgentKind::Copilot, Utc::now(), false);
+/// let report = AnalysisReport::new(meta);
+/// let episodes = Episodes::new();
+/// let state = AppState::new(&report, &episodes);
+/// // Empty report → out-of-range selection → fixed placeholder.
+/// assert_eq!(format_meta_line(&state, 80), "(no turn selected)");
+/// ```
+#[must_use]
+pub fn format_meta_line(state: &AppState<'_>, max_width: u16) -> String {
+    let turns = &state.report.turn_summary;
+    let Some(row) = turns.get(state.flame_selected) else {
+        return "(no turn selected)".to_string();
+    };
+
+    let session_start = state.report.meta.started_at;
+    let rel_in = human_short(row.started_at - session_start);
+    let dur_str = row.duration.map_or_else(|| "—".to_string(), human_short);
+    let model_name = row.model.as_deref().unwrap_or("—").to_string();
+    let mode_label = row
+        .mode
+        .as_ref()
+        .map_or_else(|| "—".to_string(), |m| format!("{m:?}"));
+
+    // Segments in HIGH-priority → LOW-priority order;
+    // [`fit_priority_segments`] drops from the back when overflow.
+    let segments = [
+        format!("T{}", state.flame_selected + 1),
+        format!("+{rel_in} in"),
+        dur_str,
+        format!("{} calls", row.tool_call_count),
+        format!("model={model_name}"),
+        format!("mode={mode_label}"),
+    ];
+
+    fit_priority_segments(&segments, " · ", max_width as usize)
+}
+
+/// Pack as many `segments` (joined by `sep`) into `budget` chars as
+/// possible, dropping from the back (low-priority end). Companion to
+/// [`format_meta_line`].
+///
+/// Differs from `fit_entries` (the footer's `+K more` packer) in two
+/// ways:
+///
+/// 1. No `" +K more"` suffix — dropped segments simply disappear. The
+///    meta line is a summary, not a list, so the user is not looking
+///    for "how many fields are hidden"; they're looking for "the
+///    important fields are visible".
+/// 2. Drops from the **right** in fixed priority order (caller controls
+///    priority by segment list order). `fit_entries` also drops from
+///    the right but its semantics are "how many entries fit", not
+///    "which high-priority entries to preserve".
+///
+/// When even the single highest-priority segment overflows, falls back
+/// to char-level truncation from the right (acceptable degradation for
+/// width-0 / width-1 terminals).
+///
+/// # Examples
+///
+/// ```
+/// use agentprof_tui::views::flamegraph::fit_priority_segments;
+/// let segs = ["T3".to_string(), "+10s in".to_string(), "5.0s".to_string()];
+/// // Wide budget → all 3 segments joined.
+/// assert_eq!(fit_priority_segments(&segs, " · ", 80), "T3 · +10s in · 5.0s");
+/// // Tight budget — drop the lowest-priority last segment.
+/// assert_eq!(fit_priority_segments(&segs, " · ", 14), "T3 · +10s in");
+/// // Extremely narrow — keep only the first segment.
+/// assert_eq!(fit_priority_segments(&segs, " · ", 5), "T3");
+/// ```
+#[must_use]
+pub fn fit_priority_segments(segments: &[String], sep: &str, budget: usize) -> String {
+    if budget == 0 {
+        return String::new();
+    }
+    let mut keep = segments.len();
+    while keep > 0 {
+        let body = segments[..keep].join(sep);
+        if body.chars().count() <= budget {
+            return body;
+        }
+        keep -= 1;
+    }
+    // Even the single highest-priority segment overflows: char-truncate
+    // from the right rather than rendering empty.
+    segments
+        .first()
+        .map_or_else(String::new, |s| s.chars().take(budget).collect())
 }
 
 /// Pack as many `entries` (joined by a single space) into the budget as
@@ -1589,5 +1724,228 @@ mod tests {
                 "header_line missing legend word {word:?}: {text:?}"
             );
         }
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // Meta line (F1.9) tests
+    // ──────────────────────────────────────────────────────────────────
+
+    use crate::app::state::AppState;
+    use agentprof_core::adapter::AgentKind;
+    use agentprof_core::analyzer::{AnalysisReport, TurnSummaryRow};
+    use agentprof_core::episode::{Mode, TurnStatus};
+    use agentprof_core::model::SessionMeta;
+
+    /// Build an [`AppState`] for meta-line tests. The session starts at
+    /// 2026-06-04T10:00:00Z; the single turn starts +1.4m (= 84s) into
+    /// the session, has 5.0s duration, 3 tool calls, model = "gpt-5-mini",
+    /// and mode = `Interactive`.
+    fn meta_line_state<'a>(report: &'a AnalysisReport, episodes: &'a Episodes) -> AppState<'a> {
+        let mut s = AppState::new(report, episodes);
+        s.flame_selected = 0;
+        s
+    }
+
+    fn meta_line_report_full() -> AnalysisReport {
+        let session_start = Utc.with_ymd_and_hms(2026, 6, 4, 10, 0, 0).unwrap();
+        let turn_start = session_start + Duration::seconds(84); // human_short → "1.4m"
+        let row = TurnSummaryRow::new(
+            "t1".to_string(),
+            turn_start,
+            Some(Duration::seconds(5)),
+            TurnStatus::Completed,
+            Some("gpt-5-mini".to_string()),
+            Some(Mode::Interactive),
+            Some(123),
+            3,
+            0,
+            0,
+        );
+        let meta = SessionMeta::new("s".into(), AgentKind::Copilot, session_start, false);
+        let mut r = AnalysisReport::new(meta);
+        r.turn_summary.push(row);
+        r
+    }
+
+    #[test]
+    fn meta_line_includes_all_fields_when_full_width() {
+        let report = meta_line_report_full();
+        let episodes = Episodes::new();
+        let state = meta_line_state(&report, &episodes);
+        let line = format_meta_line(&state, 120);
+        for needle in [
+            "T1",
+            "+1.4m in",
+            "5.0s",
+            "3 calls",
+            "model=gpt-5-mini",
+            "mode=Interactive",
+        ] {
+            assert!(
+                line.contains(needle),
+                "wide-width meta line missing {needle:?}: {line:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn meta_line_drops_mode_first_on_narrow_width() {
+        // Full line is ~70 chars. Budget 50 forces a drop, and `mode=...`
+        // (lowest priority) must go first while `model=...` stays.
+        let report = meta_line_report_full();
+        let episodes = Episodes::new();
+        let state = meta_line_state(&report, &episodes);
+        let line = format_meta_line(&state, 50);
+        assert!(
+            !line.contains("mode="),
+            "narrow-width meta line should drop mode= first: {line:?}"
+        );
+        assert!(
+            line.contains("model=gpt-5-mini"),
+            "narrow-width meta line should keep model=: {line:?}"
+        );
+    }
+
+    #[test]
+    fn meta_line_keeps_t_id_relative_dur_when_extremely_narrow() {
+        // Full line is "T1 · +1.4m in · 5.0s · 3 calls · model=gpt-5-mini · mode=Interactive".
+        // Budget 20 fits "T1 · +1.4m in · 5.0s" (20 chars). Budget 19
+        // forces another drop to "T1 · +1.4m in" (13 chars).
+        let report = meta_line_report_full();
+        let episodes = Episodes::new();
+        let state = meta_line_state(&report, &episodes);
+        let line = format_meta_line(&state, 19);
+        assert!(
+            line.contains("T1"),
+            "extreme-narrow meta line must keep T-id: {line:?}"
+        );
+        assert!(
+            line.contains("+1.4m"),
+            "extreme-narrow meta line must keep relative start: {line:?}"
+        );
+        assert!(
+            !line.contains("model="),
+            "extreme-narrow meta line must drop model: {line:?}"
+        );
+        assert!(
+            !line.contains("calls"),
+            "extreme-narrow meta line must drop calls: {line:?}"
+        );
+    }
+
+    #[test]
+    fn meta_line_open_turn_renders_dash_for_duration() {
+        let session_start = Utc.with_ymd_and_hms(2026, 6, 4, 10, 0, 0).unwrap();
+        let row = TurnSummaryRow::new(
+            "t1".to_string(),
+            session_start,
+            None, // open turn — no duration yet
+            TurnStatus::Open,
+            None,
+            None,
+            None,
+            0,
+            0,
+            0,
+        );
+        let meta = SessionMeta::new("s".into(), AgentKind::Copilot, session_start, false);
+        let mut r = AnalysisReport::new(meta);
+        r.turn_summary.push(row);
+        let episodes = Episodes::new();
+        let state = meta_line_state(&r, &episodes);
+        let line = format_meta_line(&state, 120);
+        assert!(
+            line.contains(" · — · "),
+            "open turn should render `—` for duration: {line:?}"
+        );
+    }
+
+    #[test]
+    fn meta_line_no_model_renders_dash_for_model() {
+        let session_start = Utc.with_ymd_and_hms(2026, 6, 4, 10, 0, 0).unwrap();
+        let row = TurnSummaryRow::new(
+            "t1".to_string(),
+            session_start,
+            Some(Duration::seconds(1)),
+            TurnStatus::Completed,
+            None, // no model
+            None, // no mode
+            None,
+            0,
+            0,
+            0,
+        );
+        let meta = SessionMeta::new("s".into(), AgentKind::Copilot, session_start, false);
+        let mut r = AnalysisReport::new(meta);
+        r.turn_summary.push(row);
+        let episodes = Episodes::new();
+        let state = meta_line_state(&r, &episodes);
+        let line = format_meta_line(&state, 120);
+        assert!(
+            line.contains("model=—"),
+            "missing model should render `model=—`: {line:?}"
+        );
+        assert!(
+            line.contains("mode=—"),
+            "missing mode should render `mode=—`: {line:?}"
+        );
+    }
+
+    #[test]
+    fn meta_line_fallback_for_out_of_range_selection() {
+        let meta = SessionMeta::new(
+            "s".into(),
+            AgentKind::Copilot,
+            Utc.with_ymd_and_hms(2026, 6, 4, 10, 0, 0).unwrap(),
+            false,
+        );
+        let report = AnalysisReport::new(meta);
+        let episodes = Episodes::new();
+        let mut state = AppState::new(&report, &episodes);
+        state.flame_selected = 99; // out of range (turn_summary empty)
+        let line = format_meta_line(&state, 120);
+        assert_eq!(line, "(no turn selected)");
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // fit_priority_segments helper tests
+    // ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn fit_priority_segments_drops_from_back_in_priority_order() {
+        let segs = [
+            "T1".to_string(),
+            "+10s in".to_string(),
+            "5.0s".to_string(),
+            "3 calls".to_string(),
+        ];
+        // Wide: all preserved.
+        assert_eq!(
+            fit_priority_segments(&segs, " · ", 80),
+            "T1 · +10s in · 5.0s · 3 calls"
+        );
+        // Tight: drop only the lowest-priority last segment.
+        assert_eq!(
+            fit_priority_segments(&segs, " · ", 25),
+            "T1 · +10s in · 5.0s"
+        );
+        // Even tighter: drop two.
+        assert_eq!(fit_priority_segments(&segs, " · ", 14), "T1 · +10s in");
+        // Extreme: only top.
+        assert_eq!(fit_priority_segments(&segs, " · ", 5), "T1");
+    }
+
+    #[test]
+    fn fit_priority_segments_budget_zero_returns_empty() {
+        let segs = ["T1".to_string()];
+        assert_eq!(fit_priority_segments(&segs, " · ", 0), "");
+    }
+
+    #[test]
+    fn fit_priority_segments_char_truncates_when_top_overflows() {
+        // When even the highest-priority segment alone doesn't fit,
+        // truncate from the right rather than rendering empty.
+        let segs = ["T123456789".to_string()];
+        assert_eq!(fit_priority_segments(&segs, " · ", 4), "T123");
     }
 }
