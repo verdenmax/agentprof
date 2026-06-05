@@ -394,20 +394,40 @@ fn render_unified_table(
     // For the selection→render index mapping: if `state.roi_selected` is
     // in `0..work.len()`, the render index is the same. If it falls in
     // `work.len()..work.len()+blocking.len()`, the render index is
-    // `selected + 1` (skip past the separator). The TableState::offset
-    // we compute below uses render indices.
+    // `selected + padding_rows + has_separator` (skip past the padding
+    // and separator). The TableState::offset we compute below uses
+    // render indices.
+    //
+    // F1.14: anchor the user-blocking section to the bottom of the
+    // visible table area when content underfills (avoids the "ask_user
+    // suspended in the middle with empty space below" ugly layout).
+    // When content overflows the visible area, padding_rows = 0 and
+    // the layout reverts to the F1.11 sequential ordering — viewport
+    // scrolling then works as before.
     let work_n = sorted_work.len();
     let blocking_n = sorted_blocking.len();
     let has_separator = work_n > 0 && blocking_n > 0;
-    let selected_render_idx = if state.roi_selected < work_n {
-        state.roi_selected
-    } else if has_separator {
-        state.roi_selected + 1
+
+    // Compute visible body row count to decide how much padding to
+    // insert. `area.height` includes 2 border rows; the ratatui Table
+    // also reserves 1 row for the header. Anything beyond that is body.
+    let visible_body_rows = (area.height as usize).saturating_sub(3);
+    let content_render_rows = work_n + usize::from(has_separator) + blocking_n;
+    let padding_rows = if blocking_n > 0 && content_render_rows < visible_body_rows {
+        visible_body_rows - content_render_rows
     } else {
-        state.roi_selected
+        0
     };
 
-    let mut trows: Vec<Row<'_>> = Vec::with_capacity(work_n + blocking_n + 1);
+    let selected_render_idx = if state.roi_selected < work_n {
+        state.roi_selected
+    } else {
+        // Blocking-section selection: render index is past work +
+        // padding + separator.
+        work_n + padding_rows + usize::from(has_separator) + (state.roi_selected - work_n)
+    };
+
+    let mut trows: Vec<Row<'_>> = Vec::with_capacity(work_n + blocking_n + 1 + padding_rows);
     for (i, r) in sorted_work.iter().enumerate() {
         let style = if i == selected_render_idx {
             Style::default().add_modifier(Modifier::REVERSED)
@@ -415,6 +435,23 @@ fn render_unified_table(
             Style::default()
         };
         trows.push(tool_row(i, r, total_all_ms, style));
+    }
+    // F1.14 padding rows — blank, non-selectable, push the separator +
+    // blocking section to the visible bottom. Each row has 10 empty
+    // cells to keep column alignment intact.
+    for _ in 0..padding_rows {
+        trows.push(Row::new(vec![
+            Cell::from(""),
+            Cell::from(""),
+            Cell::from(""),
+            Cell::from(""),
+            Cell::from(""),
+            Cell::from(""),
+            Cell::from(""),
+            Cell::from(""),
+            Cell::from(""),
+            Cell::from(""),
+        ]));
     }
     if has_separator {
         // Plain DIM gray divider row — pure dashes in the Tool column.
@@ -442,7 +479,7 @@ fn render_unified_table(
             ),
         );
     }
-    let blocking_render_offset = if has_separator { work_n + 1 } else { work_n };
+    let blocking_render_offset = work_n + padding_rows + usize::from(has_separator);
     for (i, r) in sorted_blocking.iter().enumerate() {
         let render_idx = blocking_render_offset + i;
         let mut row_style = Style::default().add_modifier(Modifier::DIM);
@@ -508,7 +545,7 @@ fn render_unified_table(
     } else if selected_render_idx >= viewport_top + visible_rows {
         viewport_top = selected_render_idx + 1 - visible_rows;
     }
-    let total_render_rows = work_n + blocking_n + usize::from(has_separator);
+    let total_render_rows = work_n + padding_rows + usize::from(has_separator) + blocking_n;
     let max_viewport_top = total_render_rows.saturating_sub(visible_rows);
     viewport_top = viewport_top.min(max_viewport_top);
     state.roi_viewport_top.set(viewport_top);
