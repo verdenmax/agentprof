@@ -91,7 +91,7 @@ agentprof-cli  ──▶  agentprof-tui
 | `agentprof-core` | lib | `model`, `tokenizer`, `analyzer` (+ `analyzer::aggregate` M1.6.2), `export` (M1.6.4: speedscope JSON + SVG flamegraph), `observability::pii::{hash_path, hash_short}` (M1.6.4 tracing), `error` | `serde`, `serde_json`, `tiktoken-rs`, `chrono`, `thiserror`, **`sha2`** (M1.6.4 tracing), `reqwest`(opt, feature `anthropic-api`) |
 | `agentprof-adapters` | lib | `claude`, `codex`, `copilot`, `registry`, `discovery` | `serde_json`, `walkdir`, `globset` |
 | `agentprof-storage` | lib | `sqlite::{schema, migrations, queries}`, `otlp`(feature) | `rusqlite`(bundled), `opentelemetry-otlp`(opt), `tonic`(opt) |
-| `agentprof-tui` | lib | `app` (with `AppRunner`) + `app::{terminal,event,state}`, `views::{flamegraph, roi, aggregate, format}`, `theme`, `error` — **shipped M1.5** ([`README`](../crates/agentprof-tui/README.md), [ADR-0006](internals/adr-0006-panic-safe-tui.md)); + `watch::{WatchRunner, WatchData, RefreshKind, ReloadError, AggSortKey}` + cross-session arm in `views::aggregate` + `Event::Refresh` — **shipped M1.6.3** ([ADR-0009](internals/adr-0009-watch-runner-and-notify.md)) | `ratatui 0.29`, `crossterm 0.28` |
+| `agentprof-tui` | lib | `app` (with `AppRunner`) + `app::{terminal,event,state}`, `views::{flamegraph, roi, aggregate, models, turn_detail, format}`, `theme`, `error` — **shipped M1.5** ([`README`](../crates/agentprof-tui/README.md), [ADR-0006](internals/adr-0006-panic-safe-tui.md)); + `watch::{WatchRunner, WatchData, RefreshKind, ReloadError, AggSortKey}` + cross-session arm in `views::aggregate` + `Event::Refresh` — **shipped M1.6.3** ([ADR-0009](internals/adr-0009-watch-runner-and-notify.md)); + `views::turn_detail` (F1 Enter-to-open) + `views::models` (F1.7 Models view, key `4`, surfaces session-level per-model token totals — see [ADR-0012](internals/adr-0012-session-model-metrics-and-models-view.md)) — post-MVP UX waves F1, F1.5–F1.19 layered on the M1.5 base | `ratatui 0.29`, `crossterm 0.28` |
 | `agentprof-cli` | bin (`agentprof`) | `cmd::analyze` ✅ M1.4 + `--export tui` (M1.5) + `--export speedscope\|html` ✅ M1.6.4，`cmd::list` ✅ M1.6.1，`cmd::aggregate` ✅ M1.6.2 (--by tool\|mcp-server\|day\|model, --export md\|json\|csv\|html) + `--export tui` ✅ M1.6.3（deferred from M1.6.2），`cmd::watch` ✅ M1.6.3 (单 session + `watch aggregate ...` 子模式)，`observability::{config, init, tui_guard}` ✅ M1.6.4 (tracing infra — global `--log-level` / `--log-file` + TUI auto-redirect + reload-Layer)，`cmd::{ingest_otlp, config}` 规划中（Phase 2），`export` 已取消（与 `analyze --export` 重复），`config`, `main` | `clap`, `tracing`, `tracing-subscriber`, **`tracing-appender`**（M1.6.4 tracing，rolling-file writer），`anyhow`, `directories`, **`askama`**, **`csv`**, **`notify-debouncer-mini`**（M1.6.3，含 `notify` v6.1.1 transitive） |
 | `xtask` | bin | `anonymize`, `dist-check`, `release-notes` | `xshell` |
 
@@ -187,6 +187,7 @@ pub struct AnalysisReport {
     pub hook_rank: Vec<HookRankRow>,
     pub warnings: Vec<DeriveWarning>,
     pub parse_warnings: Vec<ParseWarning>,          // M1.4 post-output-audit: 让用户看到 silent event drops
+    pub model_metrics: Option<BTreeMap<String, ModelUsage>>,  // F1.7: per-model session totals (input/output/cache R/cache W), populated from session.shutdown.modelMetrics — see ADR-0012
 }
 ```
 
@@ -201,11 +202,12 @@ aggregator (`derive_episodes`) that consumes a stream of `impl Event`.
 | Type | Module | Purpose |
 |---|---|---|
 | `Turn` + `TurnStatus` + `Span` + `AbortInfo` | `episode::turn` | Per-assistant-turn aggregation with status (`Open` / `Completed` / `Aborted(AbortInfo)`) |
-| `ToolEpisode` + `ToolCall` + `ToolCallStatus` | `episode::tool` | Tool-name-keyed call history with 4-status enum (`Success` / `Failure { message }` / `OrphanSynthesizedStart` / `OpenAtEndOfSession`) |
+| `ToolEpisode` + `ToolCall` + `ToolCallStatus` | `episode::tool` | Tool-name-keyed call history with 4-status enum (`Success` / `Failure { message }` / `OrphanSynthesizedStart` / `OpenAtEndOfSession`). F1: `ToolCall.arguments: Option<serde_json::Value>` field carries per-call argument JSON for TurnDetailView rendering |
 | `HookEpisode` + `HookCall` | `episode::hook` | Hook-name-keyed call history with `synthesized_start` flag |
 | `SkillEpisode` + `SkillInvocation` | `episode::skill` | Skill invocations with a 50-event `triggered_tools` window |
 | `ModeSegment` + `Mode` | `episode::mode_segment` | Time-ranged `Interactive` / `Plan` / `Autopilot` / `Unknown(String)` segments — 对齐真实 Copilot wire vocabulary（M1.4 `fix/mode-vocabulary-alignment`，替换旧的 `Ask` / `Auto` / `Expert`） |
-| `Episodes` | `episode::episodes` | Top-level container (7 fields); deterministic `BTreeMap` ordering for snapshot stability |
+| `Episodes` | `episode::episodes` | Top-level container (8 fields, F1.7 added `model_metrics: Option<BTreeMap<String, ModelUsage>>` from session-shutdown events); deterministic `BTreeMap` ordering for snapshot stability |
+| `ModelUsage` | `analyzer::mod` | F1.7: 4-u64 per-model token counters (`input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`) + `total()` saturating sum; populated from Copilot wire's `session.shutdown.modelMetrics` block per ADR-0012 D-1/D-3/D-8 |
 | `DeriveWarning` | `episode::warning` | 5-variant data-quality enum (`SynthesizedStart`, `OpenAtEndOfSession`, `AbortWithoutOpenElement`, `NonMonotonicTimestamp`, `PayloadNameMissing`) |
 
 ```rust
@@ -217,6 +219,22 @@ pub fn derive_episodes<E: Event>(
 
 Pure, total, single-pass aggregation. Algorithm in
 [`docs/internals/adr-0004-episode-derivation.md`](internals/adr-0004-episode-derivation.md).
+
+#### Event trait extension methods (post-MVP additions)
+
+The `Event` trait (in `agentprof-core::adapter`) carries a small set of
+default-`None` extension methods that adapters override when their wire
+schema can supply optional metadata. Default impls return `None`, so new
+extensions are non-breaking for existing adapter impls:
+
+| Method | Added in | Purpose |
+|---|---|---|
+| `payload_tool_requests() -> Option<Vec<(String, serde_json::Value)>>` | F1 | Per-tool-call argument JSON for the F1 TurnDetailView (`Enter` on a flame row); CopilotAdapter walks `assistant.message.toolUses[].input` |
+| `payload_model_metrics() -> Option<BTreeMap<String, serde_json::Value>>` | F1.7 | Per-model session token totals from `session.shutdown.modelMetrics`; consumed by `derive_episodes` PASS-1 to populate `Episodes.model_metrics`, surfaced via Models view (key `4`) — see [ADR-0012](internals/adr-0012-session-model-metrics-and-models-view.md) |
+
+Both are pure extension points: 0 changes to existing adapter trait
+methods, 0 dependencies added, free-form `serde_json::Value` walk
+isolates the adapter from upstream wire-schema drift.
 
 ---
 
