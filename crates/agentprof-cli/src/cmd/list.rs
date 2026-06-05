@@ -11,9 +11,8 @@
 
 use std::fmt::Write as _;
 use std::io::IsTerminal as _;
-use std::num::ParseIntError;
 use std::path::PathBuf;
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -22,9 +21,11 @@ use clap::Args;
 use agentprof_adapters::copilot::CopilotAdapter;
 use agentprof_core::adapter::{Adapter, AgentKind, SessionRef};
 use agentprof_core::analyzer::analyze;
+
+use crate::cmd::since::parse_since;
 use agentprof_core::episode::derive_episodes;
 
-use crate::cmd::analyze::ExitKind;
+use crate::cmd::exit::ExitKind;
 
 /// Arguments for `agentprof list`.
 #[derive(Args, Debug, Clone)]
@@ -198,29 +199,10 @@ fn analyze_one(adapter: &CopilotAdapter, sref: &SessionRef) -> anyhow::Result<Li
     })
 }
 
-/// Parse `--since` value into a duration.
-///
-/// Accepts `<N>d` / `<N>h` / `<N>m` / `<N>s` / `"all"` (unlimited).
-fn parse_since(s: &str) -> Result<Duration, String> {
-    if s == "all" {
-        return Ok(Duration::MAX);
-    }
-    let (n_str, unit_secs): (&str, u64) = match s.chars().last() {
-        Some('s') => (&s[..s.len() - 1], 1),
-        Some('m') => (&s[..s.len() - 1], 60),
-        Some('h') => (&s[..s.len() - 1], 3600),
-        Some('d') => (&s[..s.len() - 1], 86400),
-        _ => {
-            return Err(format!(
-                "unrecognized --since: {s}; use <N>d/h/m/s or 'all'"
-            ))
-        }
-    };
-    let n: u64 = n_str
-        .parse()
-        .map_err(|e: ParseIntError| format!("not a number: {n_str} ({e})"))?;
-    Ok(Duration::from_secs(n * unit_secs))
-}
+// `parse_since` moved to `crate::cmd::since` per full-review CLI #1
+// (consolidation + saturating_mul). Re-export was considered; we
+// import via `use` in the imports block above instead so each call
+// site references the canonical path.
 
 /// Compact human-readable count (1, 1.2k, 2.45M, 12.3G).
 #[allow(clippy::cast_precision_loss)]
@@ -329,6 +311,7 @@ fn format_table(rows: &[ListRow], use_bold: bool) -> String {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
     fn parse_since_recognises_dhms() {

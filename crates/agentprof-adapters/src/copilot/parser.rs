@@ -31,8 +31,10 @@ use crate::copilot::event::CopilotEvent;
 /// ```no_run
 /// use agentprof_adapters::copilot::parser::parse_events_jsonl;
 ///
-/// let raw = parse_events_jsonl(std::path::Path::new("/tmp/events.jsonl"), false).unwrap();
-/// println!("{} events parsed", raw.events.len());
+/// fn read_events() -> Result<usize, Box<dyn std::error::Error>> {
+///     let raw = parse_events_jsonl(std::path::Path::new("/tmp/events.jsonl"), false)?;
+///     Ok(raw.events.len())
+/// }
 /// ```
 #[tracing::instrument(
     name = "adapter.parse",
@@ -106,8 +108,12 @@ pub fn parse_events_jsonl(
 /// or when a string literal is still open at end of line. String content
 /// (including escaped quotes) is excluded from brace counting so that
 /// braces appearing inside JSON string values do not skew the result.
+///
+/// Visibility: `pub(crate)` per full-review CLI #5 — only used by the
+/// sibling [`parse_events_jsonl`] for the last-line tail-truncation
+/// detection during live reads. Was historically `pub` by accident.
 #[must_use]
-pub fn looks_like_incomplete_json(line: &str) -> bool {
+pub(crate) fn looks_like_incomplete_json(line: &str) -> bool {
     let mut depth: i32 = 0;
     let mut in_string = false;
     let mut escape = false;

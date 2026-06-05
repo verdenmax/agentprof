@@ -90,6 +90,6 @@ fn run(
 }
 
 fn classify_error(err: &anyhow::Error) -> u8 {
-    err.downcast_ref::<cmd::analyze::ExitKind>()
+    err.downcast_ref::<cmd::exit::ExitKind>()
         .map_or(1, |k| *k as u8)
 }

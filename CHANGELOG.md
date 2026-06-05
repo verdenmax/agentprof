@@ -13,6 +13,20 @@ prefix used in commit messages).
 
 ## [Unreleased]
 
+### Changed
+
+- `agentprof-cli`: review-cleanup wave A — 10 small CLI refactors from the standing `full-review-cli-*` backlog, all behavior-preserving or warning-only changes.
+  - **CLI #1** — extract `parse_since` into `crate::cmd::since` module (was duplicated in `cmd/list.rs` and `cmd/aggregate.rs`); use `u64::saturating_mul` uniformly so absurd inputs like `1000000000000000000d` saturate to `Duration::from_secs(u64::MAX)` instead of panicking in debug builds (the `cmd/list.rs` copy used plain `*` and had the panic). 3 new unit tests in `cmd::since::tests` (recognises dhms/all · rejects garbage · saturates on overflow); old per-module tests preserved via the shared `use` import.
+  - **CLI #2** — `agentprof aggregate --export tui` now checks TTY presence **before** walking the session root (was after `compute_aggregate` which loads every session). Pre-fix, `aggregate --export tui > foo` would parse the whole root then exit 3. New `check_tty_for_tui()` helper called both at the top of `run()` and inside `run_tui_for_aggregate` (defence-in-depth).
+  - **CLI #3** — suppress the "no sessions matching" stderr warning when `--export tui` (the empty-state surfaces inside the TUI's own cross-aggregate view; the stderr flash before alt-screen take-over was visually distracting). Watch-tick suppression was already in place — this extends to the one-shot TUI case.
+  - **CLI #4** — `agentprof analyze` warns `--root ignored (session path bypasses root discovery)` when both `--root` and `--session <PATH>` are passed (`SessionSelector::Path` never consults root). Mirrors the existing `--output ignored with --export tui` warning convention.
+  - **CLI #5** — tighten `parse_events_jsonl`'s sibling `looks_like_incomplete_json` to `pub(crate)` (was `pub` by accident; only used by the same module).
+  - **CLI #6** — document the false-negative in `cmd::watch::WatchCmd.session`: `clap`'s `default_value = "latest"` collapses "user omitted" and "user wrote `--session latest` explicitly" into the same `SessionSelector::Latest` variant, so the `"flag ignored in watch aggregate mode"` warning stays silent for the omit case. Real fix would require `Option<SessionSelector>` — deferred to avoid breaking external scripts.
+  - **CLI #7** — note (rustdoc comment in `cmd::watch::run_cross`) that `--root` is resolved twice (inside `compute_aggregate` and again for the watcher target); harmless because the resolution function is pure, but architecturally smells. Real fix (have `compute_aggregate` return the resolved root) deferred.
+  - **CLI #8** — `cmd::analyze::resolve_session_by_path` now emits a `tracing::warn!` when fs metadata is unavailable (was silently falling back to `UNIX_EPOCH` / size 0), so users know the displayed sort-by-mtime / size values are placeholders rather than the real file's stats.
+  - **CLI #9** — rewrite the `parse_events_jsonl` doctest example to use `?` propagation with a `Result`-returning function instead of `.unwrap()` (the `no_run` tag made it harmless but the pattern was teaching the wrong idiom).
+  - **CLI #10** — move `ExitKind` from `cmd::analyze` to its own `cmd::exit` module. The historical location was an accident of `analyze` being the first subcommand to define structured exit codes; later `list` / `aggregate` / `watch` imported `ExitKind` from it despite having no other dependency on `analyze`. Kept `pub use crate::cmd::exit::ExitKind` re-export in `cmd::analyze` so external callers don't break. All internal imports updated to the canonical `crate::cmd::exit::ExitKind` path.
+
 ### Added
 
 - `agentprof-tui`: F1.15+F1.16+F1.17+F1.18+F1.19 AggregateView polish wave — five small UX improvements to the single-session AggregateView (the least-polished view pre-this-wave, with no selection / no percent columns / no failure coloring / no empty-state messaging / inconsistent block titles). All changes reuse helpers already pub'd by F1.7 (Models view) and F1.11-F1.13 (RoiView) so the visual conventions stay consistent across all four views.

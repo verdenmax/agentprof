@@ -29,7 +29,8 @@ use agentprof_core::episode::derive_episodes;
 use agentprof_tui::watch::{RefreshKind, ReloadError, WatchData, WatchRunner};
 
 use crate::cmd::aggregate::{compute_aggregate, AggExportFormat, AggregateCmd};
-use crate::cmd::analyze::{resolve_session, ExitKind, SessionSelector};
+use crate::cmd::analyze::{resolve_session, SessionSelector};
+use crate::cmd::exit::ExitKind;
 
 /// Arguments for `agentprof watch`.
 #[derive(Args, Debug, Clone)]
@@ -55,6 +56,17 @@ pub struct WatchCmd {
     /// Which session to watch (single mode only). Defaults to `latest`.
     /// Locked to the resolved session at startup — newer sessions are
     /// NOT auto-followed (per spec D-5).
+    ///
+    /// **Known limitation (full-review CLI #6):** because `clap`'s
+    /// `default_value = "latest"` collapses "user omitted the flag"
+    /// and "user wrote `--session latest` explicitly" into the same
+    /// `SessionSelector::Latest` variant, the `cmd::watch::run_cross`
+    /// "flag ignored in watch aggregate mode" warning fires a false
+    /// negative for the former case (it stays silent). To fix
+    /// properly, change to `Option<SessionSelector>` and detect
+    /// `None`-vs-`Some(Latest)` — left for a future polish round to
+    /// avoid breaking external scripts that may pass `--session latest`
+    /// explicitly.
     #[arg(long, default_value = "latest")]
     pub session: SessionSelector,
 
@@ -208,6 +220,13 @@ fn run_cross(
         .0;
     let initial = WatchData::Cross(initial_any);
 
+    // CLI #7 — root is resolved a second time here (once inside
+    // `compute_aggregate`, again right below for the watcher target).
+    // The resolution function is pure (clone + `default_session_root` +
+    // unwrap_or → into anyhow), so the duplication is harmless but
+    // architecturally smells. A future polish round can have
+    // `compute_aggregate` return the resolved root and reuse it here;
+    // deferred to keep this change scoped to CLI-grab-bag review #1-#10.
     let root = agg
         .root
         .clone()

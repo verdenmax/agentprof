@@ -132,32 +132,14 @@ impl AnalysisSection {
 
 /// Exit-code hint surfaced to `main()` via `anyhow` downcast.
 ///
-/// Mapped to process exit codes per `docs/architecture.md`:
-/// - `UserError = 1` — invalid args, session not found.
-/// - `DataError = 2` — adapter could not parse the session.
-/// - `OutputError = 3` — failed to write to `--output` path.
-#[allow(clippy::enum_variant_names)] // names spec'd in docs/architecture.md
-#[derive(Debug, Clone, Copy, thiserror::Error)]
-pub enum ExitKind {
-    /// User error: invalid args, session not found.
-    #[error("user error")]
-    UserError = 1,
-    /// Data error: session file could not be parsed by the adapter.
-    #[error("data error")]
-    DataError = 2,
-    /// I/O error during output write.
-    #[error("output error")]
-    OutputError = 3,
-}
-
-impl ExitKind {
-    /// Wrap a user-facing message into an `anyhow::Error` whose downcast
-    /// target is `ExitKind`. `main()`'s `classify_error` extracts this to
-    /// pick the process exit code.
-    pub(crate) fn into_anyhow(self, msg: String) -> anyhow::Error {
-        anyhow::Error::msg(msg).context(self)
-    }
-}
+/// Process exit-code taxonomy.
+///
+/// **Re-exported from [`crate::cmd::exit`]** — moved out of this
+/// module per full-review CLI #10 (`exitkind-location`). Kept here as
+/// a `pub use` to avoid breaking external callers that imported it
+/// from `cmd::analyze`. New code should import via
+/// `crate::cmd::ExitKind` or `crate::cmd::exit::ExitKind`.
+pub use crate::cmd::exit::ExitKind;
 
 /// Wire the analyze pipeline.
 ///
@@ -280,7 +262,22 @@ pub fn resolve_session(
     sel: &SessionSelector,
 ) -> Result<SessionRef> {
     match sel {
-        SessionSelector::Path(p) => resolve_session_by_path(adapter, p),
+        SessionSelector::Path(p) => {
+            // CLI #4: --root is silently ignored when --session names a
+            // concrete path (the path is the session, root would only
+            // matter for discovery). Mirror the existing
+            // "--output ignored with --export tui" warning pattern so
+            // users with a typo'd combo aren't left guessing why
+            // --root has no effect.
+            if root.is_some() {
+                tracing::warn!(
+                    flag = "--root",
+                    with = "--session <PATH>",
+                    "flag ignored (session path bypasses root discovery)"
+                );
+            }
+            resolve_session_by_path(adapter, p)
+        }
         SessionSelector::Latest | SessionSelector::Previous | SessionSelector::Uuid(_) => {
             resolve_session_by_discovery(adapter, root, sel)
         }
@@ -312,6 +309,16 @@ fn resolve_session_by_path(adapter: &CopilotAdapter, p: &Path) -> Result<Session
         )));
     }
     let meta = std::fs::metadata(&path).ok();
+    if meta.is_none() {
+        // CLI #8: previously fell back to UNIX_EPOCH / size 0 silently.
+        // Surface as warn so users know the displayed sort-by-mtime and
+        // size_bytes values are placeholders, not the real file's stats.
+        tracing::warn!(
+            path = %agentprof_core::observability::pii::hash_path(&path),
+            "fs metadata unavailable for resolved session path; \
+             modified_at defaults to UNIX_EPOCH and size_bytes to 0"
+        );
+    }
     let modified_at = meta
         .as_ref()
         .and_then(|m| m.modified().ok())

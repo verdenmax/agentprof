@@ -9,11 +9,20 @@
 //! their tracing writer to a file via `enter_tui_log_guard` before
 //! the alt-screen takes over the terminal. Non-TUI subcommands
 //! accept it for signature uniformity but do not consume it.
+//!
+//! Cross-cutting modules:
+//! - [`exit`] — process exit-code taxonomy ([`exit::ExitKind`]) shared
+//!   by all subcommands (per full-review CLI #10).
+//! - [`since`] — `--since` value parser ([`since::parse_since`]) shared
+//!   by `list`, `aggregate`, and `watch aggregate` (per full-review
+//!   CLI #1).
 
 pub mod aggregate;
 pub mod analyze;
+pub mod exit;
 pub mod format;
 pub mod list;
+pub mod since;
 pub mod watch;
 
 pub use crate::observability::{LogConfig, TracingHandle};

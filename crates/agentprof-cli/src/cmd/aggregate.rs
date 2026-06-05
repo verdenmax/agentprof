@@ -7,7 +7,6 @@
 //! csv / html.
 
 use std::io::Write as _;
-use std::num::ParseIntError;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
@@ -24,8 +23,9 @@ use agentprof_core::analyzer::aggregate::{
 use agentprof_core::analyzer::{analyze, AnalysisReport};
 use agentprof_core::episode::{derive_episodes, Episodes};
 
-use crate::cmd::analyze::ExitKind;
+use crate::cmd::exit::ExitKind;
 use crate::cmd::format;
+use crate::cmd::since::parse_since;
 
 /// Arguments for `agentprof aggregate`.
 #[derive(Args, Debug, Clone)]
@@ -150,12 +150,27 @@ pub fn run(
         }
     };
 
+    // CLI #2 — validate TTY presence BEFORE walking the session root
+    // when `--export tui`. Pre-fix, a user piping the TUI form
+    // (`aggregate --export tui > foo`) would do seconds of session-load
+    // work then exit 3. Now the precondition check happens up-front so
+    // the user sees the error immediately. Single-letter `--export tui`
+    // typos no longer waste a real-session round-trip.
+    if matches!(cmd.export, AggExportFormat::Tui) {
+        check_tty_for_tui()?;
+    }
+
     let (any_report, refs_total) = compute_aggregate(&adapter, &cmd)?;
 
     // Empty-root warning lives in `run()` (not `compute_aggregate`) so
     // `watch aggregate`'s reload tick does NOT spam stderr — which during
     // the TUI alt-screen would visually corrupt the display.
-    if refs_total == 0 {
+    //
+    // CLI #3 — also suppress when `--export tui`: the one-shot TUI
+    // launch is about to enter alt-screen and the stderr warning would
+    // momentarily flash before being overwritten. The empty-state is
+    // surfaced inside the TUI's own cross-aggregate view instead.
+    if refs_total == 0 && !matches!(cmd.export, AggExportFormat::Tui) {
         let root_label = cmd.root.as_ref().map_or_else(
             || "<adapter default>".to_string(),
             |p| agentprof_core::observability::pii::hash_path(p),
@@ -350,16 +365,14 @@ pub fn compute_aggregate(
     Ok((any_report, refs_total))
 }
 
-fn run_tui_for_aggregate(
-    any_report: AnyAggregateReport,
-    cfg: &crate::cmd::LogConfig,
-    tracing_handle: &crate::cmd::TracingHandle,
-) -> Result<()> {
+/// Verify both stdin and stdout are TTYs (precondition for `--export tui`).
+///
+/// Extracted to a standalone helper per CLI #2 so the check can run
+/// at the top of `run()` (before any session-load work) AND inside
+/// `run_tui_for_aggregate` as a defence-in-depth fallback when called
+/// from non-`run` entry points.
+fn check_tty_for_tui() -> Result<()> {
     use std::io::IsTerminal as _;
-
-    // Swap the tracing writer to a rolling file BEFORE entering the
-    // alt-screen — see `cmd::analyze::run_tui` for the rationale.
-    let _log_guard = crate::observability::enter_tui_log_guard(cfg, tracing_handle);
 
     if !std::io::stdout().is_terminal() || !std::io::stdin().is_terminal() {
         return Err(ExitKind::OutputError.into_anyhow(
@@ -369,6 +382,22 @@ fn run_tui_for_aggregate(
                 .to_string(),
         ));
     }
+    Ok(())
+}
+
+fn run_tui_for_aggregate(
+    any_report: AnyAggregateReport,
+    cfg: &crate::cmd::LogConfig,
+    tracing_handle: &crate::cmd::TracingHandle,
+) -> Result<()> {
+    // Swap the tracing writer to a rolling file BEFORE entering the
+    // alt-screen — see `cmd::analyze::run_tui` for the rationale.
+    let _log_guard = crate::observability::enter_tui_log_guard(cfg, tracing_handle);
+
+    // CLI #2 — the up-front TTY check in `run()` is the primary
+    // guard; this is a defence-in-depth fallback for callers (if any)
+    // that bypass `run()`.
+    check_tty_for_tui()?;
     agentprof_tui::app::terminal::install_panic_hook();
     let mut term = agentprof_tui::app::terminal::enter()
         .map_err(|e| ExitKind::OutputError.into_anyhow(format!("entering tui: {e}")))?;
@@ -392,31 +421,9 @@ fn load_and_analyze(
     Ok((report, episodes))
 }
 
-/// Parse `--since` value into a [`Duration`].
-///
-/// Accepts `<N>d` / `<N>h` / `<N>m` / `<N>s` / `"all"` (unlimited).
-/// Mirrors the helper in `cmd::list` to keep the two subcommands
-/// independent — promoting to a shared module is a follow-up.
-fn parse_since(s: &str) -> std::result::Result<Duration, String> {
-    if s == "all" {
-        return Ok(Duration::MAX);
-    }
-    let (n_str, unit_secs): (&str, u64) = match s.chars().last() {
-        Some('s') => (&s[..s.len() - 1], 1),
-        Some('m') => (&s[..s.len() - 1], 60),
-        Some('h') => (&s[..s.len() - 1], 3600),
-        Some('d') => (&s[..s.len() - 1], 86400),
-        _ => {
-            return Err(format!(
-                "unrecognized --since: {s}; use <N>d/h/m/s or 'all'"
-            ));
-        }
-    };
-    let n: u64 = n_str
-        .parse()
-        .map_err(|e: ParseIntError| format!("not a number: {n_str} ({e})"))?;
-    Ok(Duration::from_secs(n.saturating_mul(unit_secs)))
-}
+// `parse_since` moved to `crate::cmd::since` per full-review CLI #1
+// (consolidation + saturating_mul fix; was already saturating here
+// but the `cmd::list` copy wasn't).
 
 fn since_dur_chrono(d: Duration) -> chrono::Duration {
     let secs = i64::try_from(d.as_secs()).unwrap_or(i64::MAX);
