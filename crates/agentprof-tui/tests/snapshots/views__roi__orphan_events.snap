@@ -1,8 +1,8 @@
 ---
 source: crates/agentprof-tui/tests/views.rs
-expression: text
+expression: buffer_to_symbol_grid(&buffer)
 ---
-┌ RoiView (2/3) — Sort: [t]total  c=calls  s=success%  p=p50 ──────────────────────────────────────┐
+┌ RoiView (2/3) — Sort: [t]total  c=calls  s=success%  p=p50 · DIM = user-waiting ─────────────────┐
 │#   Tool                               Source     Calls   OK      Fail    Total      p50          │
 │1   <orphan>                           builtin    1       0       0       0ms        0ms          │
 │                                                                                                  │
@@ -24,9 +24,9 @@ expression: text
 │                                                                                                  │
 │                                                                                                  │
 │                                                                                                  │
-└──────────────────────────────────────────────────────────────────────────────────────────────────┘
-┌ User-blocking (user think time) ─────────────────────────────────────────────────────────────────┐
-│Tool                               Calls   Total                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
 │                                                                                                  │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ Selected: <orphan> ──────────────────────────────────────────────────────────────────────────────┐

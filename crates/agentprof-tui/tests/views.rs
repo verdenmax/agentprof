@@ -136,6 +136,18 @@ fn snapshot_roi_with_skill_invoked() {
     snapshot_view("with-skill-invoked", View::Roi, "roi__with_skill_invoked");
 }
 
+/// `with-ask-user-mid-session` → Roi (F1.11): exercises the unified
+/// table layout where work tools and user-blocking tools (`ask_user`)
+/// render in the same table, separated by a DIM divider row.
+#[test]
+fn snapshot_roi_with_ask_user_mid_session() {
+    snapshot_view(
+        "with-ask-user-mid-session",
+        View::Roi,
+        "roi__with_ask_user_mid_session",
+    );
+}
+
 /// `with-mode-transitions` → Aggregate: exercises `group_by_mode` with
 /// multiple Mode variants in one session.
 #[test]

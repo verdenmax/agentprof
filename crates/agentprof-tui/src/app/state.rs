@@ -471,19 +471,13 @@ fn scroll_up(state: &mut AppState<'_>) {
 fn scroll_down(state: &mut AppState<'_>) {
     match state.view {
         View::Roi => {
-            // Bound against the WORK partition only — the user-blocking
-            // tools render in a separate fixed sub-table that is not
-            // selectable. Mirroring roi::render's `r.is_user_blocking ==
-            // false` partition keeps `roi_selected` aligned with the
-            // visible work-tools table; otherwise the selection can fall
-            // off the bottom into a phantom region.
-            let work_count = state
-                .report
-                .tool_rank
-                .iter()
-                .filter(|r| !r.is_user_blocking)
-                .count();
-            let max = work_count.saturating_sub(1);
+            // F1.11: all tools (work + user-blocking) are selectable in
+            // the unified table; the user-blocking section is rendered
+            // with DIM styling + a separator row, but every data row can
+            // be reached via j/k. Pre-F1.11 the user-blocking sub-table
+            // was a separate non-selectable widget — bug-ish UX since
+            // users could see ask_user but not select it.
+            let max = state.report.tool_rank.len().saturating_sub(1);
             if state.roi_selected < max {
                 state.roi_selected += 1;
             }
@@ -523,15 +517,10 @@ fn scroll_to_top(state: &mut AppState<'_>) {
 fn scroll_to_bottom(state: &mut AppState<'_>) {
     match state.view {
         View::Roi => {
-            // Same partition rule as scroll_down: clamp to the work-only
-            // sub-table, NOT the full tool_rank.
-            let work_count = state
-                .report
-                .tool_rank
-                .iter()
-                .filter(|r| !r.is_user_blocking)
-                .count();
-            state.roi_selected = work_count.saturating_sub(1);
+            // F1.11: select last tool overall (work or user-blocking).
+            // See scroll_down comment for the user-blocking selectability
+            // rationale.
+            state.roi_selected = state.report.tool_rank.len().saturating_sub(1);
         }
         View::Flamegraph => {
             state.flame_selected = state.report.turn_summary.len().saturating_sub(1);
@@ -822,6 +811,68 @@ mod tests {
     }
 
     #[test]
+    fn roi_navigation_reaches_user_blocking_tools() {
+        // F1.11 regression: pre-F1.11 the user-blocking tools were
+        // un-selectable (rendered in a separate sub-table). After the
+        // merge, j/k must traverse work tools and continue into the
+        // user-blocking section.
+        let mut r = empty_report();
+        // 2 work tools.
+        for n in ["bash", "read_file"] {
+            r.tool_rank.push(ToolRankRow::new(
+                n.into(),
+                ToolSource::Builtin,
+                1,
+                1,
+                0,
+                0,
+                0,
+                chrono::Duration::milliseconds(10),
+                chrono::Duration::milliseconds(5),
+                chrono::Duration::milliseconds(5),
+                chrono::Duration::milliseconds(5),
+            ));
+        }
+        // 1 user-blocking tool — must be selectable.
+        let mut ask_user_row = ToolRankRow::new(
+            "ask_user".into(),
+            ToolSource::Builtin,
+            3,
+            3,
+            0,
+            0,
+            0,
+            chrono::Duration::seconds(60),
+            chrono::Duration::seconds(20),
+            chrono::Duration::seconds(20),
+            chrono::Duration::seconds(20),
+        );
+        ask_user_row.is_user_blocking = true;
+        r.tool_rank.push(ask_user_row);
+
+        let e = Episodes::new();
+        let mut s = AppState::new(&r, &e);
+        s.view = View::Roi;
+        // 0 → 1 → 2 (= ask_user). Saturate at 2.
+        dispatch(&mut s, key(KeyCode::Down));
+        assert_eq!(s.roi_selected, 1);
+        dispatch(&mut s, key(KeyCode::Down));
+        assert_eq!(
+            s.roi_selected, 2,
+            "j/Down must reach user-blocking tool (was unreachable pre-F1.11)"
+        );
+        dispatch(&mut s, key(KeyCode::Down));
+        assert_eq!(s.roi_selected, 2, "must saturate at last user-blocking row");
+        // G jumps straight to the last row (which is the user-blocking one).
+        s.roi_selected = 0;
+        dispatch(&mut s, key(KeyCode::Char('G')));
+        assert_eq!(
+            s.roi_selected, 2,
+            "G must jump to last selectable row including user-blocking section"
+        );
+    }
+
+    #[test]
     fn ctrl_c_emits_quit_action() {
         let r = empty_report();
         let e = Episodes::new();
@@ -905,70 +956,12 @@ mod tests {
         assert_eq!(s.roi_viewport_top.get(), 7);
     }
 
-    #[test]
-    fn roi_selected_does_not_overshoot_work_partition() {
-        // Build a report with 2 work tools + 1 user-blocking tool. The
-        // work table renders 2 rows; selection should clamp to index 1
-        // (not 2), because the user-blocking tool is in a separate
-        // non-selectable sub-table.
-        let mut r = empty_report();
-        r.tool_rank.push(ToolRankRow::new(
-            "ask_user".into(), // is_user_blocking via USER_BLOCKING_TOOLS
-            ToolSource::Builtin,
-            1,
-            1,
-            0,
-            0,
-            0,
-            chrono::Duration::milliseconds(1),
-            chrono::Duration::milliseconds(1),
-            chrono::Duration::milliseconds(1),
-            chrono::Duration::milliseconds(1),
-        ));
-        r.tool_rank.push(ToolRankRow::new(
-            "bash".into(),
-            ToolSource::Builtin,
-            1,
-            1,
-            0,
-            0,
-            0,
-            chrono::Duration::milliseconds(1),
-            chrono::Duration::milliseconds(1),
-            chrono::Duration::milliseconds(1),
-            chrono::Duration::milliseconds(1),
-        ));
-        r.tool_rank.push(ToolRankRow::new(
-            "view".into(),
-            ToolSource::Builtin,
-            1,
-            1,
-            0,
-            0,
-            0,
-            chrono::Duration::milliseconds(1),
-            chrono::Duration::milliseconds(1),
-            chrono::Duration::milliseconds(1),
-            chrono::Duration::milliseconds(1),
-        ));
-        // Sanity: ask_user is partitioned out.
-        assert_eq!(r.tool_rank.iter().filter(|t| t.is_user_blocking).count(), 1);
-        assert_eq!(
-            r.tool_rank.iter().filter(|t| !t.is_user_blocking).count(),
-            2
-        );
-        let e = Episodes::new();
-        let mut s = AppState::new(&r, &e);
-        s.view = View::Roi;
-        // Down × 5 — should clamp at index 1 (work_count - 1), not 2.
-        for _ in 0..5 {
-            dispatch(&mut s, key(KeyCode::Down));
-        }
-        assert_eq!(
-            s.roi_selected, 1,
-            "selection should clamp to work-partition len-1, not full tool_rank len-1"
-        );
-    }
+    // [Removed F1.11] `roi_selected_does_not_overshoot_work_partition`
+    // — pre-F1.11 enforced the buggy behavior of clamping selection to
+    // the work-only partition. F1.11 merged the user-blocking tools
+    // into a single selectable table; see
+    // `roi_navigation_reaches_user_blocking_tools` above for the
+    // replacement positive test.
 
     #[test]
     fn aggregate_scroll_keys_are_noop() {
