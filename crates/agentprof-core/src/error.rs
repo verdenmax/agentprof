@@ -32,8 +32,26 @@ pub enum CoreError {
     },
 
     /// Malformed JSON inside an export or fixture.
-    #[error("JSON error: {0}")]
-    Json(#[from] serde_json::Error),
+    ///
+    /// Carries a `path` field per full-review CORE #3
+    /// (`json-error-path`) — pre-fix this variant was
+    /// `Json(#[from] serde_json::Error)` with no path context, so a
+    /// parse failure on one of N session files would surface as a
+    /// bare `"JSON error: ..."` message with no indication WHICH file
+    /// caused it. Now mirrors the [`CoreError::Io`] shape.
+    ///
+    /// The `#[from] serde_json::Error` impl was dropped along with
+    /// the variant change because there were no live call sites
+    /// (audit at the same commit); future producers must construct
+    /// the variant explicitly so the path is never lost.
+    #[error("JSON error reading {path}: {source}")]
+    Json {
+        /// Offending path.
+        path: PathBuf,
+        /// Underlying `serde_json` error.
+        #[source]
+        source: serde_json::Error,
+    },
 
     /// An analyzer pre-condition was violated.
     #[error("invariant violation: {0}")]
@@ -171,6 +189,28 @@ mod tests {
         let display = format!("{err}");
         assert!(display.contains("/tmp/x.jsonl"));
         assert!(display.contains("no such file"));
+    }
+
+    #[test]
+    fn core_error_json_carries_path_context() {
+        // CORE #3 regression guard: variant must carry `path` for
+        // failure-attribution when parsing one of N session files.
+        // Construct a real serde_json::Error to capture both halves of
+        // the Display output without faking the inner error type.
+        let inner: serde_json::Error = serde_json::from_str::<u32>("not a number").unwrap_err();
+        let err = CoreError::Json {
+            path: std::path::PathBuf::from("/tmp/session-abc.jsonl"),
+            source: inner,
+        };
+        let display = format!("{err}");
+        assert!(
+            display.contains("/tmp/session-abc.jsonl"),
+            "JSON error must include the path: {display}"
+        );
+        assert!(
+            display.contains("JSON error reading"),
+            "JSON error prefix should be stable: {display}"
+        );
     }
 
     #[test]

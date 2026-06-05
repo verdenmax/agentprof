@@ -1,6 +1,5 @@
 ---
 source: crates/agentprof-cli/tests/aggregate.rs
-assertion_line: 166
 expression: s
 ---
 # agentprof aggregate
@@ -15,7 +14,7 @@ expression: s
 | Tool | Source | Calls | Success | Fail | Total | p50 | p95 | Sessions |
 |---|---|---:|---:|---:|---:|---:|---:|---:|
 | `ask_user` | builtin | 1 | 1 | 0 | 10.0 min | 10.0 min | 10.0 min | 1 |
-| `bash` | builtin | 16 | 15 | 1 | 20.7 s | 1.0 s | 5.0 s | 12 |
+| `bash` | builtin | 16 | 15 | 1 | 20.7 s | 1.0 s | 3.0 s | 12 |
 | `mcp__github__create_pr` | mcp:github | 1 | 1 | 0 | 2.0 s | 2.0 s | 2.0 s | 1 |
 | `mcp__github__list_pulls` | mcp:github | 1 | 1 | 0 | 2.0 s | 2.0 s | 2.0 s | 1 |
 | `skill__code-reviewer__run` | skill:code-reviewer | 2 | 2 | 0 | 2.0 s | 1.0 s | 1.0 s | 2 |

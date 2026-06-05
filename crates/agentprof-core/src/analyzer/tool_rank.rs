@@ -240,67 +240,20 @@ fn collect_sorted_durations(calls: &[ToolCall]) -> Vec<Duration> {
     v
 }
 
-/// Percentile by sort-and-index. `pct` is `0.0..=100.0`.
+/// Percentile (nearest-rank). **Re-exported from
+/// [`crate::analyzer::stats::percentile_nearest_rank`]** per full-review
+/// CORE #1 (`percentile-divergence`).
 ///
-/// Algorithm: nearest-rank — `slice[round((pct/100) * (len-1))]` with
-/// `f64::round` (half-away-from-zero). This is NOT the averaged-when-even
-/// statistical median: for an even-sized sample, p50 rounds **up** to the
-/// upper midpoint (e.g. `[1s, 2s]` → `p50 = 2s`, not `1.5s`).
+/// Pre-extraction this lived here and used `round((pct/100)*(n-1))`
+/// (upper-midpoint), diverging from `aggregate::group_by_tool`'s
+/// `ceil(p*n)-1` (lower-midpoint). They now share the lower-midpoint
+/// convention via the shared `stats` module — see that module's docs
+/// for the rationale + behavior change.
 ///
-/// Trade-off: lossless on percentile-of-existing-element queries (a
-/// returned value is always a real observation, never an interpolated
-/// average), at the cost of slight upward bias on even samples. Fine for
-/// the small per-tool / per-hook samples M1.4 emits; consider linear
-/// interpolation if M1.5+ needs strict statistical medians.
-///
-/// Edge cases:
-/// - Empty slice → `Duration::zero()`.
-/// - 1-element slice → that element (p50 == p95 == max).
-/// - 2+ elements → indexed by rounded position.
-///
-/// `sorted` MUST be ascending; this is enforced by the only call site
-/// (`collect_sorted_durations`) which uses `sort_unstable`. Caller is
-/// responsible for clamping `pct` to `[0.0, 100.0]`; out-of-range values
-/// silently truncate at the slice bounds via `idx.min(last_idx)`.
-///
-/// # Examples
-///
-/// ```
-/// use agentprof_core::analyzer::tool_rank::percentile;
-/// use chrono::Duration;
-///
-/// assert_eq!(percentile(&[], 50.0), Duration::zero());
-/// assert_eq!(
-///     percentile(&[Duration::seconds(5)], 95.0),
-///     Duration::seconds(5)
-/// );
-/// let durs = vec![Duration::seconds(1), Duration::seconds(2), Duration::seconds(10)];
-/// assert_eq!(percentile(&durs, 50.0), Duration::seconds(2));
-/// assert_eq!(percentile(&durs, 95.0), Duration::seconds(10));
-///
-/// // Even sample: p50 rounds up (nearest-rank), NOT 1.5s averaged.
-/// assert_eq!(
-///     percentile(&[Duration::seconds(1), Duration::seconds(2)], 50.0),
-///     Duration::seconds(2)
-/// );
-/// ```
-#[must_use]
-pub fn percentile(sorted: &[Duration], pct: f64) -> Duration {
-    if sorted.is_empty() {
-        return Duration::zero();
-    }
-    let last_idx = sorted.len() - 1;
-    // Casts are bounded: pct ∈ [0, 100], len ≥ 1; index is clipped below.
-    #[allow(
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss,
-        clippy::cast_precision_loss
-    )]
-    let idx_f = (pct / 100.0) * (last_idx as f64);
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let idx = idx_f.round() as usize;
-    sorted[idx.min(last_idx)]
-}
+/// Kept as a `pub use` re-export to avoid breaking external callers
+/// that import `agentprof_core::analyzer::tool_rank::percentile`.
+/// New code should import via `crate::analyzer::stats::percentile_nearest_rank`.
+pub use crate::analyzer::stats::percentile_nearest_rank as percentile;
 
 #[cfg(test)]
 mod tests {

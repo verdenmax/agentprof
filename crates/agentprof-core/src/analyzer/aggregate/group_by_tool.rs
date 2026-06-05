@@ -129,27 +129,26 @@ struct TempToolAcc {
     duration_pool: Vec<Duration>,
 }
 
-/// Returns the percentile value at `p` (0.0..=1.0) using the nearest-rank
-/// method: `idx = ceil(p * N) - 1`, clamped to `[0, N-1]`.
+/// Percentile (nearest-rank, upper-midpoint). **Delegates to
+/// [`crate::analyzer::stats::percentile_nearest_rank`]** per full-review
+/// CORE #1 (`percentile-divergence`).
 ///
-/// For `p = 0.5`, `N = 2` → `idx = 0` (the smaller value, "lower median").
-/// For `p = 0.95`, `N = 20` → `idx = 18` (the 19th of 20 in 0-indexing).
+/// Pre-extraction this was a private duplicate of the percentile logic
+/// in `tool_rank` with a different convention (lower-midpoint via
+/// `ceil(p*n) - 1` vs `tool_rank`'s upper-midpoint via
+/// `round((pct/100) * (n-1))`). For `[1, 2, 3, 4]s`, per-session
+/// reported `p50 = 3` while a cross-session aggregate of that one
+/// session reported `p50 = 2` — violating the "aggregate of single
+/// session equals that session" invariant. The shared helper picks
+/// the upper-midpoint convention; cross-session aggregate values for
+/// even-length pools change as a result (snapshots regenerated).
 ///
-/// Returns `Duration::zero()` for an empty pool. Input MUST be pre-sorted
-/// ascending; the function does not sort.
+/// Note the input scale conversion: the shared helper takes
+/// `pct ∈ [0, 100]`, whereas this function's call sites pass
+/// `p ∈ [0, 1]`. The `* 100.0` adapter keeps the public surface
+/// stable.
 fn percentile(sorted_pool: &[Duration], p: f64) -> Duration {
-    if sorted_pool.is_empty() {
-        return Duration::zero();
-    }
-    let n = sorted_pool.len();
-    #[allow(
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss,
-        clippy::cast_precision_loss
-    )]
-    let rank = ((p * n as f64).ceil() as usize).max(1);
-    let idx = (rank - 1).min(n - 1);
-    sorted_pool[idx]
+    crate::analyzer::stats::percentile_nearest_rank(sorted_pool, p * 100.0)
 }
 
 #[cfg(test)]
@@ -160,22 +159,24 @@ mod tests {
     #[test]
     fn percentile_nearest_rank_two_element_p50() {
         let pool = vec![Duration::seconds(1), Duration::seconds(10)];
-        // ceil(0.5 * 2) - 1 = 1 - 1 = 0 → first element
-        assert_eq!(percentile(&pool, 0.50), Duration::seconds(1));
+        // CORE #1: shared upper-midpoint via stats::percentile_nearest_rank.
+        // round(0.5 * (2-1)) = round(0.5) = 1 → sorted[1] = 10s.
+        assert_eq!(percentile(&pool, 0.50), Duration::seconds(10));
     }
 
     #[test]
     fn percentile_nearest_rank_ten_element_p95() {
         let pool: Vec<_> = (1..=10).map(Duration::seconds).collect();
-        // ceil(0.95 * 10) - 1 = 10 - 1 = 9 → last element
+        // CORE #1: round(0.95 * 9) = round(8.55) = 9 → sorted[9] = 10s.
         assert_eq!(percentile(&pool, 0.95), Duration::seconds(10));
     }
 
     #[test]
     fn percentile_nearest_rank_ten_element_p50() {
         let pool: Vec<_> = (1..=10).map(Duration::seconds).collect();
-        // ceil(0.5 * 10) - 1 = 5 - 1 = 4 → 5th element (value 5)
-        assert_eq!(percentile(&pool, 0.50), Duration::seconds(5));
+        // CORE #1: round(0.5 * 9) = round(4.5) = 5 → sorted[5] = 6s
+        // (was: 5s under the pre-CORE-#1 lower-midpoint convention).
+        assert_eq!(percentile(&pool, 0.50), Duration::seconds(6));
     }
 
     #[test]
