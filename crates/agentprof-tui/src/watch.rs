@@ -508,6 +508,31 @@ impl WatchRunner {
                     }
                     // Generic q / Ctrl-C / help dispatch via M1.5 state machine
                     // (Single mode only; Cross mode handles its own q above).
+                    //
+                    // TUI #2 — Single mode "transient AppState" pattern:
+                    // every keystroke constructs a fresh AppState from the
+                    // persistent `report` + `episodes`, then copies the
+                    // **round-tripped fields** back into `view_state`
+                    // after dispatch. Round-tripped fields (must match
+                    // both directions):
+                    //   - help_open (F1)
+                    //   - detail_view (F1)
+                    //   - models_selected (F1.7)
+                    //   - view (F1.7 T10 — was broken pre-F1.7)
+                    //
+                    // **NOT round-tripped** (intentionally — these state
+                    // pieces reset between keystrokes in watch mode):
+                    //   - flame_selected, flame_viewport_top
+                    //   - roi_selected, roi_viewport_top, roi_sort
+                    //   - pending_gg
+                    // Reason: watch mode is intended to surface "what's
+                    // happening NOW" — persistent per-view selection
+                    // would conflict with the auto-reload semantics
+                    // (data underneath the cursor changes between
+                    // reloads). Documented here for tui-2 review.
+                    // When/if a future polish round wants per-view
+                    // selection persistence, add the missing fields
+                    // here AND in WatchViewState.
                     if let WatchData::Single {
                         report, episodes, ..
                     } = &self.data
@@ -602,6 +627,20 @@ impl WatchRunner {
             return false;
         };
         if matches!(code, KeyCode::Char('?')) {
+            // TUI #3 — gate the help-overlay toggle on Single mode.
+            // Pre-fix, Cross mode also toggled `view_state.help_overlay`
+            // (line 605) but `render_into`'s Cross arm has no help-overlay
+            // render path. The "? help" hint advertised by
+            // `render_cross_header` was promising functionality that
+            // didn't exist — the keystroke went into a black hole.
+            // Returning `false` for Cross mode lets the keystroke fall
+            // through to subsequent handlers; if no handler claims it,
+            // the user gets explicit no-op feedback (vs silent state
+            // mutation). When Cross-mode help overlay is implemented,
+            // remove this gate.
+            if matches!(self.data, WatchData::Cross(_)) {
+                return false;
+            }
             self.view_state.help_overlay = !self.view_state.help_overlay;
             self.view_state.pending_gg = false;
             return true;
@@ -794,5 +833,12 @@ impl WatchRunner {
             }
         }
         false
+    }
+
+    /// Test helper: invoke `handle_watch_key` and return its bool.
+    /// Used by tui-3 regression tests for the `?` gate behavior.
+    #[doc(hidden)]
+    pub fn handle_watch_key_for_test(&mut self, ev: &Event) -> bool {
+        self.handle_watch_key(ev)
     }
 }

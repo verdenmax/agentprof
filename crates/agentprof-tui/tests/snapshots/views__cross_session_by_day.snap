@@ -3,7 +3,7 @@ source: crates/agentprof-tui/tests/views.rs
 expression: buffer_to_symbol_grid(&buf)
 ---
 ┌ Aggregate watch — by day | 2 sessions | window 7d ───────────────────────────────────────────────────────────────────┐
-│Keys: c/t/s/p sort  ↑/↓ select  q quit  ? help                                                                        │
+│Keys: c/t/s/p sort  ↑/↓ select  q quit                                                                                │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ Day buckets ─────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │Date         Sess   Wall       Tool       Util%   Low?                                                                │

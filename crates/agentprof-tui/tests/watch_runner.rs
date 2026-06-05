@@ -406,3 +406,55 @@ fn watch_runner_dispatch_number_keys_persist_view_across_events() {
 
     // '4' covered by the existing `watch_runner_dispatch_4_switches_to_models_view` test.
 }
+
+// ──────────────────────────────────────────────────────────────────────
+// TUI #3 — '?' toggle gating for Cross mode (full-review)
+// ──────────────────────────────────────────────────────────────────────
+
+#[test]
+fn watch_cross_mode_question_mark_does_not_toggle_help_overlay() {
+    use agentprof_tui::app::event::Event;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    // TUI #3 regression: pre-fix, pressing '?' in Cross mode flipped
+    // view_state.help_overlay even though render_into's Cross arm has
+    // no help-overlay render path — the keystroke went into a black
+    // hole, mutating state with no visible effect. Post-fix the gate
+    // returns `false` from handle_watch_key so the toggle is skipped.
+    let mut runner = WatchRunner::new_static(fake_cross_tool());
+    assert!(!runner.help_overlay_for_test(), "default = false");
+
+    let handled = runner.handle_watch_key_for_test(&Event::Key(KeyEvent::new(
+        KeyCode::Char('?'),
+        KeyModifiers::empty(),
+    )));
+    assert!(
+        !handled,
+        "Cross-mode '?' must NOT be consumed (fall through to no-op)"
+    );
+    assert!(
+        !runner.help_overlay_for_test(),
+        "Cross-mode '?' must NOT mutate help_overlay"
+    );
+}
+
+#[test]
+fn watch_single_mode_question_mark_still_toggles_help_overlay() {
+    use agentprof_tui::app::event::Event;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    // Negative-case sibling of the test above — verify the TUI #3
+    // gate is Cross-mode-only and Single-mode '?' still works.
+    let mut runner = WatchRunner::new_static(fake_single());
+    assert!(!runner.help_overlay_for_test(), "default = false");
+
+    let handled = runner.handle_watch_key_for_test(&Event::Key(KeyEvent::new(
+        KeyCode::Char('?'),
+        KeyModifiers::empty(),
+    )));
+    assert!(handled, "Single-mode '?' must still be consumed");
+    assert!(
+        runner.help_overlay_for_test(),
+        "Single-mode '?' must toggle help_overlay"
+    );
+}

@@ -3,7 +3,7 @@ source: crates/agentprof-tui/tests/views.rs
 expression: buffer_to_symbol_grid(&buf)
 ---
 ┌ Aggregate watch — by tool | 3 sessions | window 30d ─────────────────────────────────────────────────────────────────┐
-│Keys: c/t/s/p sort  ↑/↓ select  q quit  ? help                                                                        │
+│Keys: c/t/s/p sort  ↑/↓ select  q quit                                                                                │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ Tool buckets ────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │Tool                           Source       Calls   Total      p50      p95      Sess                                 │

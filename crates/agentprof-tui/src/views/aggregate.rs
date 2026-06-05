@@ -346,7 +346,7 @@ fn render_cross_header(
         " Aggregate watch — by {by} | {sessions} sessions | window {}d ",
         since.num_days()
     ));
-    let p = Paragraph::new("Keys: c/t/s/p sort  ↑/↓ select  q quit  ? help").block(block);
+    let p = Paragraph::new("Keys: c/t/s/p sort  ↑/↓ select  q quit").block(block);
     frame.render_widget(p, area);
 }
 

@@ -11,9 +11,17 @@ use crossterm::event::{Event as CtEvent, KeyCode, KeyEvent, KeyModifiers};
 ///
 /// `Tick` is a placeholder for future periodic refresh (M1.5 only fires
 /// on keystrokes). `Resize` carries the new (columns, rows) from
-/// `crossterm::event::Event::Resize`. `Refresh` (M1.6.3) is produced by
-/// [`crate::watch::WatchRunner`] after a hit on its mpsc refresh channel
-/// — the static [`crate::AppRunner`] never emits it.
+/// `crossterm::event::Event::Resize`.
+///
+/// **`Refresh` is reserved but currently has no producer** (TUI #1).
+/// The original M1.6.3 design had [`crate::watch::WatchRunner::run`]
+/// emit `Event::Refresh` after a refresh-channel hit, but the
+/// implementation took a shortcut and handles the mpsc drain inline
+/// via a `got_refresh` bool + direct `do_reload()` call (see
+/// `watch.rs::run` near line 490). Kept in the public enum so a future
+/// refactor that DOES produce it (e.g. exposing the refresh as a
+/// user-visible event for animations / status footer) is non-breaking;
+/// remove if a 1.0 cleanup decides the variant pays no rent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event {
     /// Key pressed (any modifier set).
@@ -23,9 +31,11 @@ pub enum Event {
     /// Periodic tick. Reserved for M2.x; no producer in the static event loop.
     #[allow(dead_code)]
     Tick,
-    /// Watched session file changed (M1.6.3). Only emitted by
-    /// `WatchRunner::run` after a refresh-channel hit; `Event::from_crossterm`
-    /// never produces this variant.
+    /// Watched session file changed (M1.6.3). Currently **has no producer
+    /// in the codebase** (TUI #1): `WatchRunner::run` handles refreshes
+    /// inline rather than via this variant. Reserved for a future
+    /// refactor — see the enum-level doc for the full history.
+    #[allow(dead_code)]
     Refresh,
 }
 
