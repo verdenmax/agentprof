@@ -138,7 +138,7 @@ impl<'a> AppRunner<'a> {
 
 fn draw_help_overlay(frame: &mut Frame<'_>, full: Rect) {
     let w = full.width.min(60);
-    let h = full.height.min(28);
+    let h = full.height.min(33);
     let x = full.x + (full.width.saturating_sub(w)) / 2;
     let y = full.y + (full.height.saturating_sub(h)) / 2;
     let area = Rect::new(x, y, w, h);
@@ -175,6 +175,12 @@ fn draw_help_overlay(frame: &mut Frame<'_>, full: Rect) {
         "  T-id (gray)      Open / in-flight turn (no ended_at yet)",
         "  T-id (blue)      Thinking-only closed turn (no tool calls)",
         "  T-id (default)   Completed turn with tool calls",
+        "",
+        "RoiView Tool color (F1.13 — Tool cell only):",
+        "  Tool (red)       > 50% failure rate (likely broken)",
+        "  Tool (yellow)    Any failure on busy tool (>= 3 calls)",
+        "  Tool (default)   No failures, or too few calls to judge",
+        "  * (rank #)       User-waiting tool (DIM, e.g. ask_user)",
         "",
         "Deep flamegraph: `analyze --export speedscope` → speedscope.app",
     ]

@@ -70,6 +70,66 @@ fn success_ratio(r: &ToolRankRow) -> f64 {
     }
 }
 
+/// Resolve a failure-severity color for a tool row's Tool cell (F1.13).
+///
+/// Tools with no failures keep the default fg; tools with failures
+/// get a Yellow-or-Red hint so users can spot reliability issues
+/// without sorting by `OK%`. The threshold is **failure rate** (not
+/// absolute fail count) so a busy tool with 1/1000 failures stays
+/// neutral while a flaky tool with 3/5 failures lights up red.
+///
+/// Precedence (highest → lowest):
+///
+/// 1. `failure_rate > 50 %` → `Color::Red` — likely broken or unusable.
+/// 2. `failure_rate > 0 %` AND `call_count >= 3` → `Color::Yellow` —
+///    a real reliability signal worth attention. Requires `>= 3` calls
+///    to avoid coloring a single one-off failure on a rarely-called
+///    tool (one ⚠ failure on a tool called once isn't actionable —
+///    might have been a flake).
+/// 3. otherwise → `None` (default terminal fg).
+///
+/// Returns `None` for `call_count == 0` (no data → no signal).
+///
+/// # Examples
+///
+/// ```
+/// use agentprof_tui::views::roi::failure_severity_color;
+/// use ratatui::style::Color;
+///
+/// // Perfect tool → no color hint.
+/// assert_eq!(failure_severity_color(100, 0), None);
+/// // Catastrophic failure → Red.
+/// assert_eq!(failure_severity_color(10, 8), Some(Color::Red));
+/// // Some failures on a busy tool → Yellow.
+/// assert_eq!(failure_severity_color(100, 5), Some(Color::Yellow));
+/// // Single failure on a rarely-called tool → no color (noise).
+/// assert_eq!(failure_severity_color(1, 1), Some(Color::Red)); // 100% fail still Red
+/// assert_eq!(failure_severity_color(2, 1), None); // 50% but < 3 calls
+/// ```
+#[must_use]
+pub const fn failure_severity_color(call_count: usize, failure_count: usize) -> Option<Color> {
+    if call_count == 0 {
+        return None;
+    }
+    if failure_count == 0 {
+        return None;
+    }
+    // failure_rate = failures / calls. Integer comparison: fail*2 > calls
+    // ⇔ fail/calls > 0.5.
+    if failure_count.saturating_mul(2) > call_count {
+        return Some(Color::Red);
+    }
+    // Yellow only when we have >= 3 calls — avoids coloring 1/1
+    // one-off failures (which would Red-up the Yellow case here, but
+    // those are caught by the > 50% branch above so they don't reach
+    // this point). Two-call tools fall through to None on a single
+    // failure (50% rate, not > 50%, and < 3 calls).
+    if call_count >= 3 {
+        return Some(Color::Yellow);
+    }
+    None
+}
+
 /// Render `OK%` as a 0-100 integer percent string (or `—` for zero-call
 /// rows).
 ///
@@ -385,17 +445,25 @@ fn render_unified_table(
     let blocking_render_offset = if has_separator { work_n + 1 } else { work_n };
     for (i, r) in sorted_blocking.iter().enumerate() {
         let render_idx = blocking_render_offset + i;
-        let mut style = Style::default().add_modifier(Modifier::DIM);
+        let mut row_style = Style::default().add_modifier(Modifier::DIM);
         if render_idx == selected_render_idx {
-            style = style.add_modifier(Modifier::REVERSED);
+            row_style = row_style.add_modifier(Modifier::REVERSED);
         }
         // The "#" column for user-blocking rows shows `*` to distinguish
         // them from the 1-based work row numbering and make their
         // "out-of-rank" status visually obvious.
+        //
+        // F1.13: failure coloring on the Tool cell applies here too —
+        // `ask_user` can fail (e.g. user cancels) and a flaky one is
+        // worth a Yellow/Red hint even in the user-waiting section.
+        let tool_cell_style = failure_severity_color(r.call_count, r.failure_count)
+            .map_or_else(Style::default, |c| {
+                Style::default().fg(c).add_modifier(Modifier::BOLD)
+            });
         trows.push(
             Row::new(vec![
                 Cell::from("*"),
-                Cell::from(truncate(&r.name, 32)),
+                Cell::from(truncate(&r.name, 32)).style(tool_cell_style),
                 Cell::from(source_label(&r.source)),
                 Cell::from(format!("{}", r.call_count)),
                 Cell::from(format!("{}", r.success_count)),
@@ -405,7 +473,7 @@ fn render_unified_table(
                 Cell::from(format_total_pct(r.total_duration, total_all_ms)),
                 Cell::from(human_short(r.p50_duration)),
             ])
-            .style(style),
+            .style(row_style),
         );
     }
 
@@ -451,10 +519,17 @@ fn render_unified_table(
     frame.render_stateful_widget(table, area, &mut table_state);
 }
 
-fn tool_row<'a>(idx: usize, r: &ToolRankRow, total_all_ms: i64, style: Style) -> Row<'a> {
+fn tool_row<'a>(idx: usize, r: &ToolRankRow, total_all_ms: i64, row_style: Style) -> Row<'a> {
+    // F1.13: tint the Tool cell only when failure severity warrants
+    // attention. Keep other columns at default fg so values stay
+    // legible (a Red row makes percentages hard to read on dark themes).
+    let tool_cell_style = failure_severity_color(r.call_count, r.failure_count)
+        .map_or_else(Style::default, |c| {
+            Style::default().fg(c).add_modifier(Modifier::BOLD)
+        });
     Row::new(vec![
         Cell::from(format!("{}", idx + 1)),
-        Cell::from(truncate(&r.name, 32)),
+        Cell::from(truncate(&r.name, 32)).style(tool_cell_style),
         Cell::from(source_label(&r.source)),
         Cell::from(format!("{}", r.call_count)),
         Cell::from(format!("{}", r.success_count)),
@@ -464,7 +539,7 @@ fn tool_row<'a>(idx: usize, r: &ToolRankRow, total_all_ms: i64, style: Style) ->
         Cell::from(format_total_pct(r.total_duration, total_all_ms)),
         Cell::from(human_short(r.p50_duration)),
     ])
-    .style(style)
+    .style(row_style)
 }
 
 fn render_detail_strip(
@@ -778,5 +853,58 @@ mod tests {
         use chrono::Duration as D;
         // < 0.5 % truncates to 0 but stays visible as "0%" (vs "—").
         assert_eq!(format_total_pct(D::milliseconds(1), 100_000), "0%");
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // F1.13 — failure_severity_color
+    // ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn failure_severity_color_zero_calls_returns_none() {
+        assert_eq!(failure_severity_color(0, 0), None);
+        // Sanity: failure_count > 0 with call_count == 0 is a defensive
+        // case (shouldn't happen in real data) — still returns None.
+        assert_eq!(failure_severity_color(0, 5), None);
+    }
+
+    #[test]
+    fn failure_severity_color_perfect_returns_none() {
+        // Any number of successful calls, no failures → no color hint.
+        assert_eq!(failure_severity_color(1, 0), None);
+        assert_eq!(failure_severity_color(100, 0), None);
+        assert_eq!(failure_severity_color(10_000, 0), None);
+    }
+
+    #[test]
+    fn failure_severity_color_over_50_pct_returns_red() {
+        // Strict majority of failures → Red regardless of call count.
+        assert_eq!(failure_severity_color(1, 1), Some(Color::Red)); // 100%
+        assert_eq!(failure_severity_color(10, 6), Some(Color::Red)); // 60%
+        assert_eq!(failure_severity_color(3, 2), Some(Color::Red)); // 66%
+    }
+
+    #[test]
+    fn failure_severity_color_exactly_50_pct_does_not_redden() {
+        // > 50 %, NOT >= 50 %. Exactly half failed isn't catastrophic.
+        // 2/2 (= 50 %) → no Red. But 2 calls is < 3, so also no Yellow → None.
+        assert_eq!(failure_severity_color(2, 1), None);
+        // 10/5 (= 50 %) → not Red, but >= 3 calls → Yellow.
+        assert_eq!(failure_severity_color(10, 5), Some(Color::Yellow));
+    }
+
+    #[test]
+    fn failure_severity_color_some_failures_busy_tool_returns_yellow() {
+        // >= 3 calls + < 50 % failure rate → Yellow.
+        assert_eq!(failure_severity_color(100, 5), Some(Color::Yellow)); // 5%
+        assert_eq!(failure_severity_color(100, 1), Some(Color::Yellow)); // 1%
+        assert_eq!(failure_severity_color(3, 1), Some(Color::Yellow)); // 33%
+    }
+
+    #[test]
+    fn failure_severity_color_single_failure_rare_tool_returns_none_noise_guard() {
+        // 2 calls + 1 failure = 50 %, but < 3 calls = not enough data
+        // to call it a reliability issue. No color hint.
+        // (Note: 1/1 = 100 % triggers the > 50% Red branch first.)
+        assert_eq!(failure_severity_color(2, 1), None);
     }
 }
