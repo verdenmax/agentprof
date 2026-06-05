@@ -14,8 +14,9 @@ use std::collections::BTreeMap;
 use agentprof_core::analyzer::TurnSummaryRow;
 use agentprof_core::episode::Mode;
 use chrono::Duration;
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
+use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table};
 use ratatui::Frame;
 
@@ -104,10 +105,38 @@ fn render_by_mode(frame: &mut Frame<'_>, area: Rect, state: &AppState<'_>) {
         .borders(Borders::ALL)
         .title(" Aggregate (3/3) — By Mode (single session) ");
     let buckets = group_by_mode(&state.report.turn_summary);
+
+    // F1.18 — empty-state: when the session has no turns recorded, show
+    // a centered explanatory placeholder instead of an empty table
+    // (which would just render header + blank rows).
+    if buckets.is_empty() {
+        render_empty_state(
+            frame,
+            area,
+            block,
+            "(no turns recorded for this session yet)",
+        );
+        return;
+    }
+
+    // F1.15 — totals for percent columns. Sum across buckets (parallel
+    // to the RoiView `total_all_ms` computation) so the column denominators
+    // match the rendered table. `total_turns` equals
+    // `state.report.turn_summary.len()` (every turn falls into some
+    // bucket including the `—` no-mode bucket), but summing
+    // bucket-by-bucket keeps the computation local + obvious.
+    let total_turns: usize = buckets.iter().map(|b| b.turns).sum();
+    let total_all_ms: i64 = buckets
+        .iter()
+        .map(|b| b.total_duration.num_milliseconds().max(0))
+        .fold(0_i64, i64::saturating_add);
+
     let header = Row::new(vec![
         Cell::from("Mode"),
         Cell::from("Turns"),
+        Cell::from("Turns%"),
         Cell::from("Total dur"),
+        Cell::from("Dur%"),
         Cell::from("Out tokens"),
         Cell::from("Tool calls"),
     ])
@@ -118,8 +147,15 @@ fn render_by_mode(frame: &mut Frame<'_>, area: Rect, state: &AppState<'_>) {
             Row::new(vec![
                 Cell::from(b.label.clone()),
                 Cell::from(format!("{}", b.turns)),
+                Cell::from(crate::views::roi::format_ok_pct(b.turns, total_turns)),
                 Cell::from(human_short(b.total_duration)),
-                Cell::from(format!("{}", b.total_output_tokens)),
+                Cell::from(crate::views::roi::format_total_pct(
+                    b.total_duration,
+                    total_all_ms,
+                )),
+                Cell::from(crate::views::models::format_token_u64_short(
+                    b.total_output_tokens,
+                )),
                 Cell::from(format!("{}", b.total_tool_calls)),
             ])
         })
@@ -128,10 +164,12 @@ fn render_by_mode(frame: &mut Frame<'_>, area: Rect, state: &AppState<'_>) {
         rows,
         [
             Constraint::Length(20),
-            Constraint::Length(8),
-            Constraint::Length(12),
-            Constraint::Length(12),
-            Constraint::Length(12),
+            Constraint::Length(7),
+            Constraint::Length(7),
+            Constraint::Length(11),
+            Constraint::Length(6),
+            Constraint::Length(7),
+            Constraint::Length(11),
         ],
     )
     .header(header)
@@ -140,12 +178,29 @@ fn render_by_mode(frame: &mut Frame<'_>, area: Rect, state: &AppState<'_>) {
 }
 
 fn render_by_hook(frame: &mut Frame<'_>, area: Rect, state: &AppState<'_>) {
-    let block = Block::default().borders(Borders::ALL).title(" By Hook ");
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" By Hook (single session — hook events) ");
+
+    // F1.18 — empty-state: many sessions have no hook events
+    // (Copilot sessions without configured hooks). Show a centered
+    // explanatory placeholder instead of just a header + blank rows.
+    if state.report.hook_rank.is_empty() {
+        render_empty_state(
+            frame,
+            area,
+            block,
+            "(no hook events recorded for this session)",
+        );
+        return;
+    }
+
     let header = Row::new(vec![
         Cell::from("Hook"),
         Cell::from("Calls"),
-        Cell::from("Success"),
+        Cell::from("OK"),
         Cell::from("Fail"),
+        Cell::from("OK%"),
         Cell::from("p50"),
         Cell::from("Total"),
     ])
@@ -155,11 +210,25 @@ fn render_by_hook(frame: &mut Frame<'_>, area: Rect, state: &AppState<'_>) {
         .hook_rank
         .iter()
         .map(|h| {
+            // F1.16 — failure-severity coloring on the Hook cell only
+            // (parallel to F1.13 RoiView Tool cell coloring).
+            // Reuses the same `views::roi::failure_severity_color`
+            // helper so the thresholds (>50% Red, >=3 calls + any fail
+            // Yellow) stay consistent across views.
+            let hook_cell_style =
+                crate::views::roi::failure_severity_color(h.call_count, h.failure_count)
+                    .map_or_else(Style::default, |c| {
+                        Style::default().fg(c).add_modifier(Modifier::BOLD)
+                    });
             Row::new(vec![
-                Cell::from(h.name.clone()),
+                Cell::from(h.name.clone()).style(hook_cell_style),
                 Cell::from(format!("{}", h.call_count)),
                 Cell::from(format!("{}", h.success_count)),
                 Cell::from(format!("{}", h.failure_count)),
+                Cell::from(crate::views::roi::format_ok_pct(
+                    h.success_count,
+                    h.call_count,
+                )),
                 Cell::from(human_short(h.p50_duration)),
                 Cell::from(human_short(h.total_duration)),
             ])
@@ -169,9 +238,10 @@ fn render_by_hook(frame: &mut Frame<'_>, area: Rect, state: &AppState<'_>) {
         rows,
         [
             Constraint::Length(24),
-            Constraint::Length(7),
-            Constraint::Length(8),
-            Constraint::Length(7),
+            Constraint::Length(6),
+            Constraint::Length(6),
+            Constraint::Length(6),
+            Constraint::Length(5),
             Constraint::Length(8),
             Constraint::Length(10),
         ],
@@ -179,6 +249,27 @@ fn render_by_hook(frame: &mut Frame<'_>, area: Rect, state: &AppState<'_>) {
     .header(header)
     .block(block);
     frame.render_widget(table, area);
+}
+
+/// Render a centered placeholder line inside the given bordered `block`
+/// when a By-Mode / By-Hook section has no data (F1.18).
+///
+/// Used by [`render_by_mode`] and [`render_by_hook`] for graceful
+/// empty-state messaging — beats showing a header followed by blank
+/// rows (which historically led to the user wondering "is the view
+/// broken or is there just no data?"). Matches the F1.7 Models view
+/// empty-state pattern.
+fn render_empty_state(frame: &mut Frame<'_>, area: Rect, block: Block<'_>, message: &str) {
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    // Vertically center the message inside the inner area.
+    let lines_to_pad_top = usize::from(inner.height.saturating_sub(1) / 2);
+    let mut lines: Vec<Line<'_>> = Vec::with_capacity(lines_to_pad_top + 1);
+    for _ in 0..lines_to_pad_top {
+        lines.push(Line::from(""));
+    }
+    lines.push(Line::from(message.to_string()).style(Style::default().add_modifier(Modifier::DIM)));
+    frame.render_widget(Paragraph::new(lines).alignment(Alignment::Center), inner);
 }
 
 /// Cross-session aggregate render (M1.6.3).
@@ -569,5 +660,46 @@ mod tests {
         let rows = vec![turn_row(Some(Mode::Unknown("custom".into())), 10, None, 0)];
         let g = group_by_mode(&rows);
         assert_eq!(g[0].label, "unknown:custom");
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // F1.18 — empty-state rendering
+    // ──────────────────────────────────────────────────────────────────
+
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+
+    #[test]
+    fn render_empty_state_centers_message_dim() {
+        let block = Block::default().borders(Borders::ALL).title(" test-title ");
+        let mut term = Terminal::new(TestBackend::new(60, 10)).unwrap();
+        term.draw(|f| {
+            let area = f.area();
+            render_empty_state(f, area, block, "(no data yet)");
+        })
+        .unwrap();
+        let buffer = term.backend().buffer().clone();
+        // Find the row containing the placeholder.
+        let mut found_row: Option<u16> = None;
+        for y in 0..buffer.area.height {
+            let mut line = String::new();
+            for x in 0..buffer.area.width {
+                line.push_str(buffer[(x, y)].symbol());
+            }
+            if line.contains("(no data yet)") {
+                found_row = Some(y);
+                break;
+            }
+        }
+        let Some(row) = found_row else {
+            panic!("placeholder row must be rendered");
+        };
+        // Vertically roughly centered (within ±2 rows of middle).
+        let mid = buffer.area.height / 2;
+        let dist = row.abs_diff(mid);
+        assert!(
+            dist <= 2,
+            "placeholder should be near vertical center (row={row}, mid={mid})"
+        );
     }
 }

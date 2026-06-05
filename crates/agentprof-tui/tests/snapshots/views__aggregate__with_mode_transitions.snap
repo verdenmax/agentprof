@@ -1,11 +1,11 @@
 ---
 source: crates/agentprof-tui/tests/views.rs
-expression: text
+expression: buffer_to_symbol_grid(&buffer)
 ---
 ┌ Aggregate (3/3) — By Mode (single session) ──────────────────────────────────────────────────────┐
-│Mode                 Turns    Total dur    Out tokens   Tool calls                                │
-│autopilot            1        2.0s         10           0                                         │
-│plan                 1        2.0s         12           0                                         │
+│Mode                 Turns   Turns%  Total dur   Dur%   Out tok Tool calls                        │
+│autopilot            1       50%     2.0s        50%       10   0                                 │
+│plan                 1       50%     2.0s        50%       12   0                                 │
 │                                                                                                  │
 │                                                                                                  │
 │                                                                                                  │
@@ -17,14 +17,14 @@ expression: text
 │                                                                                                  │
 │                                                                                                  │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
-┌ By Hook ─────────────────────────────────────────────────────────────────────────────────────────┐
-│Hook                     Calls   Success  Fail    p50      Total                                  │
+┌ By Hook (single session — hook events) ──────────────────────────────────────────────────────────┐
 │                                                                                                  │
 │                                                                                                  │
 │                                                                                                  │
 │                                                                                                  │
 │                                                                                                  │
 │                                                                                                  │
+│                            (no hook events recorded for this session)                            │
 │                                                                                                  │
 │                                                                                                  │
 │                                                                                                  │
