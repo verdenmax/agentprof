@@ -186,7 +186,15 @@ pub struct AggregateReport<B> {
     pub by: AggregateKey,
     /// Time window the input sessions were filtered to (informational —
     /// the aggregator itself does not filter; the CLI passes it in).
-    #[serde(with = "duration_seconds")]
+    ///
+    /// **Wire format: integer milliseconds** (CORE #2,
+    /// `wire-format-units`). Pre-CORE-#2 this serialised as seconds via
+    /// a separate `duration_seconds` helper, while the bucket fields
+    /// (also in this JSON tree) serialised as milliseconds. A consumer
+    /// summing bucket durations vs reading `since` got values 1000x
+    /// apart. Now uniformly ms; consumers divide by 1000 if they want
+    /// seconds.
+    #[serde(with = "bucket::ms_duration")]
     pub since: Duration,
     /// Number of input [`crate::analyzer::AnalysisReport`]s.
     pub session_count: usize,
@@ -194,7 +202,10 @@ pub struct AggregateReport<B> {
     /// for T2; aggregators here always set it to `0`).
     pub failure_count: usize,
     /// Sum of per-session wall durations.
-    #[serde(with = "duration_seconds")]
+    ///
+    /// **Wire format: integer milliseconds** (CORE #2). See
+    /// [`Self::since`] for the unit normalization story.
+    #[serde(with = "bucket::ms_duration")]
     pub total_wall_duration: Duration,
     /// Per-key rows. Sort order is documented on each aggregator.
     pub buckets: Vec<B>,
@@ -270,17 +281,9 @@ pub enum AnyAggregateReport {
     Model(AggregateReport<ModelBucket>),
 }
 
-/// Serde helper: serialise [`chrono::Duration`] as integer seconds.
-mod duration_seconds {
-    use chrono::Duration;
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-    pub fn serialize<S: Serializer>(d: &Duration, s: S) -> Result<S::Ok, S::Error> {
-        d.num_seconds().serialize(s)
-    }
-
-    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Duration, D::Error> {
-        let s = i64::deserialize(d)?;
-        Ok(Duration::seconds(s))
-    }
-}
+// CORE #2 (`wire-format-units`) — the private `duration_seconds`
+// helper that lived here was removed; [`AggregateReport`] now serializes
+// `since` + `total_wall_duration` as integer milliseconds via the
+// `bucket::ms_duration` helper (the same helper used by every bucket
+// field). Mixed units in a single JSON object are now structurally
+// impossible. See the field docs for the rationale + consumer impact.

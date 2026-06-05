@@ -286,7 +286,14 @@ impl ModelBucket {
 }
 
 /// Serde helper: serialise [`chrono::Duration`] as integer milliseconds.
-mod ms_duration {
+///
+/// `pub(super)` since CORE #2 (`wire-format-units`) so the sibling
+/// [`super::AggregateReport`] can reference it via
+/// `#[serde(with = "bucket::ms_duration")]` — pre-CORE-#2 the
+/// aggregate report had its own `duration_seconds` helper, mixing
+/// units silently in the same JSON object. The unification dropped
+/// `duration_seconds` and routes everything through this module.
+pub(super) mod ms_duration {
     use chrono::Duration;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 

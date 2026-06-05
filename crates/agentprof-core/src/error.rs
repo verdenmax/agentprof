@@ -52,10 +52,14 @@ pub enum CoreError {
         #[source]
         source: serde_json::Error,
     },
-
-    /// An analyzer pre-condition was violated.
-    #[error("invariant violation: {0}")]
-    Invariant(String),
+    // CORE #4 (`invariant-variant`) — the pre-existing
+    // `Invariant(String)` variant was removed in the same wave that
+    // documented it as a sring-typed catch-all (i.e. the audit ran
+    // first, no live constructors were found, then the variant was
+    // dropped). The enum is `#[non_exhaustive]` so adding it back later
+    // is non-breaking; if a real internal invariant violation needs
+    // surfacing, prefer a typed variant (with the offending key /
+    // context) over a stringly-typed catch-all.
 }
 
 /// Non-fatal warnings collected during parsing.
