@@ -458,3 +458,126 @@ fn watch_single_mode_question_mark_still_toggles_help_overlay() {
         "Single-mode '?' must toggle help_overlay"
     );
 }
+
+// ──────────────────────────────────────────────────────────────────────
+// F1.7.1 — full 4-view render dispatch in Single mode
+// ──────────────────────────────────────────────────────────────────────
+
+/// Test helper: render a single frame in Single mode with the given
+/// `View`, return the rendered text grid as a single string for
+/// substring assertions.
+fn render_single_with_view(view: agentprof_tui::views::View) -> String {
+    let mut runner = WatchRunner::new_static(fake_single());
+    runner.view_state_mut().view = view;
+    let mut term = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    runner.draw_frame(&mut term).unwrap();
+    let buf = term.backend().buffer().clone();
+    format!("{buf:?}")
+}
+
+#[test]
+fn watch_single_renders_flamegraph_view_when_view_is_flamegraph() {
+    use agentprof_tui::views::View;
+    let rendered = render_single_with_view(View::Flamegraph);
+    // FlamegraphView's bordered block title contains "Flamegraph".
+    assert!(
+        rendered.contains("Flamegraph"),
+        "Single + view=Flamegraph must render FlamegraphView (titled `Flamegraph (1/3)`); \
+         pre-F1.7.1 this fell through to aggregate. Got: {rendered}"
+    );
+}
+
+#[test]
+fn watch_single_renders_roi_view_when_view_is_roi() {
+    use agentprof_tui::views::View;
+    let rendered = render_single_with_view(View::Roi);
+    // RoiView's bordered block title contains "RoiView (2/3)".
+    assert!(
+        rendered.contains("RoiView"),
+        "Single + view=Roi must render RoiView (titled `RoiView (2/3) — Sort: ...`); \
+         pre-F1.7.1 this fell through to aggregate. Got: {rendered}"
+    );
+}
+
+#[test]
+fn watch_single_renders_aggregate_view_when_view_is_aggregate() {
+    use agentprof_tui::views::View;
+    let rendered = render_single_with_view(View::Aggregate);
+    // AggregateView's bordered block title contains "Aggregate".
+    assert!(
+        rendered.contains("Aggregate"),
+        "Single + view=Aggregate must render AggregateView (titled \
+         `Aggregate (3/3) — By Mode (single session)`). Got: {rendered}"
+    );
+}
+
+#[test]
+fn watch_single_renders_models_view_when_view_is_models() {
+    use agentprof_tui::views::View;
+    let rendered = render_single_with_view(View::Models);
+    // ModelsView's empty-state contains "no model usage" (the fake_single
+    // helper builds a report without model_metrics).
+    assert!(
+        rendered.contains("Models") || rendered.contains("no model usage"),
+        "Single + view=Models must render Models view (was already working pre-F1.7.1; \
+         keeping the test as a regression guard for the full match). Got: {rendered}"
+    );
+}
+
+#[test]
+fn watch_single_renders_help_overlay_when_help_open() {
+    // F1.7.1 — pre-fix, pressing '?' in Single mode toggled
+    // view_state.help_overlay but no render path drew the overlay.
+    // Post-fix, the runner calls crate::app::draw_help_overlay when
+    // help_overlay is true.
+    let mut runner = WatchRunner::new_static(fake_single());
+    runner.toggle_help_for_test(); // help_overlay = true
+    let mut term = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    runner.draw_frame(&mut term).unwrap();
+    let buf = term.backend().buffer().clone();
+    let rendered = format!("{buf:?}");
+    // The overlay block title is "Help (any key closes)" — taken from
+    // crate::app::draw_help_overlay.
+    assert!(
+        rendered.contains("Help"),
+        "help_overlay = true must render the overlay; got: {rendered}"
+    );
+}
+
+#[test]
+fn watch_single_view_round_trips_render_through_all_4_views() {
+    // Full end-to-end regression: press 1/2/3/4 via dispatch_event_for_test
+    // and verify each subsequent draw renders the expected view title.
+    // This guards against the "view state updates but render dispatch
+    // doesn't follow" class of bug that originally motivated F1.7.1.
+    use agentprof_tui::app::event::Event;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    let mut runner = WatchRunner::new_static(fake_single());
+    let cases: &[(char, &str)] = &[
+        ('1', "Flamegraph"),
+        ('2', "RoiView"),
+        ('3', "Aggregate"),
+        ('4', "Models"),
+    ];
+    for (key, expected_title_fragment) in cases {
+        runner.dispatch_event_for_test(Event::Key(KeyEvent::new(
+            KeyCode::Char(*key),
+            KeyModifiers::empty(),
+        )));
+        let mut term = Terminal::new(TestBackend::new(120, 24)).unwrap();
+        runner.draw_frame(&mut term).unwrap();
+        let buf = term.backend().buffer().clone();
+        let rendered = format!("{buf:?}");
+        // For view = Models, the fake_single fixture has no metrics so
+        // the empty-state placeholder appears instead of a "Models"
+        // title. Accept either match.
+        let view_visible = rendered.contains(expected_title_fragment)
+            || (*key == '4' && rendered.contains("no model usage"));
+        assert!(
+            view_visible,
+            "after pressing '{key}', render must show {expected_title_fragment:?} \
+             (or empty-state for Models); got: {rendered}"
+        );
+    }
+}

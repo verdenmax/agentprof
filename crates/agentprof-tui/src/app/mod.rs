@@ -136,7 +136,15 @@ impl<'a> AppRunner<'a> {
     }
 }
 
-fn draw_help_overlay(frame: &mut Frame<'_>, full: Rect) {
+/// Render the help overlay (centered yellow-border block listing
+/// key bindings + view legends). Called by [`AppRunner::render_into`]
+/// when `state.help_open` and by [`crate::watch::WatchRunner::render_into`]
+/// when `view_state.help_overlay` is set in Single mode (F1.7.1).
+///
+/// `pub(crate)` rather than truly public — the overlay is an
+/// implementation detail of the runner layer; external callers
+/// shouldn't render it themselves.
+pub(crate) fn draw_help_overlay(frame: &mut Frame<'_>, full: Rect) {
     let w = full.width.min(60);
     let h = full.height.min(33);
     let x = full.x + (full.width.saturating_sub(w)) / 2;

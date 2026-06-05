@@ -196,16 +196,7 @@ its own new banner.
 
 **ModelsView in watch mode** (F1.7 Task 10): `4` opens the Models view exactly as in `analyze --export tui`. The selection cursor (`WatchViewState.models_selected`) and the active view (`WatchViewState.view`, defaults to `Aggregate` for M1.6.3 backward compat) both round-trip across the transient `AppState` on every render / dispatch tick, so number-key view switches persist across `RefreshKind::Reload` events. When `session.shutdown` arrives mid-watch, the next reload populates `AnalysisReport.model_metrics` and the Models view body switches from empty-state to the table on the next render. Cross-session aggregate mode (`watch aggregate ...`) does NOT surface the Models view (the metrics are session-level; cross-session aggregation is out of scope per ADR-0012 D-13).
 
-**Known limitation (F1.7):** `WatchRunner::render_into` currently
-dispatches only `View::Models` (new in F1.7) and falls back to
-`views::aggregate::render` for all other views (`Flamegraph`, `Roi`,
-`Aggregate`). This means pressing keys `1` / `2` / `3` in watch mode
-updates the view state but the rendered output stays on aggregate
-until `Tab` cycles to Models or back. This is a pre-existing M1.6.3
-limitation that F1.7's `view` round-trip fix exposed (state now
-persists across events but render dispatch is incomplete). Tracked as
-F1.7.1 follow-up: extend `WatchRunner::render_into` to dispatch all
-four `View::*` arms, matching `AppRunner::render_into`.
+**~~Known limitation (F1.7)~~ — resolved by F1.7.1:** `WatchRunner::render_into`'s Single arm now dispatches all 4 `View::*` arms (Flamegraph / Roi / Aggregate / Models), mirroring `AppRunner::render_into`. Pressing keys `1` / `2` / `3` / `4` in watch mode updates the view state AND the rendered output in lockstep. The help overlay (`?`) is also rendered now via `crate::app::draw_help_overlay` when `view_state.help_overlay` is true in Single mode (pre-F1.7.1 the keystroke flipped state but no render path drew the overlay). 6 regression tests added in `tests/watch_runner.rs` cover each view's render path + the help overlay + a full 1/2/3/4 end-to-end keystroke round-trip.
 
 ### CLI wiring
 

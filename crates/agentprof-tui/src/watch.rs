@@ -439,22 +439,35 @@ impl WatchRunner {
                         frame, body_area, detail, &transient,
                     );
                 } else {
-                    // F1.7 Known limitation: only View::Models is
-                    // dispatched; Flamegraph/Roi/Aggregate all fall
-                    // through to aggregate::render. The `view`
-                    // round-trip works (state persists), but the
-                    // render dispatch is incomplete — pre-existing
-                    // M1.6.3 limitation surfaced by F1.7's view
-                    // round-trip fix. F1.7.1 follow-up will extend
-                    // this match to dispatch all 4 view arms.
+                    // F1.7.1 — full 4-view dispatch in Single mode.
+                    // Pre-F1.7.1 only `View::Models` had its own arm
+                    // and Flamegraph/Roi/Aggregate fell through to
+                    // `aggregate::render` — pressing 1/2/3 updated
+                    // `view_state.view` correctly (F1.7 T10) but the
+                    // render stayed on Aggregate. Mirrors the
+                    // [`AppRunner::render_into`] match exactly so the
+                    // two runner paths render identically.
                     match transient.view {
+                        crate::views::View::Flamegraph => {
+                            crate::views::flamegraph::render(frame, body_area, &transient);
+                        }
+                        crate::views::View::Roi => {
+                            crate::views::roi::render(frame, body_area, &transient);
+                        }
+                        crate::views::View::Aggregate => {
+                            views::aggregate::render(frame, body_area, &transient);
+                        }
                         crate::views::View::Models => {
                             crate::views::models::render(frame, body_area, &transient);
                         }
-                        _ => {
-                            views::aggregate::render(frame, body_area, &transient);
-                        }
                     }
+                }
+                // F1.7.1 — render the help overlay if toggled. Pre-F1.7.1
+                // the `?` keystroke flipped `view_state.help_overlay`
+                // (gated to Single mode by TUI #3) but no render path
+                // consumed it — the overlay was state-with-no-display.
+                if self.view_state.help_overlay {
+                    crate::app::draw_help_overlay(frame, body_area);
                 }
             }
             WatchData::Cross(any) => {
