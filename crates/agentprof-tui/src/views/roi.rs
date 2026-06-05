@@ -70,6 +70,69 @@ fn success_ratio(r: &ToolRankRow) -> f64 {
     }
 }
 
+/// Render `OK%` as a 0-100 integer percent string (or `—` for zero-call
+/// rows).
+///
+/// F1.12 — surfaces the success-rate datum visible in the sort
+/// cycle (`s` key) directly in the table without forcing users to do
+/// mental arithmetic over Calls / OK columns.
+///
+/// Truncates rather than rounds so a single failure on a hot tool
+/// (e.g. 99/100) reads `99%`, not `100%`. This makes Yellow-coding in
+/// F1.13 monotone with the displayed value.
+///
+/// # Examples
+///
+/// ```
+/// use agentprof_tui::views::roi::format_ok_pct;
+/// assert_eq!(format_ok_pct(100, 100), "100%");
+/// assert_eq!(format_ok_pct(99, 100), "99%");
+/// assert_eq!(format_ok_pct(0, 0), "—");
+/// assert_eq!(format_ok_pct(0, 5), "0%");
+/// ```
+#[must_use]
+pub fn format_ok_pct(success: usize, calls: usize) -> String {
+    if calls == 0 {
+        return "—".to_string();
+    }
+    // Truncating integer division → 99/100 = 99, not 100.
+    let pct = success.saturating_mul(100) / calls;
+    format!("{pct}%")
+}
+
+/// Render the percent of session total tool duration occupied by this
+/// tool's rows (F1.12).
+///
+/// `total_all_ms` is the sum of all `ToolRankRow.total_duration` across
+/// the entire `tool_rank`, pre-computed once by the caller.
+///
+/// Always shows at least `0%` (vs the dash used by [`format_ok_pct`])
+/// — a tool with measurable duration but < 0.5 % of the session is
+/// still meaningful information. For session totals of 0 (no tools
+/// recorded), every cell reads `—`.
+///
+/// # Examples
+///
+/// ```
+/// use chrono::Duration;
+/// use agentprof_tui::views::roi::format_total_pct;
+/// assert_eq!(format_total_pct(Duration::seconds(30), 60_000), "50%");
+/// assert_eq!(format_total_pct(Duration::seconds(1), 100_000), "1%");
+/// assert_eq!(format_total_pct(Duration::seconds(10), 0), "—");
+/// // < 0.5% rounds to 0 but stays visible.
+/// assert_eq!(format_total_pct(Duration::milliseconds(1), 100_000), "0%");
+/// ```
+#[must_use]
+pub fn format_total_pct(tool_total: chrono::Duration, total_all_ms: i64) -> String {
+    if total_all_ms <= 0 {
+        return "—".to_string();
+    }
+    let ms = tool_total.num_milliseconds().max(0);
+    // Truncating integer division — matches `format_ok_pct` convention.
+    let pct = ms.saturating_mul(100) / total_all_ms;
+    format!("{pct}%")
+}
+
 /// Build the unified selectable rank ordering used by [`render`] (F1.11).
 ///
 /// Returns `(work_sorted, blocking_sorted)`. Selection order in the
@@ -244,10 +307,23 @@ fn render_unified_table(
         Cell::from("Calls"),
         Cell::from("OK"),
         Cell::from("Fail"),
+        Cell::from("OK%"),
         Cell::from("Total"),
+        Cell::from("Tot%"),
         Cell::from("p50"),
     ])
     .style(Style::default().add_modifier(Modifier::BOLD));
+
+    // F1.12 — compute session total tool duration once for the Tot%
+    // column. Includes ALL tools (work + user-blocking) so the
+    // percentages sum to 100 % across the entire table. Saturating arith
+    // for defensive overflow guard (sum-of-Durations across many calls
+    // could in pathological data exceed i64::MAX).
+    let total_all_ms: i64 = sorted_work
+        .iter()
+        .chain(sorted_blocking.iter())
+        .map(|r| r.total_duration.num_milliseconds().max(0))
+        .fold(0_i64, i64::saturating_add);
 
     // F1.11 — render order: work rows → optional separator row →
     // user-blocking rows. Separator row uses DIM modifier and a divider
@@ -278,7 +354,7 @@ fn render_unified_table(
         } else {
             Style::default()
         };
-        trows.push(tool_row(i, r, style));
+        trows.push(tool_row(i, r, total_all_ms, style));
     }
     if has_separator {
         // Plain DIM gray divider row — pure dashes in the Tool column.
@@ -290,6 +366,8 @@ fn render_unified_table(
             Row::new(vec![
                 Cell::from(""),
                 Cell::from("─".repeat(60)),
+                Cell::from(""),
+                Cell::from(""),
                 Cell::from(""),
                 Cell::from(""),
                 Cell::from(""),
@@ -322,7 +400,9 @@ fn render_unified_table(
                 Cell::from(format!("{}", r.call_count)),
                 Cell::from(format!("{}", r.success_count)),
                 Cell::from(format!("{}", r.failure_count)),
+                Cell::from(format_ok_pct(r.success_count, r.call_count)),
                 Cell::from(human_short(r.total_duration)),
+                Cell::from(format_total_pct(r.total_duration, total_all_ms)),
                 Cell::from(human_short(r.p50_duration)),
             ])
             .style(style),
@@ -333,13 +413,15 @@ fn render_unified_table(
         trows,
         [
             Constraint::Length(3),
-            Constraint::Length(34),
+            Constraint::Length(32),
             Constraint::Length(10),
-            Constraint::Length(7),
-            Constraint::Length(7),
-            Constraint::Length(7),
-            Constraint::Length(10),
+            Constraint::Length(6),
+            Constraint::Length(6),
+            Constraint::Length(6),
+            Constraint::Length(5),
             Constraint::Length(8),
+            Constraint::Length(5),
+            Constraint::Length(7),
         ],
     )
     .header(header)
@@ -369,7 +451,7 @@ fn render_unified_table(
     frame.render_stateful_widget(table, area, &mut table_state);
 }
 
-fn tool_row<'a>(idx: usize, r: &ToolRankRow, style: Style) -> Row<'a> {
+fn tool_row<'a>(idx: usize, r: &ToolRankRow, total_all_ms: i64, style: Style) -> Row<'a> {
     Row::new(vec![
         Cell::from(format!("{}", idx + 1)),
         Cell::from(truncate(&r.name, 32)),
@@ -377,7 +459,9 @@ fn tool_row<'a>(idx: usize, r: &ToolRankRow, style: Style) -> Row<'a> {
         Cell::from(format!("{}", r.call_count)),
         Cell::from(format!("{}", r.success_count)),
         Cell::from(format!("{}", r.failure_count)),
+        Cell::from(format_ok_pct(r.success_count, r.call_count)),
         Cell::from(human_short(r.total_duration)),
+        Cell::from(format_total_pct(r.total_duration, total_all_ms)),
         Cell::from(human_short(r.p50_duration)),
     ])
     .style(style)
@@ -638,5 +722,61 @@ mod tests {
         let blocking: Vec<ToolRankRow> = vec![];
         assert!(!is_selection_user_blocking(&work, &blocking, 0));
         assert!(!is_selection_user_blocking(&work, &blocking, 1));
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // F1.12 — OK% + Total% column formatters
+    // ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn format_ok_pct_renders_perfect_one_hundred() {
+        assert_eq!(format_ok_pct(100, 100), "100%");
+        assert_eq!(format_ok_pct(7, 7), "100%");
+        assert_eq!(format_ok_pct(1, 1), "100%");
+    }
+
+    #[test]
+    fn format_ok_pct_truncates_rather_than_rounds() {
+        // 99/100 = 99, NOT 100 (would mislead users into thinking the
+        // tool was perfect when it wasn't). Truncation also keeps the
+        // value monotone with F1.13 color thresholds.
+        assert_eq!(format_ok_pct(99, 100), "99%");
+        assert_eq!(format_ok_pct(2, 3), "66%"); // 0.666... truncates
+        assert_eq!(format_ok_pct(199, 200), "99%");
+    }
+
+    #[test]
+    fn format_ok_pct_zero_calls_renders_dash() {
+        // Distinct from `0%` which means "called, all failed".
+        assert_eq!(format_ok_pct(0, 0), "—");
+    }
+
+    #[test]
+    fn format_ok_pct_zero_success_with_calls_renders_zero() {
+        assert_eq!(format_ok_pct(0, 5), "0%");
+        assert_eq!(format_ok_pct(0, 1), "0%");
+    }
+
+    #[test]
+    fn format_total_pct_renders_basic_percentages() {
+        use chrono::Duration as D;
+        // 30/60 = 50 %
+        assert_eq!(format_total_pct(D::seconds(30), 60_000), "50%");
+        // 1/100 = 1 %
+        assert_eq!(format_total_pct(D::seconds(1), 100_000), "1%");
+    }
+
+    #[test]
+    fn format_total_pct_zero_session_total_renders_dash() {
+        use chrono::Duration as D;
+        assert_eq!(format_total_pct(D::seconds(10), 0), "—");
+        assert_eq!(format_total_pct(D::seconds(10), -1), "—");
+    }
+
+    #[test]
+    fn format_total_pct_tiny_fraction_still_shows_zero() {
+        use chrono::Duration as D;
+        // < 0.5 % truncates to 0 but stays visible as "0%" (vs "—").
+        assert_eq!(format_total_pct(D::milliseconds(1), 100_000), "0%");
     }
 }

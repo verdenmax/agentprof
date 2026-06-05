@@ -3,8 +3,8 @@ source: crates/agentprof-tui/tests/views.rs
 expression: buffer_to_symbol_grid(&buffer)
 ---
 ┌ RoiView (2/3) — Sort: [t]total  c=calls  s=success%  p=p50 · DIM = user-waiting ─────────────────┐
-│#   Tool                               Source     Calls   OK      Fail    Total      p50          │
-│1   bash                               builtin    1       1       0       5.0s       5.0s         │
+│#   Tool                             Source     Calls  OK     Fail   OK%   Total    Tot%  p50     │
+│1   bash                             builtin    1      1      0      100%  5.0s     100%  5.0s    │
 │                                                                                                  │
 │                                                                                                  │
 │                                                                                                  │

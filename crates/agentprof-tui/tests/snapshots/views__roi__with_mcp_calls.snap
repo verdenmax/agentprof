@@ -3,9 +3,9 @@ source: crates/agentprof-tui/tests/views.rs
 expression: buffer_to_symbol_grid(&buffer)
 ---
 ┌ RoiView (2/3) — Sort: [t]total  c=calls  s=success%  p=p50 · DIM = user-waiting ─────────────────┐
-│#   Tool                               Source     Calls   OK      Fail    Total      p50          │
-│1   mcp__filesystem__read_file         mcp/filesy 1       1       0       1.0s       1.0s         │
-│2   mcp__github__search_issues         mcp/github 1       1       0       1.0s       1.0s         │
+│#   Tool                             Source     Calls  OK     Fail   OK%   Total    Tot%  p50     │
+│1   mcp__filesystem__read_file       mcp/filesy 1      1      0      100%  1.0s     50%   1.0s    │
+│2   mcp__github__search_issues       mcp/github 1      1      0      100%  1.0s     50%   1.0s    │
 │                                                                                                  │
 │                                                                                                  │
 │                                                                                                  │
