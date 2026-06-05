@@ -56,8 +56,23 @@ pub struct TurnSummaryRow {
     /// Number of hook invocations attributed to this turn
     /// (per `Turn.hook_calls.len()`).
     pub hook_call_count: usize,
-    /// Number of skill invocations attributed to this turn
+    /// Number of `skill.invoked` events attributed to this turn
     /// (per `Turn.skill_calls.len()`).
+    ///
+    /// **Note (M1.6.5 B-6 follow-up)**: this counts wire-level
+    /// `skill.invoked` events whose timestamp falls within an open
+    /// turn (i.e. between `assistant.turn_start` and
+    /// `assistant.turn_end`). In real Copilot CLI sessions
+    /// `skill.invoked` typically arrives **between** turns (as a
+    /// session-level discovery / registration signal), so this counter
+    /// is commonly `0` even when the turn actually runs a skill.
+    ///
+    /// The actual skill *execution* per turn is captured in
+    /// [`Self::tool_call_count`] via the synthetic
+    /// `skill__<name>__<method>` tool call name pattern — counting it
+    /// twice (once here as a skill, once there as a tool) would
+    /// double-count time. See `crates/agentprof-adapters/tests/fixtures/
+    /// copilot/tool-and-skill-same-turn/` for the canonical example.
     pub skill_call_count: usize,
 }
 

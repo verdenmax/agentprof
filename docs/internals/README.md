@@ -14,8 +14,29 @@ genuinely benefits from being separate from source.
 
 ## ADR template
 
+Two header styles are both acceptable across `adr-000{1..N}.md`
+(workspace review #4 — explicit non-prescription, after evaluating
+the cost of mass-migration). Pick whichever fits the topic; the
+content rules (Context / Considered options / Decision /
+Consequences) are mandatory either way.
+
+**Style A — YAML frontmatter** (used by `adr-0001..0005`):
+
 ```markdown
-# <Topic>
+---
+title: "ADR-NNNN: <Topic>"
+status: "Accepted"
+date: "YYYY-MM-DD"
+authors: "<list>"
+tags: ["..."]
+supersedes: ""
+superseded_by: ""
+---
+
+# ADR-NNNN: <Topic>
+
+## Status
+**Accepted**
 
 ## Context
 What problem are we solving, why now?
@@ -30,6 +51,36 @@ What was chosen, why.
 ## Consequences
 Benefits, costs, follow-ups, escape hatches.
 ```
+
+**Style B — bolded-line header** (used by `adr-0006/0008..0012`):
+
+```markdown
+# ADR-NNNN — <Topic>
+
+**Status:** Accepted (YYYY-MM-DD, ships with <milestone>).
+**Supersedes:** —
+**Superseded by:** —
+**Owner:** `<crate-name>` crate.
+
+## Context
+What problem are we solving, why now?
+
+## Considered options
+1. Option A — pros / cons
+2. Option B — pros / cons
+
+## Decision
+What was chosen, why.
+
+## Consequences
+Benefits, costs, follow-ups, escape hatches.
+```
+
+Both styles are machine-parseable for table generation. `adr-0007`'s
+blockquote variant is a historical artifact and should not be used
+for new ADRs — convert to either Style A or B if you touch it for
+unrelated reasons. (Not migrating it now for the same reason this
+section accepts both styles: cost of churn vs cost of inconsistency.)
 
 See [`docs/architecture.md`](../architecture.md) §14.4 for the full L3 spec.
 

@@ -187,8 +187,7 @@ mod tests {
         // percentile when the aggregate is of exactly that single
         // session (durations identical). The shared helper guarantees
         // this by construction; the test pins the contract.
-        let mut sorted: Vec<Duration> =
-            [3, 1, 4, 1, 5, 9, 2, 6].iter().map(|&s| d(s)).collect();
+        let mut sorted: Vec<Duration> = [3, 1, 4, 1, 5, 9, 2, 6].iter().map(|&s| d(s)).collect();
         sorted.sort();
         for p in [0.0, 25.0, 50.0, 75.0, 90.0, 95.0, 99.0, 100.0] {
             let per_session = percentile_nearest_rank(&sorted, p);

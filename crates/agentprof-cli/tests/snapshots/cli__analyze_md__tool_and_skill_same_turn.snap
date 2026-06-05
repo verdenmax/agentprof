@@ -1,6 +1,5 @@
 ---
 source: crates/agentprof-cli/tests/cli.rs
-assertion_line: 469
 expression: s
 ---
 # agentprof analyze — 00000000-0000-0000-0000-00000000c100
@@ -25,8 +24,8 @@ expression: s
 ## Tool Rank (by total duration)
 | Tool | Source | Calls | OK | Fail | Orphan | User-req | Total | p50 | p95 | Max |
 |---|---|---|---|---|---|---|---|---|---|---|
-| bash | Builtin | 1 | 1 | 0 | 0 | 0 | 1.00s | 1.00s | 1.00s | 1.00s |
-| skill__code-reviewer__run | Skill { name: "code-reviewer" } | 1 | 1 | 0 | 0 | 0 | 1.00s | 1.00s | 1.00s | 1.00s |
+| bash | builtin | 1 | 1 | 0 | 0 | 0 | 1.00s | 1.00s | 1.00s | 1.00s |
+| skill__code-reviewer__run | skill:code-reviewer | 1 | 1 | 0 | 0 | 0 | 1.00s | 1.00s | 1.00s | 1.00s |
 
 ## Hook Rank (by total duration)
 | Hook | Calls | OK | Fail | Synth | Total | p50 | p95 |

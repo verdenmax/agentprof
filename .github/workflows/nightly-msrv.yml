@@ -18,4 +18,9 @@ jobs:
         with:
           toolchain: "1.78"
       - uses: Swatinem/rust-cache@v2
-      - run: cargo check --workspace --all-features
+      # Workspace review #5: `cargo check` skips dev-dep / proc-macro
+      # builds that only get exercised by the test-target codepath.
+      # `--all-targets` brings them in so MSRV failures in dev-deps
+      # (e.g. a snapshot crate that bumped its own MSRV) surface here
+      # rather than silently passing.
+      - run: cargo check --workspace --all-features --all-targets

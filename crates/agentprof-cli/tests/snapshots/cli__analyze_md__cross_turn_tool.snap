@@ -24,7 +24,7 @@ expression: md
 ## Tool Rank (by total duration)
 | Tool | Source | Calls | OK | Fail | Orphan | User-req | Total | p50 | p95 | Max |
 |---|---|---|---|---|---|---|---|---|---|---|
-| bash | Builtin | 1 | 1 | 0 | 0 | 0 | 5.00s | 5.00s | 5.00s | 5.00s |
+| bash | builtin | 1 | 1 | 0 | 0 | 0 | 5.00s | 5.00s | 5.00s | 5.00s |
 
 ## Hook Rank (by total duration)
 | Hook | Calls | OK | Fail | Synth | Total | p50 | p95 |

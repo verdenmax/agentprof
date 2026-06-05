@@ -1,6 +1,5 @@
 ---
 source: crates/agentprof-cli/tests/cli.rs
-assertion_line: 493
 expression: s
 ---
 # agentprof analyze — 00000000-0000-0000-0000-00000000c300
@@ -24,8 +23,8 @@ expression: s
 ## Tool Rank (by total duration)
 | Tool | Source | Calls | OK | Fail | Orphan | User-req | Total | p50 | p95 | Max |
 |---|---|---|---|---|---|---|---|---|---|---|
-| bash | Builtin | 1 | 1 | 0 | 0 | 0 | 1.00s | 1.00s | 1.00s | 1.00s |
-| <orphan> | Builtin | 1 | 0 | 0 | 1 | 0 | 0ms | 0ms | 0ms | 0ms |
+| bash | builtin | 1 | 1 | 0 | 0 | 0 | 1.00s | 1.00s | 1.00s | 1.00s |
+| <orphan> | builtin | 1 | 0 | 0 | 1 | 0 | 0ms | 0ms | 0ms | 0ms |
 
 ## Hook Rank (by total duration)
 | Hook | Calls | OK | Fail | Synth | Total | p50 | p95 |

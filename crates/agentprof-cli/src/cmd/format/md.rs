@@ -187,7 +187,12 @@ fn write_tool_row(out: &mut String, row: &agentprof_core::analyzer::ToolRankRow)
         out,
         "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
         md_cell_escape(&row.name),
-        md_cell_escape(&format!("{:?}", row.source)),
+        // M1.6.5 B-6 follow-up (md-debug-coupling): use the
+        // `ToolSource` Display impl (e.g. "skill:code-reviewer") rather
+        // than Debug (which would render `Skill { name: "code-reviewer" }`).
+        // The HTML renderer was fixed in B-5; this brings markdown to
+        // parity.
+        md_cell_escape(&row.source.to_string()),
         row.call_count,
         row.success_count,
         row.failure_count,

@@ -25,13 +25,13 @@ expression: s
 ## Tool Rank (by total duration)
 | Tool | Source | Calls | OK | Fail | Orphan | User-req | Total | p50 | p95 | Max |
 |---|---|---|---|---|---|---|---|---|---|---|
-| bash | Builtin | 2 | 2 | 0 | 0 | 0 | 700ms | 500ms | 500ms | 500ms |
+| bash | builtin | 2 | 2 | 0 | 0 | 0 | 700ms | 500ms | 500ms | 500ms |
 
 ## User-blocking tools (wall-clock includes user think time)
 These tools block on the human, not on agent or machine work; their `Total` reflects how long the user took to respond, not engineering cost.
 | Tool | Source | Calls | OK | Fail | Orphan | User-req | Total | p50 | p95 | Max |
 |---|---|---|---|---|---|---|---|---|---|---|
-| ask_user | Builtin | 1 | 1 | 0 | 0 | 0 | 10.0m | 10.0m | 10.0m | 10.0m |
+| ask_user | builtin | 1 | 1 | 0 | 0 | 0 | 10.0m | 10.0m | 10.0m | 10.0m |
 
 ## Hook Rank (by total duration)
 | Hook | Calls | OK | Fail | Synth | Total | p50 | p95 |
