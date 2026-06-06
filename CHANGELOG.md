@@ -13,6 +13,8 @@ prefix used in commit messages).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-06-06
+
 ### Added
 
 - **C2 — `total_wall_duration` sum-invariant tests** (closes `m1.6.2-followup-i4-total-wall-test`). The 4 cross-session aggregators (`aggregate_by_tool` / `_mcp_server` / `_day` / `_model`) all set `AggregateReport.total_wall_duration` to Σ per-session wall durations, but pre-C2 no test asserted the invariant — md/html/TUI rendered the field while a future refactor breaking the sum would silently mis-report headline totals. 5 new tests in `crates/agentprof-core/tests/aggregate.rs`: 1 per aggregator + 1 empty-input edge case (zero wall). Each test builds 2–4 synthetic sessions with known wall durations via a shared `synthetic_session(session_id, started_offset_secs, wall_secs)` helper (one closed `Turn` per session sets the latest endpoint), runs the aggregator, and asserts `report.total_wall_duration == Duration::seconds(Σ wall_secs)`. Catches regressions in the per-session `wall::compute_wall` walk AND the per-aggregator accumulation loop. Tests: 800 → 805 (+5).
@@ -766,4 +768,5 @@ Reference: spec `docs/superpowers/specs/2026-05-29-m1.4-cli-and-analyzer-design.
 - L1/L2/L3 documentation system definition (see `docs/architecture.md` §14).
 - Repository configuration: `rust-toolchain.toml`, `rustfmt.toml`, `clippy.toml`, `deny.toml`, `.editorconfig`, `.gitignore`, dual `LICENSE-*` files.
 
-[Unreleased]: https://github.com/agentprof/agentprof/compare/HEAD...HEAD
+[Unreleased]: https://github.com/agentprof/agentprof/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/agentprof/agentprof/releases/tag/v0.1.0
