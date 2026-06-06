@@ -146,7 +146,7 @@ impl<'a> AppRunner<'a> {
 /// shouldn't render it themselves.
 pub(crate) fn draw_help_overlay(frame: &mut Frame<'_>, full: Rect) {
     let w = full.width.min(60);
-    let h = full.height.min(33);
+    let h = full.height.min(40);
     let x = full.x + (full.width.saturating_sub(w)) / 2;
     let y = full.y + (full.height.saturating_sub(h)) / 2;
     let area = Rect::new(x, y, w, h);
@@ -183,12 +183,18 @@ pub(crate) fn draw_help_overlay(frame: &mut Frame<'_>, full: Rect) {
         "  T-id (gray)      Open / in-flight turn (no ended_at yet)",
         "  T-id (blue)      Thinking-only closed turn (no tool calls)",
         "  T-id (default)   Completed turn with tool calls",
+        "  T-id (yellow)    Pending — turn has stuck tool call (F2.2)",
         "",
-        "RoiView Tool color (F1.13 — Tool cell only):",
+        "RoiView Tool color (F1.13 + F2.3 — Tool cell only):",
         "  Tool (red)       > 50% failure rate (likely broken)",
-        "  Tool (yellow)    Any failure on busy tool (>= 3 calls)",
-        "  Tool (default)   No failures, or too few calls to judge",
+        "  Tool (yellow)    Any failure on busy tool (>= 3 calls), OR",
+        "                   tool has pending call(s) (F2.3 — see footer)",
+        "  Tool (default)   No failures, no pending, or too few calls",
         "  * (rank #)       User-waiting tool (DIM, e.g. ask_user)",
+        "",
+        "Watch footer banner:",
+        "  ⚠ <tool> pending for <elapsed>  Tool stuck (F2.3, watch mode)",
+        "  ⚠ reload error: ...             File reload failed",
         "",
         "Deep flamegraph: `analyze --export speedscope` → speedscope.app",
     ]

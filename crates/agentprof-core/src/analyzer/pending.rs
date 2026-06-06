@@ -149,6 +149,43 @@ pub struct PendingCall<'a> {
     pub is_user_blocking: bool,
 }
 
+impl<'a> PendingCall<'a> {
+    /// Explicit constructor for cross-crate test code.
+    ///
+    /// Required because `PendingCall` is `#[non_exhaustive]`, which
+    /// forbids struct-literal construction outside `agentprof-core`.
+    /// Callers in `agentprof-tui` tests + the `format_pending_banner`
+    /// doctest use this constructor.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::analyzer::pending::PendingCall;
+    /// use chrono::{Duration, Utc};
+    ///
+    /// let now = Utc::now();
+    /// let p = PendingCall::new("ask_user", Some("t1"), now, Duration::seconds(60), true);
+    /// assert!(p.is_user_blocking);
+    /// assert_eq!(p.tool_name, "ask_user");
+    /// ```
+    #[must_use]
+    pub const fn new(
+        tool_name: &'a str,
+        turn_id: Option<&'a str>,
+        started_at: DateTime<Utc>,
+        elapsed: Duration,
+        is_user_blocking: bool,
+    ) -> Self {
+        Self {
+            tool_name,
+            turn_id,
+            started_at,
+            elapsed,
+            is_user_blocking,
+        }
+    }
+}
+
 /// Scan all open calls across `episodes.tools` for pending ones.
 ///
 /// Returns a deterministically-ordered vector:

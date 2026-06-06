@@ -413,7 +413,28 @@ impl WatchRunner {
 
     fn render_into(&self, frame: &mut Frame<'_>) {
         let area = frame.area();
-        let (body_area, footer_area) = if self.last_error.is_some() && area.height > 1 {
+
+        // F2.3 — compute pending calls ONCE per frame (cheap — iterates
+        // only the already-bounded episodes.tools BTreeMap). Used by
+        // both the footer banner allocation below and consumed
+        // implicitly by views::roi::render via its own internal call
+        // (separate computation; possible to dedup if perf ever
+        // matters). Cross mode doesn't surface pending (per F2 spec
+        // §3.4) since aggregation spans many sessions.
+        let pending_now = chrono::Utc::now();
+        let pending: Vec<agentprof_core::analyzer::pending::PendingCall<'_>> =
+            if let WatchData::Single { episodes, .. } = &self.data {
+                agentprof_core::analyzer::pending::pending_calls(episodes, pending_now)
+            } else {
+                Vec::new()
+            };
+
+        // Footer reservation precedence:
+        //   1. reload error (pre-existing)
+        //   2. F2.3 pending banner (NEW)
+        //   3. no footer
+        let needs_footer = self.last_error.is_some() || !pending.is_empty();
+        let (body_area, footer_area) = if needs_footer && area.height > 1 {
             (
                 Rect::new(area.x, area.y, area.width, area.height - 1),
                 Some(Rect::new(area.x, area.y + area.height - 1, area.width, 1)),
@@ -430,23 +451,12 @@ impl WatchRunner {
                 transient.help_open = self.view_state.help_overlay;
                 transient.models_selected = self.view_state.models_selected;
                 transient.view = self.view_state.view;
-                // Read `detail_view` directly from the persistent
-                // `view_state` — render is read-only so no clone-in
-                // round trip is needed (unlike `dispatch`, which mutates
-                // a transient `AppState` and writes back).
                 if let Some(detail) = self.view_state.detail_view.as_ref() {
                     crate::views::turn_detail::render_turn_detail(
                         frame, body_area, detail, &transient,
                     );
                 } else {
-                    // F1.7.1 — full 4-view dispatch in Single mode.
-                    // Pre-F1.7.1 only `View::Models` had its own arm
-                    // and Flamegraph/Roi/Aggregate fell through to
-                    // `aggregate::render` — pressing 1/2/3 updated
-                    // `view_state.view` correctly (F1.7 T10) but the
-                    // render stayed on Aggregate. Mirrors the
-                    // [`AppRunner::render_into`] match exactly so the
-                    // two runner paths render identically.
+                    // F1.7.1 — full 4-view dispatch.
                     match transient.view {
                         crate::views::View::Flamegraph => {
                             crate::views::flamegraph::render(frame, body_area, &transient);
@@ -462,10 +472,6 @@ impl WatchRunner {
                         }
                     }
                 }
-                // F1.7.1 — render the help overlay if toggled. Pre-F1.7.1
-                // the `?` keystroke flipped `view_state.help_overlay`
-                // (gated to Single mode by TUI #3) but no render path
-                // consumed it — the overlay was state-with-no-display.
                 if self.view_state.help_overlay {
                     crate::app::draw_help_overlay(frame, body_area);
                 }
@@ -481,10 +487,23 @@ impl WatchRunner {
             }
         }
 
-        if let (Some(area), Some(msg)) = (footer_area, self.last_error.as_deref()) {
-            let p = Paragraph::new(format!("⚠ reload error: {msg}"))
-                .style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD));
-            frame.render_widget(p, area);
+        // Footer rendering — error banner takes precedence over pending
+        // banner per spec §3.4 (an active reload error is more
+        // important than "you're stuck on ask_user").
+        if let Some(area) = footer_area {
+            if let Some(msg) = self.last_error.as_deref() {
+                let p = Paragraph::new(format!("⚠ reload error: {msg}"))
+                    .style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD));
+                frame.render_widget(p, area);
+            } else if !pending.is_empty() {
+                let banner = format_pending_banner(&pending, area.width);
+                let p = Paragraph::new(banner).style(
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                );
+                frame.render_widget(p, area);
+            }
         }
     }
 
@@ -735,6 +754,91 @@ impl WatchRunner {
 }
 
 // =================== test-only helpers ===================
+
+/// Format the watch-mode footer banner for pending calls (F2.3).
+///
+/// 1 pending: `"⚠ <tool> pending for <elapsed> — your input needed"`
+///            (or "check this tool" for non-user-blocking).
+/// N >= 2:    `"⚠ <N> calls pending: <tool>(<elapsed>) <tool>(<elapsed>) ..."`
+///            (truncates with `+K more` past `max_width`).
+///
+/// Public for unit-test access.
+///
+/// # Examples
+///
+/// ```
+/// use agentprof_core::analyzer::pending::PendingCall;
+/// use agentprof_tui::watch::format_pending_banner;
+/// use chrono::{Duration, TimeZone, Utc};
+///
+/// let started = Utc.with_ymd_and_hms(2026, 6, 5, 10, 0, 0).unwrap();
+/// let pending = vec![PendingCall::new(
+///     "ask_user", Some("t1"), started, Duration::seconds(83), true,
+/// )];
+/// let banner = format_pending_banner(&pending, 200);
+/// assert!(banner.contains("ask_user"));
+/// assert!(banner.contains("your input needed"));
+/// ```
+#[must_use]
+pub fn format_pending_banner(
+    pending: &[agentprof_core::analyzer::pending::PendingCall<'_>],
+    max_width: u16,
+) -> String {
+    use crate::views::format::human_short;
+
+    if pending.is_empty() {
+        return String::new();
+    }
+    if pending.len() == 1 {
+        let p = &pending[0];
+        let hint = if p.is_user_blocking {
+            "your input needed"
+        } else {
+            "check this tool"
+        };
+        let full = format!(
+            "⚠ {} pending for {} — {}",
+            p.tool_name,
+            human_short(p.elapsed),
+            hint
+        );
+        // Char-truncate to budget if over (defence — banner should fit).
+        if full.chars().count() > max_width as usize {
+            return full.chars().take(max_width as usize).collect();
+        }
+        return full;
+    }
+
+    // N >= 2 — pack tool(elapsed) entries until budget; truncate with
+    // "+K more". Mirrors `views::flamegraph::fit_entries` convention.
+    let n = pending.len();
+    let prefix = format!("⚠ {n} calls pending: ");
+    let entries: Vec<String> = pending
+        .iter()
+        .map(|p| format!("{}({})", p.tool_name, human_short(p.elapsed)))
+        .collect();
+
+    let mut keep = entries.len();
+    loop {
+        let body = entries[..keep].join(" ");
+        let dropped = entries.len() - keep;
+        let suffix = if dropped == 0 {
+            String::new()
+        } else {
+            format!(" +{dropped} more")
+        };
+        let total = prefix.chars().count() + body.chars().count() + suffix.chars().count();
+        if total <= max_width as usize || keep == 0 {
+            let line = format!("{prefix}{body}{suffix}");
+            // Defence — should be within budget; truncate if not.
+            if line.chars().count() > max_width as usize {
+                return line.chars().take(max_width as usize).collect();
+            }
+            return line;
+        }
+        keep -= 1;
+    }
+}
 
 #[doc(hidden)]
 impl WatchRunner {

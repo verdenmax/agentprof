@@ -17,8 +17,10 @@
 //! separator + DIM styling preserves the semantic distinction without
 //! the selectability paper-cut.
 
+use agentprof_core::analyzer::pending::pending_calls;
 use agentprof_core::analyzer::ToolRankRow;
 use agentprof_core::episode::{Episodes, ToolCallStatus};
+use chrono::Utc;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span as TextSpan};
@@ -338,8 +340,32 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState<'_>) {
 
     let (sorted_work, sorted_blocking) =
         partition_and_sort(&state.report.tool_rank, state.roi_sort);
-    render_unified_table(frame, chunks[0], &sorted_work, &sorted_blocking, state);
-    render_detail_strip(frame, chunks[1], &sorted_work, &sorted_blocking, state);
+
+    // F2.3 — collect "tool names with at least one pending call" into a
+    // BTreeSet so per-row lookup is O(log n) and stable. Computed once
+    // per render frame; passed to both the table renderer (Tool cell
+    // color) and the detail strip (`⚠ N pending` prefix).
+    let now = Utc::now();
+    let pending = pending_calls(state.episodes, now);
+    let pending_tool_names: std::collections::BTreeSet<&str> =
+        pending.iter().map(|p| p.tool_name).collect();
+
+    render_unified_table(
+        frame,
+        chunks[0],
+        &sorted_work,
+        &sorted_blocking,
+        state,
+        &pending_tool_names,
+    );
+    render_detail_strip(
+        frame,
+        chunks[1],
+        &sorted_work,
+        &sorted_blocking,
+        state,
+        &pending,
+    );
 }
 
 #[allow(clippy::too_many_lines)]
@@ -349,6 +375,7 @@ fn render_unified_table(
     sorted_work: &[ToolRankRow],
     sorted_blocking: &[ToolRankRow],
     state: &AppState<'_>,
+    pending_tool_names: &std::collections::BTreeSet<&str>,
 ) {
     let title = format!(
         " RoiView (2/3) — Sort: {} · DIM = user-waiting ",
@@ -434,7 +461,8 @@ fn render_unified_table(
         } else {
             Style::default()
         };
-        trows.push(tool_row(i, r, total_all_ms, style));
+        let is_pending = pending_tool_names.contains(r.name.as_str());
+        trows.push(tool_row(i, r, total_all_ms, style, is_pending));
     }
     // F1.14 padding rows — blank, non-selectable, push the separator +
     // blocking section to the visible bottom. Each row has 10 empty
@@ -493,10 +521,14 @@ fn render_unified_table(
         // F1.13: failure coloring on the Tool cell applies here too —
         // `ask_user` can fail (e.g. user cancels) and a flaky one is
         // worth a Yellow/Red hint even in the user-waiting section.
-        let tool_cell_style = failure_severity_color(r.call_count, r.failure_count)
-            .map_or_else(Style::default, |c| {
-                Style::default().fg(c).add_modifier(Modifier::BOLD)
-            });
+        // F2.3: pending Yellow is composed in as a fallback if no
+        // failure color fires. Failure wins (a broken tool is worse
+        // than a slow one — covered in spec §3.3 table).
+        let is_pending_blocking = pending_tool_names.contains(r.name.as_str());
+        let tool_cell_style = compose_tool_cell_style(
+            failure_severity_color(r.call_count, r.failure_count),
+            is_pending_blocking,
+        );
         trows.push(
             Row::new(vec![
                 Cell::from("*"),
@@ -556,14 +588,61 @@ fn render_unified_table(
     frame.render_stateful_widget(table, area, &mut table_state);
 }
 
-fn tool_row<'a>(idx: usize, r: &ToolRankRow, total_all_ms: i64, row_style: Style) -> Row<'a> {
-    // F1.13: tint the Tool cell only when failure severity warrants
-    // attention. Keep other columns at default fg so values stay
-    // legible (a Red row makes percentages hard to read on dark themes).
-    let tool_cell_style = failure_severity_color(r.call_count, r.failure_count)
-        .map_or_else(Style::default, |c| {
-            Style::default().fg(c).add_modifier(Modifier::BOLD)
-        });
+/// Compose the Tool cell style from optional failure-severity color
+/// (F1.13) and pending state (F2.3).
+///
+/// Failure wins over pending: a broken tool (Red / Yellow) is more
+/// urgent than a slow tool (Pending Yellow). Pending only changes
+/// the color when no failure signal was firing.
+///
+/// Both branches add `Modifier::BOLD` so the colored cell is
+/// unambiguously a signal (matches F1.13's existing convention).
+///
+/// # Examples
+///
+/// ```
+/// use agentprof_tui::views::roi::compose_tool_cell_style;
+/// use ratatui::style::{Color, Modifier};
+///
+/// // No failure, no pending → default style (no color, no modifier).
+/// let s = compose_tool_cell_style(None, false);
+/// assert_eq!(s.fg, None);
+/// assert!(!s.add_modifier.contains(Modifier::BOLD));
+///
+/// // No failure, pending → Yellow Bold.
+/// let s = compose_tool_cell_style(None, true);
+/// assert_eq!(s.fg, Some(Color::Yellow));
+/// assert!(s.add_modifier.contains(Modifier::BOLD));
+///
+/// // Failure Red wins over pending.
+/// let s = compose_tool_cell_style(Some(Color::Red), true);
+/// assert_eq!(s.fg, Some(Color::Red));
+/// ```
+#[must_use]
+pub fn compose_tool_cell_style(failure: Option<Color>, is_pending: bool) -> Style {
+    match (failure, is_pending) {
+        (Some(c), _) => Style::default().fg(c).add_modifier(Modifier::BOLD),
+        (None, true) => Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+        (None, false) => Style::default(),
+    }
+}
+
+fn tool_row<'a>(
+    idx: usize,
+    r: &ToolRankRow,
+    total_all_ms: i64,
+    row_style: Style,
+    is_pending: bool,
+) -> Row<'a> {
+    // F1.13 + F2.3: tint the Tool cell only when failure severity OR
+    // pending status warrants attention. Keeps other columns at default
+    // fg so values stay legible. See `compose_tool_cell_style`.
+    let tool_cell_style = compose_tool_cell_style(
+        failure_severity_color(r.call_count, r.failure_count),
+        is_pending,
+    );
     Row::new(vec![
         Cell::from(format!("{}", idx + 1)),
         Cell::from(truncate(&r.name, 32)).style(tool_cell_style),
@@ -585,6 +664,7 @@ fn render_detail_strip(
     sorted_work: &[ToolRankRow],
     sorted_blocking: &[ToolRankRow],
     state: &AppState<'_>,
+    pending: &[agentprof_core::analyzer::pending::PendingCall<'_>],
 ) {
     let selected_row = roi_selected_row(sorted_work, sorted_blocking, state.roi_selected);
     let is_blocking = is_selection_user_blocking(sorted_work, sorted_blocking, state.roi_selected);
@@ -603,24 +683,70 @@ fn render_detail_strip(
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
+    // F2.3 — count pending calls for the selected tool (if any) so we
+    // can prefix the detail line with `⚠ N pending (longest)`.
+    let pending_for_selected: Vec<&_> = selected_row
+        .map(|row| pending.iter().filter(|p| p.tool_name == row.name).collect())
+        .unwrap_or_default();
+    let pending_prefix: Option<String> = if pending_for_selected.is_empty() {
+        None
+    } else {
+        let longest = pending_for_selected
+            .iter()
+            .map(|p| p.elapsed)
+            .max()
+            .unwrap_or_else(chrono::Duration::zero);
+        Some(format!(
+            "⚠ {} pending ({} longest) · ",
+            pending_for_selected.len(),
+            human_short(longest),
+        ))
+    };
+
     let lines: Vec<Line<'_>> = match selected_row {
         None => vec![Line::from("  (no row selected)")],
-        Some(row) if is_blocking => vec![Line::from(format!(
-            "  You waited {} time{} totaling {} (not counted in agent work)",
-            row.call_count,
-            if row.call_count == 1 { "" } else { "s" },
-            human_short(row.total_duration),
-        ))],
+        Some(row) if is_blocking => {
+            let body = format!(
+                "  You waited {} time{} totaling {} (not counted in agent work)",
+                row.call_count,
+                if row.call_count == 1 { "" } else { "s" },
+                human_short(row.total_duration),
+            );
+            if let Some(prefix) = pending_prefix {
+                vec![Line::from(vec![
+                    TextSpan::styled(
+                        prefix,
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    TextSpan::raw(body),
+                ])]
+            } else {
+                vec![Line::from(body)]
+            }
+        }
         Some(row) => {
             let calls = recent_calls(&row.name, state.episodes);
-            if calls.is_empty() {
-                vec![Line::from("  (no calls)")]
+            let calls_line: Vec<TextSpan<'_>> = if calls.is_empty() {
+                vec![TextSpan::raw("  (no calls)")]
             } else {
-                let spans: Vec<TextSpan<'_>> = calls
+                calls
                     .into_iter()
                     .map(|(turn, dur, glyph)| TextSpan::raw(format!("  {turn} ({dur}{glyph})")))
-                    .collect();
+                    .collect()
+            };
+            if let Some(prefix) = pending_prefix {
+                let mut spans = vec![TextSpan::styled(
+                    prefix,
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                )];
+                spans.extend(calls_line);
                 vec![Line::from(spans)]
+            } else {
+                vec![Line::from(calls_line)]
             }
         }
     };
@@ -943,5 +1069,41 @@ mod tests {
         // to call it a reliability issue. No color hint.
         // (Note: 1/1 = 100 % triggers the > 50% Red branch first.)
         assert_eq!(failure_severity_color(2, 1), None);
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // F2.3 — compose_tool_cell_style (failure + pending composition)
+    // ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn compose_tool_cell_style_no_failure_no_pending_is_default() {
+        let s = compose_tool_cell_style(None, false);
+        assert_eq!(s.fg, None);
+        assert!(!s.add_modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn compose_tool_cell_style_pending_only_is_yellow_bold() {
+        let s = compose_tool_cell_style(None, true);
+        assert_eq!(s.fg, Some(Color::Yellow));
+        assert!(s.add_modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn compose_tool_cell_style_failure_red_wins_over_pending() {
+        // F2.3 spec §3.3: failure wins over pending. Red Bold,
+        // not Yellow Bold, when both signals fire.
+        let s = compose_tool_cell_style(Some(Color::Red), true);
+        assert_eq!(s.fg, Some(Color::Red));
+        assert!(s.add_modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn compose_tool_cell_style_failure_yellow_wins_over_pending() {
+        // Already-Yellow tool stays Yellow Bold (no spec-visible
+        // change from pending=true → same color anyway).
+        let s = compose_tool_cell_style(Some(Color::Yellow), true);
+        assert_eq!(s.fg, Some(Color::Yellow));
+        assert!(s.add_modifier.contains(Modifier::BOLD));
     }
 }

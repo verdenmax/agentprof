@@ -581,3 +581,89 @@ fn watch_single_view_round_trips_render_through_all_4_views() {
         );
     }
 }
+
+// ──────────────────────────────────────────────────────────────────────
+// F2.3 — pending banner in Single mode
+// ──────────────────────────────────────────────────────────────────────
+
+/// Build a `WatchData::Single` with one pending `ask_user` call ~60s old.
+fn fake_single_with_pending_askuser() -> WatchData {
+    use agentprof_core::adapter::AgentKind;
+    use agentprof_core::analyzer::AnalysisReport;
+    use agentprof_core::episode::tool::{ToolCall, ToolCallStatus, ToolEpisode};
+    use agentprof_core::episode::turn::Span;
+    use agentprof_core::model::{SessionMeta, ToolSource};
+
+    let meta = SessionMeta::new("s-abc".into(), AgentKind::Copilot, Utc::now(), false);
+    let report = AnalysisReport::new(meta.clone());
+
+    // Started 60s ago → > 30s threshold → pending.
+    let started = Utc::now() - chrono::Duration::seconds(60);
+    let mut call = ToolCall::new(Span::new(started, started));
+    call.status = ToolCallStatus::OpenAtEndOfSession;
+    let mut ep = ToolEpisode::new("ask_user".into(), ToolSource::Builtin);
+    ep.calls.push(call);
+    let mut episodes = Episodes::new();
+    episodes.tools.insert("ask_user".into(), ep);
+
+    WatchData::Single {
+        report,
+        episodes,
+        meta,
+    }
+}
+
+#[test]
+fn watch_runner_pending_banner_renders_when_calls_pending() {
+    let runner = WatchRunner::new_static(fake_single_with_pending_askuser());
+    let mut term = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    runner.draw_frame(&mut term).unwrap();
+    let buf = term.backend().buffer().clone();
+    let rendered = format!("{buf:?}");
+    assert!(
+        rendered.contains("ask_user"),
+        "pending banner must mention ask_user; got: {rendered}"
+    );
+    assert!(
+        rendered.contains("pending"),
+        "pending banner must include the literal 'pending'; got: {rendered}"
+    );
+    assert!(
+        rendered.contains("your input needed"),
+        "user-blocking pending must include 'your input needed' hint; got: {rendered}"
+    );
+}
+
+#[test]
+fn watch_runner_pending_banner_suppressed_by_reload_error() {
+    // Spec §3.4: error precedence over pending. Both signals active
+    // → only the error renders.
+    let mut runner = WatchRunner::new_static(fake_single_with_pending_askuser());
+    runner.set_last_error_for_test("disk full");
+    let mut term = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    runner.draw_frame(&mut term).unwrap();
+    let buf = term.backend().buffer().clone();
+    let rendered = format!("{buf:?}");
+    assert!(
+        rendered.contains("reload error"),
+        "error banner must take precedence; got: {rendered}"
+    );
+    assert!(
+        !rendered.contains("your input needed"),
+        "pending banner must be suppressed when error fires; got: {rendered}"
+    );
+}
+
+#[test]
+fn watch_runner_no_pending_no_banner() {
+    // Regression guard: empty episodes → no banner → no body shrink.
+    let runner = WatchRunner::new_static(fake_single());
+    let mut term = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    runner.draw_frame(&mut term).unwrap();
+    let buf = term.backend().buffer().clone();
+    let rendered = format!("{buf:?}");
+    assert!(
+        !rendered.contains("pending for"),
+        "no pending → no banner; got: {rendered}"
+    );
+}

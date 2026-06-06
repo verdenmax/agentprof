@@ -328,6 +328,8 @@ M1.4 引入的纯函数 rollups，消费 `&Episodes` 产出 per-row 分析数据
 | `tool_rank(&Episodes)` | `Vec<ToolRankRow>` (每行含 `is_user_blocking: bool`) | `total_duration` 降序 |
 | `hook_rank(&Episodes)` | `Vec<HookRankRow>` | `total_duration` 降序 |
 | `analyze(&Episodes, &SessionMeta, &[ParseWarning])` | `AnalysisReport` | 打包 meta + 上述 3 个 rollups + `warnings` + `parse_warnings` |
+| `pending::pending_calls(&Episodes, now)` (F2.1) | `Vec<PendingCall<'_>>` | `is_user_blocking` desc → `tool_name` asc → `started_at` asc |
+| `pending::is_pending(&ToolCall, tool_name, now)` (F2.1) | `bool` | derived — true iff status is `OpenAtEndOfSession` AND `now - started >= threshold_for(tool_name)` |
 
 `AnalysisReport` 是导出层（markdown / JSON 渲染器，未来 TUI / 存储层）共享的稳定结构。所有 `Duration` 字段通过 `duration_ms` / `duration_ms_opt` serde helper 序列化为整型毫秒（per ADR-0004 IMP-007，保证快照稳定）。
 
