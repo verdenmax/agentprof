@@ -1,0 +1,29 @@
+# Dependabot — auto-bumps SHA-pinned GitHub Action references (M1.7 D-6)
+# + their trailing `# vX.Y.Z` comments together in one PR per upgrade.
+#
+# Cargo deps are NOT monitored here — they're audited via cargo-deny + CI
+# (and bumping them is intertwined with MSRV considerations, so a human
+# call is preferable to an auto-PR). Revisit post-1.0 or when MSRV
+# policy is formalized.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Use Conventional Commits style for Dependabot PRs so they match
+    # the repo's commit log (e.g. "ci(deps): bump actions/checkout ...").
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    # Combine all action bumps into a single weekly PR — one CI run,
+    # one review, instead of N separate PRs cluttering the queue.
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    # Keep the existing rolling refs (`dtolnay/rust-toolchain@stable`
+    # and `@master`) ignored — Dependabot would otherwise try to "pin"
+    # them, defeating D-6 (those are rolling on purpose).
+    ignore:
+      - dependency-name: "dtolnay/rust-toolchain"
