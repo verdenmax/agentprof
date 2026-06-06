@@ -327,6 +327,69 @@ pub trait Event {
         Vec::new()
     }
 
+    /// Adapter-specific success bit for events that report it
+    /// (`tool.execution_complete`, `hook.end`). Returns `None` for
+    /// events without the concept, and for adapters / payload schemas
+    /// that don't carry the bit (forward-compat).
+    ///
+    /// Consumed by [`crate::episode::derive_episodes`] to populate
+    /// [`crate::episode::tool::ToolCallStatus::Failure`] (tools) and
+    /// [`crate::episode::hook::HookCall::success`] (hooks). `None` is
+    /// treated as success — preserves existing behaviour for older
+    /// Copilot CLI 1.0.x payloads or adapters that don't yet override.
+    /// See ADR-0013 D-3.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::adapter::{Event, EventKind};
+    /// use chrono::Utc;
+    ///
+    /// struct StubEvent;
+    /// impl Event for StubEvent {
+    ///     fn id(&self) -> &str { "x" }
+    ///     fn kind(&self) -> EventKind { EventKind::Unknown }
+    ///     fn timestamp(&self) -> chrono::DateTime<Utc> { Utc::now() }
+    ///     fn parent_id(&self) -> Option<&str> { None }
+    ///     // payload_success() inherits the default `None` impl.
+    /// }
+    /// assert_eq!(StubEvent.payload_success(), None);
+    /// ```
+    fn payload_success(&self) -> Option<bool> {
+        None
+    }
+
+    /// Adapter-specific error message for failure events
+    /// (`tool.execution_complete` with `success: false`). Returns
+    /// `None` for non-failure events, for adapters whose payload
+    /// schema doesn't carry one (e.g. Copilot's `hook.end`), or
+    /// when the payload simply omitted the message (`error: null`).
+    ///
+    /// Consumed by [`crate::episode::derive_episodes`] to populate
+    /// the `ToolCallStatus::Failure { message: Option<String> }`
+    /// field — currently surfaced nowhere in UI but future-ready
+    /// for `RoiView` detail / `TurnDetail` error display.
+    /// See ADR-0013 D-4 + D-6.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::adapter::{Event, EventKind};
+    /// use chrono::Utc;
+    ///
+    /// struct StubEvent;
+    /// impl Event for StubEvent {
+    ///     fn id(&self) -> &str { "x" }
+    ///     fn kind(&self) -> EventKind { EventKind::Unknown }
+    ///     fn timestamp(&self) -> chrono::DateTime<Utc> { Utc::now() }
+    ///     fn parent_id(&self) -> Option<&str> { None }
+    /// }
+    /// assert_eq!(StubEvent.payload_error_message(), None);
+    /// ```
+    fn payload_error_message(&self) -> Option<&str> {
+        None
+    }
+
     /// Adapter-specific `tool_call_id` for events that carry one
     /// (e.g. `ToolExecStart`, `ToolExecComplete`, `ToolUserRequested`).
     /// Returns `None` for events without the concept.
