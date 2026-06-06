@@ -377,6 +377,14 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState<'_>) {
     let visible_end = (viewport_top + visible_rows).min(turns.len());
 
     let mut lines: Vec<Line<'_>> = Vec::with_capacity(visible_end.saturating_sub(viewport_top));
+    // F2.2 — cache `now` once per frame so all `build_row` calls see
+    // the same instant. For watch mode this is the live "now"; for
+    // postmortem `analyze --export tui` it's also `Utc::now()`, which
+    // means any `OpenAtEndOfSession` call from a session that ended N
+    // hours ago renders as pending (elapsed = N hours >> threshold).
+    // That's the desired behavior — "you abandoned this call N hours
+    // ago" is the user-facing message.
+    let now = chrono::Utc::now();
     for (offset, row) in turns[viewport_top..visible_end].iter().enumerate() {
         let abs_idx = viewport_top + offset;
         let turn = turn_by_id.get(row.turn_id.as_str()).copied();
@@ -388,6 +396,7 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState<'_>) {
             gantt_width,
             turn,
             state.episodes,
+            now,
         );
         lines.push(line);
     }
@@ -430,22 +439,29 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState<'_>) {
 }
 
 /// Resolve the foreground color for the 5-char T-id portion of a flame
-/// row prefix, encoding the turn's status (F1.10).
+/// row prefix, encoding the turn's status (F1.10) and pending-call
+/// state (F2.2).
 ///
 /// Precedence (highest → lowest):
 ///
 /// 1. `TurnStatus::Aborted(_)` → [`Color::Red`] — the most urgent
 ///    user-facing signal; pairs with the [`Modifier::UNDERLINED`]
 ///    applied to the whole row by `build_row` as a color-blind backup.
-/// 2. **Open** / in-flight (`turn.ended_at.is_none()`) → [`Color::DarkGray`]
+/// 2. **Pending** (F2.2) — any `ToolCall` in `turn.tool_calls` reports
+///    pending via [`crate::views::flamegraph::is_turn_pending`]
+///    (which delegates to
+///    [`agentprof_core::analyzer::pending::is_pending`]) → [`Color::Yellow`].
+///    Ranked above "Open" because a turn with a stuck `ask_user` IS
+///    open, but "pending" is the more specific + actionable signal.
+/// 3. **Open** / in-flight (`turn.ended_at.is_none()`) → [`Color::DarkGray`]
 ///    — distinguishes turns still running in watch mode from completed
 ///    turns at the bottom of the list.
-/// 3. **Thinking-only** (closed turn with no tool calls — e.g. pure-text
+/// 4. **Thinking-only** (closed turn with no tool calls — e.g. pure-text
 ///    replies, summary turns, plan/execute breakpoints) → [`Color::Blue`]
 ///    — the legacy F1.5 marker, now confined to the 5-char T-id span
 ///    instead of the full 24-char prefix (F1.10 tightening, for
 ///    consistency with Aborted / Open).
-/// 4. Otherwise (closed turn with tool calls) → `None` (terminal default
+/// 5. Otherwise (closed turn with tool calls) → `None` (terminal default
 ///    fg). Status colors stack additively with [`Modifier::REVERSED`]
 ///    (selected row) and [`Modifier::UNDERLINED`] (aborted), so a
 ///    selected-aborted turn shows REVERSED + UNDERLINED + Red T-id.
@@ -453,25 +469,44 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState<'_>) {
 /// Returns `None` when `turn` is `None` (e.g. a stale `flame_selected`
 /// pointing past `episodes.turns.len()`).
 ///
+/// **F2.2 signature change**: the `episodes` and `now` parameters are
+/// required to evaluate pending state. Callers in `build_row` already
+/// hold `episodes` in scope; `now` is cached once at the top of
+/// `render` (single `Utc::now()` per frame).
+///
 /// # Examples
 ///
 /// ```
-/// use agentprof_core::episode::{Turn, TurnStatus};
+/// use agentprof_core::episode::{Episodes, Turn, TurnStatus};
 /// use agentprof_tui::views::flamegraph::t_id_status_color;
 /// use chrono::Utc;
 /// use ratatui::style::Color;
 ///
-/// let t = Turn::new("t1".into(), Utc::now());
-/// // Open turn (no `ended_at`) → DarkGray.
-/// assert_eq!(t_id_status_color(Some(&t)), Some(Color::DarkGray));
+/// let now = Utc::now();
+/// let t = Turn::new("t1".into(), now);
+/// // Open turn (no `ended_at`) with no pending calls → DarkGray.
+/// assert_eq!(
+///     t_id_status_color(Some(&t), &Episodes::default(), now),
+///     Some(Color::DarkGray),
+/// );
 /// // No turn → None.
-/// assert_eq!(t_id_status_color(None), None);
+/// assert_eq!(t_id_status_color(None, &Episodes::default(), now), None);
 /// ```
 #[must_use]
-pub fn t_id_status_color(turn: Option<&Turn>) -> Option<Color> {
+pub fn t_id_status_color(
+    turn: Option<&Turn>,
+    episodes: &Episodes,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Option<Color> {
     let t = turn?;
     if matches!(t.status, TurnStatus::Aborted(_)) {
         return Some(Color::Red);
+    }
+    // F2.2 — pending state above Open / Thinking / default. We check
+    // pending BEFORE ended_at because a turn with a stuck ask_user IS
+    // open; "pending" is the more specific signal.
+    if is_turn_pending(t, episodes, now) {
+        return Some(Color::Yellow);
     }
     if t.ended_at.is_none() {
         return Some(Color::DarkGray);
@@ -480,6 +515,45 @@ pub fn t_id_status_color(turn: Option<&Turn>) -> Option<Color> {
         return Some(Color::Blue);
     }
     None
+}
+
+/// Returns true if any `ToolCall` referenced by this turn is currently
+/// pending (F2.2 — delegates per-call check to
+/// [`agentprof_core::analyzer::pending::is_pending`]).
+///
+/// Helper extracted so [`t_id_status_color`] stays readable and so
+/// tests can pin the per-turn aggregation independently of the color
+/// precedence logic.
+///
+/// # Examples
+///
+/// ```
+/// use agentprof_core::episode::{Episodes, Turn};
+/// use agentprof_tui::views::flamegraph::is_turn_pending;
+/// use chrono::Utc;
+///
+/// // Empty turn → no pending.
+/// let t = Turn::new("t1".into(), Utc::now());
+/// assert!(!is_turn_pending(&t, &Episodes::default(), Utc::now()));
+/// ```
+#[must_use]
+pub fn is_turn_pending(
+    turn: &Turn,
+    episodes: &Episodes,
+    now: chrono::DateTime<chrono::Utc>,
+) -> bool {
+    for call_ref in &turn.tool_calls {
+        let Some(ep) = episodes.tools.get(&call_ref.name) else {
+            continue;
+        };
+        let Some(call) = ep.calls.get(call_ref.index) else {
+            continue;
+        };
+        if agentprof_core::analyzer::pending::is_pending(call, &call_ref.name, now) {
+            return true;
+        }
+    }
+    false
 }
 
 #[allow(
@@ -495,6 +569,7 @@ fn build_row<'a>(
     gantt_width: u16,
     turn: Option<&'a Turn>,
     episodes: &'a Episodes,
+    now: chrono::DateTime<chrono::Utc>,
 ) -> Line<'a> {
     let dur_str = duration.map_or_else(|| "—".to_string(), human_short);
     // 5-char fixed-width tokens column inserted between duration and the
@@ -516,10 +591,10 @@ fn build_row<'a>(
 
     // F1.10 — split the prefix into the 5-char T-id portion and the
     // remaining 19 chars (duration + space + tokens + 2-char gutter).
-    // The T-id span carries the status color (Aborted = Red / Open =
-    // DarkGray / thinking-only = Blue / default); the rest span never
-    // carries an fg override so the duration / OutTK columns stay
-    // visually consistent across turn statuses.
+    // The T-id span carries the status color (Aborted = Red / Pending =
+    // Yellow [F2.2] / Open = DarkGray / thinking-only = Blue / default);
+    // the rest span never carries an fg override so the duration / OutTK
+    // columns stay visually consistent across turn statuses.
     //
     // 5 + 19 = 24 = PREFIX_WIDTH. The split is by char count, not
     // byte count, to handle the rare case where the T-id contains
@@ -533,8 +608,9 @@ fn build_row<'a>(
         Style::default()
     };
     // Resolve status color via the documented precedence rule:
-    // Aborted > Open > thinking-only > default. See `t_id_status_color`.
-    let tid_style = t_id_status_color(turn).map_or(base_style, |c| base_style.fg(c));
+    // Aborted > Pending (F2.2) > Open > thinking-only > default.
+    // See `t_id_status_color`.
+    let tid_style = t_id_status_color(turn, episodes, now).map_or(base_style, |c| base_style.fg(c));
     let spans: Vec<TextSpan<'_>> = vec![
         TextSpan::styled(prefix_tid, tid_style),
         TextSpan::styled(prefix_rest, base_style),
@@ -1474,6 +1550,7 @@ mod tests {
             40,
             Some(&turn),
             &episodes,
+            chrono::Utc::now(),
         );
         let first = &line.spans[0];
         assert_eq!(
@@ -1501,6 +1578,7 @@ mod tests {
             40,
             Some(&turn),
             &episodes,
+            chrono::Utc::now(),
         );
         let first = &line.spans[0];
         assert_eq!(first.style.fg, Some(Color::Blue));
@@ -1526,6 +1604,7 @@ mod tests {
             40,
             Some(&turn),
             &episodes,
+            chrono::Utc::now(),
         );
         let tid = &line.spans[0];
         assert_eq!(
@@ -1557,6 +1636,7 @@ mod tests {
             40,
             Some(&turn),
             &episodes,
+            chrono::Utc::now(),
         );
         let first = &line.spans[0];
         assert_ne!(
@@ -1596,6 +1676,7 @@ mod tests {
             40,
             Some(&turn),
             &episodes,
+            chrono::Utc::now(),
         );
         let first = &line.spans[0];
         assert_ne!(
@@ -1651,6 +1732,7 @@ mod tests {
             40,
             Some(&turn),
             &episodes,
+            chrono::Utc::now(),
         );
         let tid = &line.spans[0];
         assert_eq!(
@@ -1683,6 +1765,7 @@ mod tests {
             40,
             Some(&turn),
             &episodes,
+            chrono::Utc::now(),
         );
         // F1.10: prefix is split into 2 spans (T-id + rest). Token column
         // lives in spans[1] (the "rest" span).
@@ -1708,6 +1791,7 @@ mod tests {
             40,
             Some(&turn),
             &episodes,
+            chrono::Utc::now(),
         );
         // F1.10: token column lives in spans[1] (post-split).
         let prefix_rest = line.spans[1].content.as_ref();
@@ -1733,6 +1817,7 @@ mod tests {
             50,   // gantt_width
             None, // turn (None → no gantt cells rendered, but prefix still produced)
             &episodes,
+            chrono::Utc::now(),
         );
         // F1.10: prefix is split into 2 spans. Sum span[0] + span[1]
         // must equal PREFIX_WIDTH (5 + 19 = 24).
@@ -1826,7 +1911,10 @@ mod tests {
 
     #[test]
     fn t_id_status_color_returns_none_for_no_turn() {
-        assert_eq!(t_id_status_color(None), None);
+        assert_eq!(
+            t_id_status_color(None, &Episodes::default(), chrono::Utc::now()),
+            None
+        );
     }
 
     #[test]
@@ -1836,7 +1924,10 @@ mod tests {
         t.ended_at = Some(base + Duration::seconds(2));
         t.status =
             TurnStatus::Aborted(agentprof_core::episode::AbortInfo::new("test".into(), base));
-        assert_eq!(t_id_status_color(Some(&t)), Some(Color::Red));
+        assert_eq!(
+            t_id_status_color(Some(&t), &Episodes::default(), chrono::Utc::now()),
+            Some(Color::Red)
+        );
     }
 
     #[test]
@@ -1844,7 +1935,10 @@ mod tests {
         let base = Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap();
         let t = Turn::new("T1".into(), base);
         // ended_at is None by default → Open / in-flight.
-        assert_eq!(t_id_status_color(Some(&t)), Some(Color::DarkGray));
+        assert_eq!(
+            t_id_status_color(Some(&t), &Episodes::default(), chrono::Utc::now()),
+            Some(Color::DarkGray)
+        );
     }
 
     #[test]
@@ -1853,7 +1947,10 @@ mod tests {
         let mut t = Turn::new("T1".into(), base);
         t.ended_at = Some(base + Duration::seconds(2));
         // tool_calls empty + closed + not aborted → thinking-only.
-        assert_eq!(t_id_status_color(Some(&t)), Some(Color::Blue));
+        assert_eq!(
+            t_id_status_color(Some(&t), &Episodes::default(), chrono::Utc::now()),
+            Some(Color::Blue)
+        );
     }
 
     #[test]
@@ -1863,7 +1960,10 @@ mod tests {
         t.ended_at = Some(base + Duration::seconds(2));
         t.tool_calls
             .push(agentprof_core::episode::CallRef::new("bash".into(), 0));
-        assert_eq!(t_id_status_color(Some(&t)), None);
+        assert_eq!(
+            t_id_status_color(Some(&t), &Episodes::default(), chrono::Utc::now()),
+            None
+        );
     }
 
     #[test]
@@ -1876,7 +1976,10 @@ mod tests {
         // ended_at remains None → would normally be Open / DarkGray.
         t.status =
             TurnStatus::Aborted(agentprof_core::episode::AbortInfo::new("test".into(), base));
-        assert_eq!(t_id_status_color(Some(&t)), Some(Color::Red));
+        assert_eq!(
+            t_id_status_color(Some(&t), &Episodes::default(), chrono::Utc::now()),
+            Some(Color::Red)
+        );
     }
 
     #[test]
@@ -1893,6 +1996,7 @@ mod tests {
             40,
             Some(&turn),
             &episodes,
+            chrono::Utc::now(),
         );
         let tid = &line.spans[0];
         assert_eq!(
@@ -1922,6 +2026,7 @@ mod tests {
             40,
             Some(&turn),
             &episodes,
+            chrono::Utc::now(),
         );
         let tid = &line.spans[0];
         assert_eq!(tid.style.fg, Some(Color::Red), "aborted T-id must be Red");
@@ -1950,6 +2055,7 @@ mod tests {
             40,
             Some(&turn),
             &episodes,
+            chrono::Utc::now(),
         );
         let tid = &line.spans[0];
         let rest = &line.spans[1];
@@ -2185,5 +2291,124 @@ mod tests {
         // truncate from the right rather than rendering empty.
         let segs = ["T123456789".to_string()];
         assert_eq!(fit_priority_segments(&segs, " · ", 4), "T123");
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // F2.2 — Pending Yellow T-id color + is_turn_pending helper
+    // ──────────────────────────────────────────────────────────────────
+
+    /// Build an Episodes with a single tool episode containing one
+    /// `OpenAtEndOfSession` call started at `started_at`, and a Turn
+    /// referencing that call.
+    fn episodes_with_open_call(
+        tool_name: &str,
+        started_at: chrono::DateTime<Utc>,
+    ) -> (Episodes, Turn) {
+        use agentprof_core::episode::tool::{ToolCallStatus, ToolEpisode};
+        use agentprof_core::episode::turn::Span;
+        use agentprof_core::episode::{CallRef, ToolCall};
+        use agentprof_core::model::ToolSource;
+
+        let mut ep = ToolEpisode::new(tool_name.into(), ToolSource::Builtin);
+        let mut call = ToolCall::new(Span::new(started_at, started_at));
+        call.status = ToolCallStatus::OpenAtEndOfSession;
+        ep.calls.push(call);
+
+        let mut episodes = Episodes::default();
+        episodes.tools.insert(tool_name.into(), ep);
+
+        let mut turn = Turn::new("t1".into(), started_at);
+        turn.tool_calls.push(CallRef::new(tool_name.into(), 0));
+        // turn.ended_at intentionally None → open turn (typical for
+        // a turn with a pending ask_user mid-flight).
+        (episodes, turn)
+    }
+
+    #[test]
+    fn is_turn_pending_empty_turn_returns_false() {
+        let turn = Turn::new(
+            "t1".into(),
+            Utc.with_ymd_and_hms(2026, 6, 5, 0, 0, 0).unwrap(),
+        );
+        assert!(!is_turn_pending(&turn, &Episodes::default(), Utc::now()));
+    }
+
+    #[test]
+    fn is_turn_pending_ask_user_above_threshold_is_true() {
+        let started = Utc.with_ymd_and_hms(2026, 6, 5, 10, 0, 0).unwrap();
+        let (episodes, turn) = episodes_with_open_call("ask_user", started);
+        // 60s elapsed > 30s threshold.
+        let now = started + Duration::seconds(60);
+        assert!(is_turn_pending(&turn, &episodes, now));
+    }
+
+    #[test]
+    fn is_turn_pending_ask_user_below_threshold_is_false() {
+        let started = Utc.with_ymd_and_hms(2026, 6, 5, 10, 0, 0).unwrap();
+        let (episodes, turn) = episodes_with_open_call("ask_user", started);
+        // 10s elapsed < 30s threshold.
+        let now = started + Duration::seconds(10);
+        assert!(!is_turn_pending(&turn, &episodes, now));
+    }
+
+    #[test]
+    fn t_id_status_color_pending_turn_is_yellow() {
+        let started = Utc.with_ymd_and_hms(2026, 6, 5, 10, 0, 0).unwrap();
+        let (episodes, turn) = episodes_with_open_call("ask_user", started);
+        let now = started + Duration::seconds(60);
+        assert_eq!(
+            t_id_status_color(Some(&turn), &episodes, now),
+            Some(Color::Yellow),
+            "pending turn must be Yellow"
+        );
+    }
+
+    #[test]
+    fn t_id_status_color_aborted_pending_red_wins_over_yellow() {
+        // F2.2 precedence: Aborted Red > Pending Yellow.
+        let started = Utc.with_ymd_and_hms(2026, 6, 5, 10, 0, 0).unwrap();
+        let (episodes, mut turn) = episodes_with_open_call("ask_user", started);
+        turn.status = TurnStatus::Aborted(agentprof_core::episode::AbortInfo::new(
+            "test".into(),
+            started,
+        ));
+        let now = started + Duration::seconds(60);
+        assert_eq!(
+            t_id_status_color(Some(&turn), &episodes, now),
+            Some(Color::Red),
+            "Aborted Red wins over Pending Yellow per F2.2 precedence"
+        );
+    }
+
+    #[test]
+    fn t_id_status_color_pending_wins_over_open_darkgray() {
+        // F2.2 precedence: Pending Yellow > Open DarkGray.
+        // An open turn with a pending ask_user must be Yellow, not
+        // DarkGray (DarkGray would mean "running normally").
+        let started = Utc.with_ymd_and_hms(2026, 6, 5, 10, 0, 0).unwrap();
+        let (episodes, turn) = episodes_with_open_call("ask_user", started);
+        // Turn's ended_at is None (open) AND the call is pending.
+        assert!(turn.ended_at.is_none(), "test fixture must be open");
+        let now = started + Duration::seconds(60);
+        assert_eq!(
+            t_id_status_color(Some(&turn), &episodes, now),
+            Some(Color::Yellow),
+            "Pending wins over Open per F2.2 precedence"
+        );
+    }
+
+    #[test]
+    fn t_id_status_color_open_non_pending_still_darkgray() {
+        // Regression guard: open turn with NO pending call (either no
+        // tool_calls, or tool_calls are within threshold) → DarkGray.
+        let started = Utc.with_ymd_and_hms(2026, 6, 5, 10, 0, 0).unwrap();
+        let (episodes, turn) = episodes_with_open_call("ask_user", started);
+        // Just 5s elapsed → not pending.
+        let now = started + Duration::seconds(5);
+        assert_eq!(
+            t_id_status_color(Some(&turn), &episodes, now),
+            Some(Color::DarkGray),
+            "open turn with non-pending call stays DarkGray"
+        );
     }
 }
