@@ -23,6 +23,25 @@ prefix used in commit messages).
 
 ### Fixed
 
+- **B1 — `failure_count` always 0 (M1.2 regression, closes `m1.6.2-followup-copilot-failure-bit`)** — `derive.rs:383` had been hardcoding `ToolCallStatus::Success` (with a TODO comment "Task 10b will read actual success bit") and `:490` / `:504` had been hardcoding `HookCall.success: true` since M1.2 (commit `c5716aa`). The wire payload (`ToolResultData.success` + `.error.message`, `HookEndData.success`) was fully present but never consumed, silently neutralizing three already-shipped UX features on real Copilot data:
+  - **F1.13** RoiView Tool cell Red/Yellow failure-severity color
+  - **F1.16** By Hook `OK%` + Hook cell color
+  - **F2.3** `compose_tool_cell_style` failure-wins-over-pending precedence
+
+  Fix: extends `Event` trait with 2 default-`None` methods (`payload_success`, `payload_error_message`); overrides them in `CopilotEvent` for `ToolExecComplete` + `HookEnd`; consumes them in `derive_episodes::on_tool_complete` + `on_hook_end`. `None` defaults to Success (forward-compat for older Copilot CLI 1.0.x / external adapters). `ToolCallStatus::Failure { message: Option<String> }` is now populated end-to-end — surfaced nowhere in UI yet but future-ready for RoiView detail / TurnDetail error display.
+
+  Orphan `on_abort` path (line ~607) intentionally unchanged — its `Failure { message: Some("aborted") }` is wire-truth-independent ("aborted before reaching end event" IS a failure regardless). End-of-session synthesis path (line ~696) also unchanged — no triggering event there, no `payload_success` to read.
+
+  Snapshot regen across 4 distinct suites (9 `.snap` files total), all changes verified per spec §7.4 acceptance gate (only `failure_count` flips + derived `success_count` / `OK%` / `Failure { message }` populated + RoiView ✓→✗ glyph; no episode count or schema drift):
+  - `analyzer_on_fixtures`: 3 fixtures (`with-aborts`, `with-hooks-heavy`, `with-mcp-calls`)
+  - `episode_derive`: same 3 fixtures (HookCall.success bit, ToolCall.status `Success`→`Failure { message: "file not found" }`)
+  - `aggregate` (cross-session, md + html): `bash 15/1→14/2`, `mcp__filesystem__read_file 1/0→0/1`
+  - `views::roi` (with-mcp-calls): `1/0/100%`→`0/1/0%`, `(1.0s✓)`→`(1.0s✗)` — F1.13/F2.3 finally firing
+
+  Adds 16 new tests (9 unit + 4 e2e regression guards + 2 inherent-method doctests + 1 fmt-equivalent forwarder check); end-to-end fixture assertions (`b1_*_has_{tool,hook}_failure`) would have caught the bug in M1.2 and now serve as permanent regression guards.
+
+  Workspace: 777 → 797 tests passing. References: ADR-0013 (`docs/internals/adr-0013-event-success-bit.md`), spec `docs/superpowers/specs/2026-06-06-b1-failure-bit-design.md`, plan `docs/superpowers/plans/2026-06-06-b1-failure-bit.md`. 5 commits: T1 (Event trait) + T2 (CopilotEvent overrides) + T3 (derive consumers + snapshots) + T4 (e2e guards) + T5 (this docs sync).
+
 - `agentprof-tui`: F1.7.1 — `WatchRunner::render_into` Single arm now dispatches all 4 `View::*` arms (was: only `View::Models` had its own arm; Flamegraph/Roi/Aggregate fell through to `views::aggregate::render`). Pre-fix, pressing `1` / `2` / `3` in watch mode updated `view_state.view` correctly (F1.7 T10 had fixed the state round-trip) but the rendered output stayed on aggregate — state-without-display, exactly the same UX paper-cut F1.7 T10 was meant to fix only one level up. Now mirrors `AppRunner::render_into` exactly. Also: the help overlay (`?`) now renders in watch Single mode via the newly-exposed `pub(crate) crate::app::draw_help_overlay`; pre-F1.7.1 the keystroke toggled `view_state.help_overlay` (TUI #3 gated this to Single only) but no render path consumed the flag. 6 new regression tests in `tests/watch_runner.rs` cover each view's render path (`watch_single_renders_{flamegraph,roi,aggregate,models}_view_when_view_is_*`) + the help overlay (`watch_single_renders_help_overlay_when_help_open`) + a full 1/2/3/4 end-to-end keystroke→render round-trip (`watch_single_view_round_trips_render_through_all_4_views`). 739 → 745 tests.
 
 ### Removed

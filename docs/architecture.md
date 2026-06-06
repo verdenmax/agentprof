@@ -231,6 +231,8 @@ extensions are non-breaking for existing adapter impls:
 |---|---|---|
 | `payload_tool_requests() -> Option<Vec<(String, serde_json::Value)>>` | F1 | Per-tool-call argument JSON for the F1 TurnDetailView (`Enter` on a flame row); CopilotAdapter walks `assistant.message.toolUses[].input` |
 | `payload_model_metrics() -> Option<BTreeMap<String, serde_json::Value>>` | F1.7 | Per-model session token totals from `session.shutdown.modelMetrics`; consumed by `derive_episodes` PASS-1 to populate `Episodes.model_metrics`, surfaced via Models view (key `4`) — see [ADR-0012](internals/adr-0012-session-model-metrics-and-models-view.md) |
+| `payload_success() -> Option<bool>` | B1 | Wire-format success bit for `tool.execution_complete` + `hook.end`; consumed by `derive_episodes::on_tool_complete` to produce `ToolCallStatus::Failure` and by `on_hook_end` to set `HookCall.success`. `None` defaults to Success (forward-compat for older Copilot 1.0.x / adapters that don't override). Closes the silent F1.13/F1.16/F2.3 misfire — see [ADR-0013](internals/adr-0013-event-success-bit.md) |
+| `payload_error_message() -> Option<&str>` | B1 | Wire-format error message for `tool.execution_complete` failures; consumed by `derive_episodes::on_tool_complete` to populate `ToolCallStatus::Failure { message }` (currently surfaced nowhere in UI but future-ready for RoiView detail / TurnDetail error display). Copilot `hook.end` has no equivalent wire field — see [ADR-0013 D-6](internals/adr-0013-event-success-bit.md) |
 
 Both are pure extension points: 0 changes to existing adapter trait
 methods, 0 dependencies added, free-form `serde_json::Value` walk
