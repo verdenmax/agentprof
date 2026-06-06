@@ -183,8 +183,25 @@ When a new `cargo-dist` minor version lands:
 ```sh
 cargo install cargo-dist --version "^0.NEW" --locked
 cargo dist init                          # re-confirm the same answers
-cargo dist generate-ci github            # regenerates release.yml
 ```
+
+**After `cargo dist init`, verify `dist-workspace.toml` still contains
+the M1.7-era hand-edited lines** (init may strip them since they're
+not part of its default emission):
+
+- `pr-run-mode = "plan"` (M1.7 T4 — skip 4-platform builds on PR)
+- `allow-dirty = ["ci"]` (M1.7 T5 — tolerates SHA-pinned `release.yml`
+  diverging from cargo-dist's tag-form template; without this,
+  `cargo dist plan` aborts on every CI run)
+- The doc header comment (cargo-dist conventions for editing)
+
+If any are missing, restore from `git diff dist-workspace.toml` or the
+previous `v0.1.0` commit's version, then proceed:
+
+```sh
+cargo dist generate --mode ci            # regenerates release.yml
+```
+
 Manually re-SHA-pin all `uses:` references in the new `release.yml`
 (ADR-0014 D-11 + D-6). SHA-lookup snippet (curl + jq):
 
@@ -202,4 +219,4 @@ For annotated tags (rare), follow the tag object to the commit:
 curl -fsSL "https://api.github.com/repos/<repo>/git/tags/<sha>" | jq -r '.object.sha'
 ```
 
-Action list is illustrative — adjust based on what `cargo dist generate-ci github` actually emits.
+Action list is illustrative — adjust based on what `cargo dist generate --mode ci` actually emits.

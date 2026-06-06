@@ -39,3 +39,7 @@ install-path = "CARGO_HOME"
 hosting = "github"
 # Whether to install an updater program
 install-updater = false
+# Tolerate manual edits to generated CI file (we SHA-pin actions in
+# release.yml after every `cargo dist init`, per ADR-0014 D-11 / T5).
+# Without this, `cargo dist plan` aborts with "out of date contents".
+allow-dirty = ["ci"]
