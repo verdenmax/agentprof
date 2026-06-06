@@ -26,7 +26,30 @@ pub mod group_by_tool;
 
 pub use bucket::{DayBucket, McpServerBucket, ModelBucket, ToolBucket};
 
+// Wave D1: re-export the per-key aggregator functions at the module
+// root so callers can write `aggregate::aggregate_by_tool(...)` instead
+// of `aggregate::group_by_tool::aggregate_by_tool(...)` (closes
+// `m1.6.2-followup-m2-pub-use-aggregators`). The `group_by_*` modules
+// stay `pub` for users who want to reach into their type definitions
+// (e.g. `TempToolAcc` is private, but the module path still resolves
+// for rustdoc cross-links).
+pub use group_by_day::aggregate_by_day;
+pub use group_by_mcp::aggregate_by_mcp_server;
+pub use group_by_model::aggregate_by_model;
+pub use group_by_tool::aggregate_by_tool;
+
 /// Shared session-wall helper used by every aggregator.
+///
+/// Wave D1 / `m1.6.2-followup-compute-wall-shared`: keeping this as a
+/// private sibling module rather than hoisting to `impl Episodes` is
+/// a deliberate YAGNI call — only the 4 cross-session aggregators
+/// consume it, no other call site needs `compute_wall` semantics, and
+/// the function is read-only over `Episodes` (no `&mut self` benefit).
+/// If a 5th consumer outside `aggregate::` ever needs the same
+/// "latest endpoint across all episode endpoints" walk, hoist this
+/// fn to `impl Episodes` then. See Wave C item 2 (the sum-invariant
+/// tests in `tests/aggregate.rs`) for indirect public-API coverage
+/// of `compute_wall`'s behaviour.
 mod wall {
     use chrono::{DateTime, Duration, Utc};
 

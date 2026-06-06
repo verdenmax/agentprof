@@ -189,6 +189,17 @@ pub struct DayBucket {
     /// Sum of `turn_summary.output_tokens` on this day.
     pub total_output_tokens: u64,
     /// `tool / wall × 100`, clamped to `[0, 100]`.
+    ///
+    /// Stored as `f32` (Wave D1 / `m1.6.2-followup-m5-utilization-precision`):
+    /// the value is a percentage display number (`0.0`–`100.0`),
+    /// rounded for human consumption; sub-1% precision is not
+    /// meaningful for the "low utilization day" UX it drives. `f32`
+    /// is exactly representable for all integer percentages 0..=100
+    /// and survives JSON round-trip losslessly within that range.
+    /// Callers needing higher precision should reconstruct from
+    /// `total_tool_duration` + `total_wall_duration` (both `Duration`,
+    /// integer milliseconds on the wire) rather than relying on this
+    /// field.
     pub utilization_pct: f32,
     /// `utilization_pct < threshold` (threshold = caller-supplied).
     pub is_low_utilization: bool,

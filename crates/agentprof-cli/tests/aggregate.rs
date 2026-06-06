@@ -19,6 +19,41 @@ fn multi_sess_root() -> PathBuf {
         .join("agentprof-adapters/tests/fixtures/copilot")
 }
 
+/// Isolated scratch root containing **only** the 3 `multi-sess-*` fixtures
+/// (closes `m1.6.2-followup-i3-fixture-isolation`).
+///
+/// Without this, the aggregate snapshot tests (`aggregate_md_snapshot_by_*`,
+/// `aggregate_html_snapshot_by_tool`) walk every directory under
+/// `agentprof-adapters/tests/fixtures/copilot/` — 20+ fixtures including
+/// `with-skill-invoked`, `with-span-overlap`, `with-mcp-calls`, etc. that
+/// have nothing to do with the cross-session aggregate behaviour the
+/// snapshots are pinning. Adding any future copilot fixture forced
+/// regenerating these aggregate snapshots; B1 hit a milder version of this.
+///
+/// The scratch root copies just the 3 multi-sess-* directories into a
+/// fresh `tempfile::TempDir`; copy (not symlink) avoids cross-platform
+/// symlink-permission noise on CI and keeps the test deterministic.
+/// Returned `TempDir` lives for the test's duration; drop cleans up.
+fn isolated_multi_sess_root() -> tempfile::TempDir {
+    use std::fs;
+    let src = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("agentprof-adapters/tests/fixtures/copilot");
+    let tmp = tempfile::tempdir().expect("create tempdir");
+    for slug in ["multi-sess-a", "multi-sess-b", "multi-sess-c"] {
+        let src_dir = src.join(slug);
+        let dst_dir = tmp.path().join(slug);
+        fs::create_dir_all(&dst_dir).expect("create dst dir");
+        for entry in fs::read_dir(&src_dir).expect("read fixture dir") {
+            let entry = entry.expect("read fixture entry");
+            let dst = dst_dir.join(entry.file_name());
+            fs::copy(entry.path(), &dst).expect("copy fixture file");
+        }
+    }
+    tmp
+}
+
 #[test]
 fn aggregate_by_tool_md_emits_header_and_rows() {
     Command::cargo_bin("agentprof")
@@ -152,11 +187,12 @@ fn aggregate_invalid_threshold_exits_user_error() {
 
 #[test]
 fn aggregate_md_snapshot_by_tool() {
+    let tmp = isolated_multi_sess_root();
     let out = Command::cargo_bin("agentprof")
         .unwrap()
         .args(["aggregate", "--by", "tool", "--since", "all"])
         .args(["--root"])
-        .arg(multi_sess_root())
+        .arg(tmp.path())
         .assert()
         .success()
         .get_output()
@@ -168,11 +204,12 @@ fn aggregate_md_snapshot_by_tool() {
 
 #[test]
 fn aggregate_md_snapshot_by_day() {
+    let tmp = isolated_multi_sess_root();
     let out = Command::cargo_bin("agentprof")
         .unwrap()
         .args(["aggregate", "--by", "day", "--since", "all"])
         .args(["--root"])
-        .arg(multi_sess_root())
+        .arg(tmp.path())
         .assert()
         .success()
         .get_output()
@@ -184,12 +221,13 @@ fn aggregate_md_snapshot_by_day() {
 
 #[test]
 fn aggregate_html_snapshot_by_tool() {
+    let tmp = isolated_multi_sess_root();
     let out = Command::cargo_bin("agentprof")
         .unwrap()
         .args(["aggregate", "--by", "tool", "--since", "all"])
         .args(["--export", "html"])
         .args(["--root"])
-        .arg(multi_sess_root())
+        .arg(tmp.path())
         .assert()
         .success()
         .get_output()

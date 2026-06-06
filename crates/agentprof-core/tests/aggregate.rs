@@ -134,10 +134,9 @@ fn aggregate_since_round_trip_some_and_none() {
 // ──────────────────────────────────────────────────────────────────────
 
 use agentprof_core::adapter::AgentKind;
-use agentprof_core::analyzer::aggregate::group_by_day::aggregate_by_day;
-use agentprof_core::analyzer::aggregate::group_by_mcp::aggregate_by_mcp_server;
-use agentprof_core::analyzer::aggregate::group_by_model::aggregate_by_model;
-use agentprof_core::analyzer::aggregate::group_by_tool::aggregate_by_tool;
+use agentprof_core::analyzer::aggregate::{
+    aggregate_by_day, aggregate_by_mcp_server, aggregate_by_model, aggregate_by_tool,
+};
 use agentprof_core::analyzer::AnalysisReport;
 use agentprof_core::episode::turn::{Turn, TurnStatus};
 use agentprof_core::episode::Episodes;
@@ -237,4 +236,80 @@ fn aggregate_total_wall_duration_zero_when_no_sessions() {
     // Edge case: empty input → zero wall.
     let report = aggregate_by_tool(&[], &[]);
     assert_eq!(report.total_wall_duration, Duration::zero());
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Wave D1 — aggregate_by_model None-model skip-branch test (closes
+// `m1.6.2-followup-i3-model-skip-test`).
+//
+// All 3 multi-sess fixtures set first-turn model, so `aggregate_by_model`'s
+// `let Some(model) = ... else { continue; };` skip arm had zero coverage
+// pre-D1. Adds a synthetic 2-session test where one session has first-turn
+// model=None — asserts that session is excluded from buckets but its
+// wall duration STILL contributes to total_wall_duration (skip is on
+// bucket population only).
+// ──────────────────────────────────────────────────────────────────────
+
+use agentprof_core::analyzer::TurnSummaryRow;
+
+/// Build an `AnalysisReport` + `Episodes` pair with first-turn model set
+/// to `model_opt`. Wall duration is 10s.
+fn synthetic_session_with_model(
+    session_id: &str,
+    started_offset_secs: i64,
+    model_opt: Option<&str>,
+) -> (AnalysisReport, Episodes) {
+    let (mut report, episodes) = synthetic_session(session_id, started_offset_secs, 10);
+    // Inject one TurnSummaryRow so aggregate_by_model sees first-turn data.
+    report.turn_summary.push(TurnSummaryRow::new(
+        "t1".into(),
+        report.meta.started_at,
+        Some(Duration::seconds(10)),
+        TurnStatus::Completed,
+        model_opt.map(str::to_owned),
+        None,
+        Some(42),
+        0,
+        0,
+        0,
+    ));
+    (report, episodes)
+}
+
+#[test]
+fn aggregate_by_model_skips_session_with_none_model_but_keeps_wall() {
+    let (r_none, e_none) = synthetic_session_with_model("s_none", 0, None);
+    let (r_some, e_some) = synthetic_session_with_model("s_some", 100, Some("claude-sonnet-4.6"));
+
+    let report = aggregate_by_model(&[r_none, r_some], &[e_none, e_some]);
+
+    // Skip branch: session with model=None contributes NO bucket.
+    assert_eq!(
+        report.buckets.len(),
+        1,
+        "model=None session must be skipped from buckets; only the Some session contributes"
+    );
+    assert_eq!(report.buckets[0].model, "claude-sonnet-4.6");
+
+    // …but its wall STILL counts in total (the skip is on the `acc`
+    // population loop, AFTER total_wall accumulation per group_by_model.rs).
+    assert_eq!(
+        report.total_wall_duration,
+        Duration::seconds(20),
+        "total_wall_duration must include the skipped session's wall"
+    );
+}
+
+#[test]
+fn aggregate_by_model_skips_session_with_empty_turn_summary() {
+    // Edge case: turn_summary is empty (e.g. error path where parse
+    // succeeded but no turns landed). `.first()` returns None, same
+    // skip path as None-model.
+    let (r_empty, e_empty) = synthetic_session("s_empty", 0, 5);
+    // Note: synthetic_session leaves turn_summary empty by default.
+    let (r_some, e_some) = synthetic_session_with_model("s_some", 100, Some("claude-sonnet-4.6"));
+
+    let report = aggregate_by_model(&[r_empty, r_some], &[e_empty, e_some]);
+    assert_eq!(report.buckets.len(), 1);
+    assert_eq!(report.total_wall_duration, Duration::seconds(15));
 }

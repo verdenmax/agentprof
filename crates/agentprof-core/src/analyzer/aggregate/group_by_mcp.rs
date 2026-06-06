@@ -43,8 +43,7 @@ pub fn aggregate_by_mcp_server(
     let mut acc: BTreeMap<String, TempMcpAcc> = BTreeMap::new();
     let mut total_wall = Duration::zero();
 
-    for (idx, report) in reports.iter().enumerate() {
-        let episodes = &episodes_per_report[idx];
+    for (idx, (report, episodes)) in reports.iter().zip(episodes_per_report.iter()).enumerate() {
         total_wall += wall::compute_wall(episodes, report.meta.started_at);
 
         for row in &report.tool_rank {
