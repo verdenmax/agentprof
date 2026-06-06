@@ -36,9 +36,11 @@ use crate::cmd::exit::ExitKind;
 #[derive(Args, Debug, Clone)]
 #[non_exhaustive]
 #[command(
-    after_help = "Note: global flags like --debounce-ms, --agent, --root, --session \
-                  must appear BEFORE the `aggregate` subcommand. \
-                  Example: `agentprof watch --debounce-ms 500 aggregate --by tool`."
+    after_help = "Note: top-level flags --debounce-ms / --agent / --root / --session \
+                  are global (Wave D3 / `m1.6.3-t2-followup-clap-arg-ordering`), \
+                  so they accept BOTH positions: \
+                  `agentprof watch --debounce-ms 500 aggregate --by tool` AND \
+                  `agentprof watch aggregate --by tool --debounce-ms 500` both work."
 )]
 pub struct WatchCmd {
     /// Aggregate sub-mode (cross-session). Omit for single-session watch.
@@ -46,11 +48,11 @@ pub struct WatchCmd {
     pub sub: Option<WatchSub>,
 
     /// Agent whose session to watch. M1.6.3 supports `copilot` only.
-    #[arg(long, value_enum, default_value_t = AgentKind::Copilot)]
+    #[arg(long, value_enum, default_value_t = AgentKind::Copilot, global = true)]
     pub agent: AgentKind,
 
     /// Override the adapter's default session-state root.
-    #[arg(long)]
+    #[arg(long, global = true)]
     pub root: Option<PathBuf>,
 
     /// Which session to watch (single mode only). Defaults to `latest`.
@@ -67,11 +69,11 @@ pub struct WatchCmd {
     /// `None`-vs-`Some(Latest)` — left for a future polish round to
     /// avoid breaking external scripts that may pass `--session latest`
     /// explicitly.
-    #[arg(long, default_value = "latest")]
+    #[arg(long, default_value = "latest", global = true)]
     pub session: SessionSelector,
 
     /// Debounce window (ms) for filesystem events.
-    #[arg(long, default_value_t = 250)]
+    #[arg(long, default_value_t = 250, global = true)]
     pub debounce_ms: u64,
 }
 
@@ -132,7 +134,19 @@ pub fn run(
         ));
     }
 
-    let adapter = match cmd.agent {
+    // Wave D3 (`m1.6.3-t2-followup-destructure-watchcmd`): destructure
+    // once at the top so we can move owned pieces into the helpers
+    // (and drop the `cmd.sub.clone()` + `&WatchCmd` plumbing that
+    // pre-D3 carried the whole struct through two layers of frames).
+    let WatchCmd {
+        sub,
+        agent,
+        root,
+        session,
+        debounce_ms,
+    } = cmd;
+
+    let adapter = match agent {
         AgentKind::Copilot => CopilotAdapter,
         other => {
             return Err(ExitKind::UserError.into_anyhow(format!(
@@ -141,12 +155,12 @@ pub fn run(
         }
     };
 
-    let debounce = Duration::from_millis(cmd.debounce_ms);
+    let debounce = Duration::from_millis(debounce_ms);
 
-    match cmd.sub.clone() {
-        None => run_single(adapter, &cmd, debounce, cfg, tracing_handle),
+    match sub {
+        None => run_single(adapter, root, &session, debounce, cfg, tracing_handle),
         Some(WatchSub::Aggregate(agg)) => {
-            run_cross(adapter, agg, &cmd, debounce, cfg, tracing_handle)
+            run_cross(adapter, agg, &session, debounce, cfg, tracing_handle)
         }
     }
 }
@@ -166,12 +180,13 @@ fn validate_watch_aggregate(agg: &AggregateCmd) -> Result<()> {
 
 fn run_single(
     adapter: CopilotAdapter,
-    cmd: &WatchCmd,
+    root: Option<PathBuf>,
+    session: &SessionSelector,
     debounce: Duration,
     cfg: &crate::cmd::LogConfig,
     tracing_handle: &crate::cmd::TracingHandle,
 ) -> Result<()> {
-    let sref = resolve_session(&adapter, cmd.root.clone(), &cmd.session)?;
+    let sref = resolve_session(&adapter, root, session)?;
     let events_jsonl = sref.path.clone();
 
     // Initial load.
@@ -209,7 +224,7 @@ fn run_single(
 fn run_cross(
     adapter: CopilotAdapter,
     agg: AggregateCmd,
-    cmd: &WatchCmd,
+    session: &SessionSelector,
     debounce: Duration,
     cfg: &crate::cmd::LogConfig,
     tracing_handle: &crate::cmd::TracingHandle,
@@ -236,10 +251,10 @@ fn run_cross(
                 .into_anyhow("could not determine session root for watch; pass --root".to_string())
         })?;
 
-    // Warn (before spawning the watcher) if cmd.session was set in cross
+    // Warn (before spawning the watcher) if session was set in cross
     // mode — it's ignored here, and surfacing this even when the spawn
     // later fails helps users diagnose a likely typo.
-    if !matches!(cmd.session, SessionSelector::Latest) {
+    if !matches!(session, SessionSelector::Latest) {
         tracing::warn!(
             flag = "--session",
             sub = "aggregate",
