@@ -42,18 +42,43 @@ given session.
 
 ---
 
-## Install (M1.7 — release pending)
+## Install
+
+### One-line installer (recommended)
 
 ```sh
-cargo install agentprof          # multi-platform binaries via cargo-dist
-# or
+curl -fsSL https://github.com/agentprof/agentprof/releases/latest/download/agentprof-installer.sh | sh
+```
+
+Downloads the appropriate prebuilt binary for your platform
+(Linux x86_64 / aarch64, macOS x86_64 / aarch64) into `~/.cargo/bin`.
+Binaries are built in GitHub Actions and ship with SHA-256 checksums
+in each release. Pin to a specific version by swapping `latest/download`
+for `download/<tag>`, e.g.
+`https://github.com/agentprof/agentprof/releases/download/v0.1.0/agentprof-installer.sh`.
+
+Windows is not supported for v0.1.0 (see [ADR-0014](docs/internals/adr-0014-v0.1.0-release-strategy.md) D-5); planned for v0.2+.
+
+### From source (Rust ≥ 1.78 required)
+
+```sh
 cargo install --git https://github.com/agentprof/agentprof agentprof-cli
 ```
 
-The `cargo install agentprof` form is wired to `cargo-dist` but the v0.1.0
-release has not been tagged yet (planned milestone M1.7). Until then, use
-the `--git` form or `cargo install --path crates/agentprof-cli` from a
-local checkout (see `## Quick start` below).
+### From a local checkout
+
+```sh
+git clone https://github.com/agentprof/agentprof
+cd agentprof
+cargo install --path crates/agentprof-cli
+```
+
+### Verify
+
+```sh
+agentprof --version       # → agentprof 0.1.0
+agentprof analyze --agent copilot   # uses the latest Copilot CLI session
+```
 
 ---
 
