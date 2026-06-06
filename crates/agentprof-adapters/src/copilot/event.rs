@@ -1406,6 +1406,49 @@ impl CopilotEvent {
             Some(out)
         }
     }
+
+    /// Wire-format success bit for `tool.execution_complete` + `hook.end`.
+    ///
+    /// Returns `Some(payload.success)` for those two variants, `None`
+    /// for all other variants (matches the `Event` trait contract — `None`
+    /// means "this event has no concept of success"). See ADR-0013.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_adapters::copilot::CopilotEvent;
+    /// assert!(CopilotEvent::Unknown.payload_success().is_none());
+    /// ```
+    #[must_use]
+    pub const fn payload_success(&self) -> Option<bool> {
+        match self {
+            Self::ToolExecComplete(env) => Some(env.data.success),
+            Self::HookEnd(env) => Some(env.data.success),
+            _ => None,
+        }
+    }
+
+    /// Wire-format error message for `tool.execution_complete` failures.
+    ///
+    /// Returns `Some(&payload.error.message)` for `ToolExecComplete`
+    /// variants whose payload carries an `error`, `None` otherwise.
+    /// `HookEnd` always returns `None` here — the Copilot wire schema
+    /// (ADR-0002 line 93) does not carry an error message for hooks.
+    /// See ADR-0013 D-6.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_adapters::copilot::CopilotEvent;
+    /// assert!(CopilotEvent::Unknown.payload_error_message().is_none());
+    /// ```
+    #[must_use]
+    pub fn payload_error_message(&self) -> Option<&str> {
+        match self {
+            Self::ToolExecComplete(env) => env.data.error.as_ref().map(|e| e.message.as_str()),
+            _ => None,
+        }
+    }
 }
 
 impl agentprof_core::adapter::Event for CopilotEvent {
@@ -1443,6 +1486,12 @@ impl agentprof_core::adapter::Event for CopilotEvent {
         &self,
     ) -> Option<std::collections::BTreeMap<String, agentprof_core::analyzer::ModelUsage>> {
         self.payload_model_metrics()
+    }
+    fn payload_success(&self) -> Option<bool> {
+        self.payload_success()
+    }
+    fn payload_error_message(&self) -> Option<&str> {
+        self.payload_error_message()
     }
 }
 
@@ -1634,6 +1683,90 @@ mod payload_name_tests {
 
         // Unknown variant also returns empty.
         assert_eq!(CopilotEvent::Unknown.payload_tool_requests().len(), 0);
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // B1 — payload_success + payload_error_message
+    // ──────────────────────────────────────────────────────────────────
+
+    fn tool_complete_data(success: bool, error: Option<ToolError>) -> ToolResultData {
+        ToolResultData {
+            tool_call_id: "tc-1".into(),
+            model: Some("claude-sonnet-4.6".into()),
+            interaction_id: Some("i".into()),
+            turn_id: Some("t1".into()),
+            success,
+            result: None,
+            tool_telemetry: None,
+            error,
+        }
+    }
+
+    fn hook_end_data(success: bool) -> HookEndData {
+        HookEndData {
+            hook_invocation_id: "hi".into(),
+            hook_type: "PreToolUse".into(),
+            output: None,
+            success,
+        }
+    }
+
+    #[test]
+    fn payload_success_tool_complete_success_true() {
+        let ev = CopilotEvent::ToolExecComplete(envelope(tool_complete_data(true, None)));
+        assert_eq!(ev.payload_success(), Some(true));
+        assert_eq!(ev.payload_error_message(), None);
+    }
+
+    #[test]
+    fn payload_success_tool_complete_failure_with_message() {
+        let err = ToolError {
+            message: "disk full".into(),
+            code: None,
+        };
+        let ev = CopilotEvent::ToolExecComplete(envelope(tool_complete_data(false, Some(err))));
+        assert_eq!(ev.payload_success(), Some(false));
+        assert_eq!(ev.payload_error_message(), Some("disk full"));
+    }
+
+    #[test]
+    fn payload_success_tool_complete_failure_without_message() {
+        // Wire payload may omit error object entirely; payload_error_message
+        // returns None, payload_success still Some(false).
+        let ev = CopilotEvent::ToolExecComplete(envelope(tool_complete_data(false, None)));
+        assert_eq!(ev.payload_success(), Some(false));
+        assert_eq!(ev.payload_error_message(), None);
+    }
+
+    #[test]
+    fn payload_success_hook_end_true() {
+        let ev = CopilotEvent::HookEnd(envelope(hook_end_data(true)));
+        assert_eq!(ev.payload_success(), Some(true));
+        // Hook schema (ADR-0002 line 93) has no error message field.
+        assert_eq!(ev.payload_error_message(), None);
+    }
+
+    #[test]
+    fn payload_success_hook_end_false() {
+        let ev = CopilotEvent::HookEnd(envelope(hook_end_data(false)));
+        assert_eq!(ev.payload_success(), Some(false));
+        assert_eq!(ev.payload_error_message(), None);
+    }
+
+    #[test]
+    fn payload_success_unrelated_variant_is_none() {
+        // Unknown has no success/failure concept.
+        assert_eq!(CopilotEvent::Unknown.payload_success(), None);
+        assert_eq!(CopilotEvent::Unknown.payload_error_message(), None);
+    }
+
+    #[test]
+    fn payload_success_trait_forwarder_matches_inherent() {
+        // Confirm the Event trait override forwards to the inherent method.
+        use agentprof_core::adapter::Event;
+        let ev = CopilotEvent::ToolExecComplete(envelope(tool_complete_data(false, None)));
+        assert_eq!(Event::payload_success(&ev), ev.payload_success());
+        assert_eq!(Event::payload_error_message(&ev), ev.payload_error_message());
     }
 }
 
