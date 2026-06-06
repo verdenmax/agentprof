@@ -54,8 +54,8 @@ Scope is the crate name without the `agentprof-` prefix (`adapters`, `core`,
 ```sh
 cargo fmt --all
 cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace --all-features
-RUSTDOCFLAGS="-Dwarnings" cargo doc --no-deps --workspace
+cargo test --workspace --all-features --no-fail-fast
+RUSTDOCFLAGS="-Dwarnings" cargo doc --workspace --no-deps --all-features
 cargo deny check     # cargo install cargo-deny  (one-time setup)
 ```
 
@@ -121,3 +121,85 @@ If any of these fail locally they will fail on CI — fix before opening the PR.
 
 By contributing, you agree that your contributions are licensed under the
 project's dual MIT OR Apache-2.0 license — same as the rest of the codebase.
+
+## Release process (maintainers only)
+
+The release is two-stage. Stage 1 happens entirely locally; Stage 2 is
+triggered by pushing the tag. See [ADR-0014](docs/internals/adr-0014-v0.1.0-release-strategy.md)
+for the strategic decisions behind this flow.
+
+### Stage 1 — Local prep
+
+1. Update `CHANGELOG.md`: move `## [Unreleased]` body content into a new
+   `## [X.Y.Z] - YYYY-MM-DD` section; leave an empty `## [Unreleased]`
+   above. Append link references at the bottom:
+   ```
+   [Unreleased]: https://github.com/agentprof/agentprof/compare/vX.Y.Z...HEAD
+   [X.Y.Z]: https://github.com/agentprof/agentprof/releases/tag/vX.Y.Z
+   ```
+2. Bump `Cargo.toml` `[workspace.package].version` to `X.Y.Z` AND update
+   the four `[workspace.dependencies]` version pins for
+   `agentprof-{core,adapters,storage,tui}` to the same `X.Y.Z` (they
+   are released in lockstep per ADR-0014 D-3).
+3. Run the full local gate:
+   ```sh
+   cargo fmt --all --check
+   cargo clippy --workspace --all-targets --all-features -- -D warnings
+   cargo test --workspace --all-features --no-fail-fast
+   RUSTDOCFLAGS="-Dwarnings" cargo doc --workspace --no-deps --all-features
+   cargo deny check     # cargo install cargo-deny  (one-time setup; same as PR gate)
+   cargo dist plan
+   ```
+4. Commit: `git commit -am "chore(release): vX.Y.Z"`.
+
+### Stage 2 — Tag push
+
+5. `git tag vX.Y.Z`
+6. `git push origin main --tags`
+7. Watch the Actions tab: `release.yml` should run plan → build × 4
+   platforms → upload to GitHub Release.
+8. Verify the GitHub Release page has 4 platform tarballs + installer.sh
+   + per-file `.sha256` checksums (cargo-dist default).
+9. Test the installer from a clean shell:
+   ```sh
+   curl -fsSL https://github.com/agentprof/agentprof/releases/latest/download/agentprof-installer.sh | sh
+   agentprof --version        # → agentprof X.Y.Z
+   ```
+
+### If any Stage-2 step fails
+
+```sh
+git push --delete origin vX.Y.Z
+git tag -d vX.Y.Z
+gh release delete vX.Y.Z --yes
+```
+
+Fix the underlying issue, return to Stage 1 step 4 (re-commit with the
+fix folded in) and re-tag. Do NOT patch-forward from a broken release.
+
+### Updating cargo-dist
+
+When a new `cargo-dist` minor version lands:
+```sh
+cargo install cargo-dist --version "^0.NEW" --locked
+cargo dist init                          # re-confirm the same answers
+cargo dist generate-ci github            # regenerates release.yml
+```
+Manually re-SHA-pin all `uses:` references in the new `release.yml`
+(ADR-0014 D-11 + D-6). SHA-lookup snippet (curl + jq):
+
+```sh
+for repo in actions/checkout actions/upload-artifact actions/download-artifact softprops/action-gh-release; do
+  tag=$(curl -fsSL "https://api.github.com/repos/$repo/releases/latest" | jq -r '.tag_name')
+  sha=$(curl -fsSL "https://api.github.com/repos/$repo/git/refs/tags/$tag" | jq -r '.object.sha')
+  echo "$repo@$sha  # $tag"
+done
+```
+
+For annotated tags (rare), follow the tag object to the commit:
+
+```sh
+curl -fsSL "https://api.github.com/repos/<repo>/git/tags/<sha>" | jq -r '.object.sha'
+```
+
+Action list is illustrative — adjust based on what `cargo dist generate-ci github` actually emits.
