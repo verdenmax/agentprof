@@ -1,5 +1,6 @@
 [package]
 name        = "agentprof-storage"
+publish     = false  # M1.7 D-3 — internal lib; release goes via cli + cargo-dist
 description = "SQLite persistence and OTLP telemetry receiver for agentprof."
 edition.workspace      = true
 rust-version.workspace = true

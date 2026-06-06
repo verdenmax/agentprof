@@ -1,5 +1,6 @@
 [package]
 name        = "agentprof-core"
+publish     = false  # M1.7 D-3 — internal lib; release goes via cli + cargo-dist
 description = "Core domain model, tokenizer, analyzer, and exporters for agentprof."
 edition.workspace      = true
 rust-version.workspace = true

@@ -1,5 +1,6 @@
 [package]
 name        = "agentprof-adapters"
+publish     = false  # M1.7 D-3 — internal lib; release goes via cli + cargo-dist
 description = "Per-agent session log adapters (Claude / Codex / Copilot) for agentprof."
 edition.workspace      = true
 rust-version.workspace = true
