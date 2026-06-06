@@ -13,11 +13,15 @@ jobs:
     name: cargo check on declared MSRV (1.78)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      # Rolling ref intentionally NOT SHA-pinned (ADR-0014 D-6).
+      # Note: dtolnay/rust-toolchain's @stable/@beta/@nightly tags ignore
+      # the `toolchain:` input; only @master honors it, so non-stable
+      # toolchain pins MUST use @master.
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.78"
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1
       # Workspace review #5: `cargo check` skips dev-dep / proc-macro
       # builds that only get exercised by the test-target codepath.
       # `--all-targets` brings them in so MSRV failures in dev-deps
