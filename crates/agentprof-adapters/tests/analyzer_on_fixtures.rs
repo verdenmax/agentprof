@@ -129,3 +129,55 @@ fn with_ask_user_mid_session_episode_invariants() {
         "blocking turn duration {blocking_dur} ms must be >= 10× non-blocking max {non_blocking_max} ms"
     );
 }
+
+// ──────────────────────────────────────────────────────────────────────
+// B1 — end-to-end regression guards: fixtures with success:false events
+// must produce non-zero failure_count downstream. Closes the silent bug
+// that hid behind the always-zero failure_count between M1.2 and B1.
+// See ADR-0013 + spec §7.3.
+// ──────────────────────────────────────────────────────────────────────
+
+#[test]
+fn b1_with_mcp_calls_has_tool_failure() {
+    let report = load_and_analyze("with-mcp-calls");
+    let total_tool_failures: usize = report.tool_rank.iter().map(|r| r.failure_count).sum();
+    assert!(
+        total_tool_failures >= 1,
+        "with-mcp-calls fixture has 1 tool.execution_complete success=false event; \
+         expected >= 1 tool failure, got {total_tool_failures}. \
+         Regression of the M1.2 always-zero bug?"
+    );
+}
+
+#[test]
+fn b1_multi_sess_c_has_tool_failure() {
+    let report = load_and_analyze("multi-sess-c");
+    let total_tool_failures: usize = report.tool_rank.iter().map(|r| r.failure_count).sum();
+    assert!(
+        total_tool_failures >= 1,
+        "multi-sess-c fixture has 1 tool.execution_complete success=false event; \
+         expected >= 1 tool failure, got {total_tool_failures}."
+    );
+}
+
+#[test]
+fn b1_with_hooks_heavy_has_hook_failure() {
+    let report = load_and_analyze("with-hooks-heavy");
+    let total_hook_failures: usize = report.hook_rank.iter().map(|r| r.failure_count).sum();
+    assert!(
+        total_hook_failures >= 1,
+        "with-hooks-heavy fixture has 2 hook.end success=false events; \
+         expected >= 1 hook failure, got {total_hook_failures}."
+    );
+}
+
+#[test]
+fn b1_with_aborts_has_hook_failure() {
+    let report = load_and_analyze("with-aborts");
+    let total_hook_failures: usize = report.hook_rank.iter().map(|r| r.failure_count).sum();
+    assert!(
+        total_hook_failures >= 1,
+        "with-aborts fixture has 1 hook.end success=false event; \
+         expected >= 1 hook failure, got {total_hook_failures}."
+    );
+}
