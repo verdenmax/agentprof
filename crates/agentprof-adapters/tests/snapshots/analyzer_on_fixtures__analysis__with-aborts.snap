@@ -60,8 +60,8 @@ expression: report
     {
       "name": "PostToolUse",
       "call_count": 2,
-      "success_count": 1,
-      "failure_count": 1,
+      "success_count": 0,
+      "failure_count": 2,
       "synthesized_start_count": 1,
       "total_duration": 1000,
       "p50_duration": 1000,

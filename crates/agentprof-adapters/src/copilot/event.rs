@@ -1766,7 +1766,10 @@ mod payload_name_tests {
         use agentprof_core::adapter::Event;
         let ev = CopilotEvent::ToolExecComplete(envelope(tool_complete_data(false, None)));
         assert_eq!(Event::payload_success(&ev), ev.payload_success());
-        assert_eq!(Event::payload_error_message(&ev), ev.payload_error_message());
+        assert_eq!(
+            Event::payload_error_message(&ev),
+            ev.payload_error_message()
+        );
     }
 }
 

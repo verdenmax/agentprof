@@ -1,6 +1,5 @@
 ---
 source: crates/agentprof-adapters/tests/episode_derive.rs
-assertion_line: 52
 expression: episodes
 ---
 {
@@ -94,7 +93,7 @@ expression: episodes
             "ended_at": "2026-05-26T16:00:11Z"
           },
           "turn_id": "00000000-0000-0000-0000-000000000207",
-          "success": true,
+          "success": false,
           "synthesized_start": true
         }
       ],
@@ -102,7 +101,7 @@ expression: episodes
         1,
         0
       ],
-      "failure_count": 1
+      "failure_count": 2
     }
   },
   "skills": {},

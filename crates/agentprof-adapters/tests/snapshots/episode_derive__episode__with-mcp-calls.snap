@@ -1,6 +1,5 @@
 ---
 source: crates/agentprof-adapters/tests/episode_derive.rs
-assertion_line: 49
 expression: episodes
 ---
 {
@@ -41,7 +40,11 @@ expression: episodes
             "ended_at": "2026-05-26T12:00:07Z"
           },
           "turn_id": "00000000-0000-0000-0000-000000000042",
-          "status": "Success",
+          "status": {
+            "Failure": {
+              "message": "file not found"
+            }
+          },
           "user_requested": false,
           "arguments": {
             "path": "/tmp/x"
@@ -52,7 +55,7 @@ expression: episodes
         1,
         0
       ],
-      "fail_count": 0
+      "fail_count": 1
     },
     "mcp__github__search_issues": {
       "name": "mcp__github__search_issues",

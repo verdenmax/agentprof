@@ -55,8 +55,8 @@ expression: report
     {
       "name": "PostToolUse",
       "call_count": 15,
-      "success_count": 15,
-      "failure_count": 0,
+      "success_count": 14,
+      "failure_count": 1,
       "synthesized_start_count": 0,
       "total_duration": 15000,
       "p50_duration": 1000,
@@ -65,8 +65,8 @@ expression: report
     {
       "name": "PreToolUse",
       "call_count": 15,
-      "success_count": 15,
-      "failure_count": 0,
+      "success_count": 14,
+      "failure_count": 1,
       "synthesized_start_count": 0,
       "total_duration": 15000,
       "p50_duration": 1000,

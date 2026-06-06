@@ -274,7 +274,7 @@ expression: episodes
             "ended_at": "2026-05-26T14:00:56Z"
           },
           "turn_id": "00000000-0000-0000-0000-000000000108",
-          "success": true,
+          "success": false,
           "synthesized_start": false
         },
         {
@@ -309,7 +309,7 @@ expression: episodes
         15,
         0
       ],
-      "failure_count": 0
+      "failure_count": 1
     },
     "PreToolUse": {
       "name": "PreToolUse",
@@ -347,7 +347,7 @@ expression: episodes
             "ended_at": "2026-05-26T14:00:20Z"
           },
           "turn_id": "00000000-0000-0000-0000-000000000062",
-          "success": true,
+          "success": false,
           "synthesized_start": false
         },
         {
@@ -454,7 +454,7 @@ expression: episodes
         15,
         0
       ],
-      "failure_count": 0
+      "failure_count": 1
     }
   },
   "skills": {},

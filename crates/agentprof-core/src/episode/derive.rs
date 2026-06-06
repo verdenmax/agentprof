@@ -377,10 +377,20 @@ impl DeriveState {
             // ToolExecComplete).
             let lookup_id = end_call_id.or(open.tool_call_id.as_deref());
             let arguments = lookup_id.and_then(|id| self.args_by_call_id.get(id).cloned());
+            // B1: read wire-format success bit + error message via the
+            // Event trait. `None` defaults to Success (forward-compat
+            // for older Copilot 1.0.x / adapters that don't override).
+            // See ADR-0013 D-3.
+            let status = match ev.payload_success() {
+                Some(false) => ToolCallStatus::Failure {
+                    message: ev.payload_error_message().map(str::to_owned),
+                },
+                Some(true) | None => ToolCallStatus::Success,
+            };
             let call = ToolCall {
                 span,
                 turn_id: open.turn_id,
-                status: ToolCallStatus::Success, // Task 10b will read actual success bit
+                status,
                 user_requested: open.user_requested,
                 arguments,
             };
@@ -482,12 +492,15 @@ impl DeriveState {
 
     fn on_hook_end<E: Event>(&mut self, ev: &E) {
         let ts = ev.timestamp();
+        // B1: read wire-format success bit; None → forward-compat
+        // default to true. See ADR-0013 D-3.
+        let wire_success = ev.payload_success().unwrap_or(true);
         if let Some(open) = self.open_hook_calls.pop() {
             let span = Span::new(open.started_at, ts);
             let call = HookCall {
                 span,
                 turn_id: open.turn_id,
-                success: true,
+                success: wire_success,
                 synthesized_start: false,
             };
             self.commit_hook_call(&open.name, call);
@@ -501,7 +514,7 @@ impl DeriveState {
             let call = HookCall {
                 span: Span::instant(ts),
                 turn_id: self.open_turn_idx.map(|i| self.turns[i].id.clone()),
-                success: true,
+                success: wire_success,
                 synthesized_start: true,
             };
             self.commit_hook_call(&name, call);
@@ -1221,6 +1234,167 @@ mod tests {
         assert_eq!(ep.turns.len(), 1);
         assert_eq!(ep.turns[0].model, None);
         assert_eq!(ep.turns[0].output_tokens, None);
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // B1 — wire-format success bit consumption (closes
+    // F1.13/F1.16/F2.3 silent misfire — see ADR-0013)
+    // ──────────────────────────────────────────────────────────────────
+
+    /// Stub enum that lets B1 tests drive `payload_success` +
+    /// `payload_error_message` for both tool and hook variants while
+    /// satisfying the homogenous-type bound of
+    /// `derive_episodes<E: Event>(events: &[E], meta: &SessionMeta)`.
+    #[derive(Clone)]
+    enum B1E {
+        ToolStart,
+        ToolEnd {
+            success: Option<bool>,
+            error: Option<&'static str>,
+        },
+        HookStart,
+        HookEnd {
+            success: Option<bool>,
+        },
+    }
+
+    impl Event for B1E {
+        fn id(&self) -> &str {
+            match self {
+                Self::ToolStart => "tc-start",
+                Self::ToolEnd { .. } => "tc-end",
+                Self::HookStart => "h-start",
+                Self::HookEnd { .. } => "h-end",
+            }
+        }
+        fn kind(&self) -> EventKind {
+            match self {
+                Self::ToolStart => EventKind::ToolExecStart,
+                Self::ToolEnd { .. } => EventKind::ToolExecComplete,
+                Self::HookStart => EventKind::HookStart,
+                Self::HookEnd { .. } => EventKind::HookEnd,
+            }
+        }
+        fn timestamp(&self) -> DateTime<Utc> {
+            // ToolStart / HookStart at t=0, *End at t=1.
+            match self {
+                Self::ToolStart | Self::HookStart => at(0),
+                Self::ToolEnd { .. } | Self::HookEnd { .. } => at(1),
+            }
+        }
+        fn parent_id(&self) -> Option<&str> {
+            None
+        }
+        fn payload_name(&self) -> Option<&str> {
+            match self {
+                Self::ToolStart | Self::ToolEnd { .. } => Some("bash"),
+                Self::HookStart | Self::HookEnd { .. } => Some("PreToolUse"),
+            }
+        }
+        fn tool_call_id(&self) -> Option<&str> {
+            match self {
+                Self::ToolStart | Self::ToolEnd { .. } => Some("tc-1"),
+                _ => None,
+            }
+        }
+        fn payload_success(&self) -> Option<bool> {
+            match self {
+                Self::ToolEnd { success, .. } | Self::HookEnd { success } => *success,
+                _ => None,
+            }
+        }
+        fn payload_error_message(&self) -> Option<&str> {
+            match self {
+                Self::ToolEnd { error, .. } => *error,
+                _ => None,
+            }
+        }
+    }
+
+    #[test]
+    fn b1_tool_complete_success_false_records_failure_with_message() {
+        let events = vec![
+            B1E::ToolStart,
+            B1E::ToolEnd {
+                success: Some(false),
+                error: Some("disk full"),
+            },
+        ];
+        let episodes = derive_episodes(&events, &meta());
+        let ep = episodes.tools.get("bash").expect("bash episode exists");
+        assert_eq!(
+            ep.fail_count, 1,
+            "fail_count must reflect wire success=false"
+        );
+        assert_eq!(ep.calls.len(), 1);
+        assert!(
+            matches!(
+                &ep.calls[0].status,
+                ToolCallStatus::Failure { message: Some(m) } if m == "disk full"
+            ),
+            "expected Failure {{ message: Some(\"disk full\") }}, got {:?}",
+            ep.calls[0].status
+        );
+    }
+
+    #[test]
+    fn b1_tool_complete_success_false_no_message_yields_failure_message_none() {
+        let events = vec![
+            B1E::ToolStart,
+            B1E::ToolEnd {
+                success: Some(false),
+                error: None,
+            },
+        ];
+        let episodes = derive_episodes(&events, &meta());
+        let ep = episodes.tools.get("bash").unwrap();
+        assert_eq!(ep.fail_count, 1);
+        assert!(matches!(
+            &ep.calls[0].status,
+            ToolCallStatus::Failure { message: None }
+        ));
+    }
+
+    #[test]
+    fn b1_tool_complete_payload_success_none_defaults_to_success() {
+        // Forward-compat: an adapter that doesn't override payload_success
+        // (returns None) preserves the existing always-Success behavior.
+        // See ADR-0013 D-3 + Q4.
+        let events = vec![
+            B1E::ToolStart,
+            B1E::ToolEnd {
+                success: None,
+                error: None,
+            },
+        ];
+        let episodes = derive_episodes(&events, &meta());
+        let ep = episodes.tools.get("bash").unwrap();
+        assert_eq!(ep.fail_count, 0, "None must default to Success");
+        assert!(matches!(&ep.calls[0].status, ToolCallStatus::Success));
+    }
+
+    #[test]
+    fn b1_hook_end_success_false_records_failure() {
+        let events = vec![
+            B1E::HookStart,
+            B1E::HookEnd {
+                success: Some(false),
+            },
+        ];
+        let episodes = derive_episodes(&events, &meta());
+        let ep = episodes.hooks.get("PreToolUse").unwrap();
+        assert_eq!(ep.failure_count, 1);
+        assert!(!ep.calls[0].success);
+    }
+
+    #[test]
+    fn b1_hook_end_payload_success_none_defaults_to_success() {
+        // Forward-compat default.
+        let events = vec![B1E::HookStart, B1E::HookEnd { success: None }];
+        let episodes = derive_episodes(&events, &meta());
+        let ep = episodes.hooks.get("PreToolUse").unwrap();
+        assert_eq!(ep.failure_count, 0);
+        assert!(ep.calls[0].success);
     }
 }
 
