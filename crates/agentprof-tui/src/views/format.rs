@@ -36,8 +36,13 @@ pub fn human_short(d: Duration) -> String {
         format!("{:.1}s", ms as f64 / 1000.0)
     } else if ms < 3_600_000 {
         format!("{:.1}m", ms as f64 / 60_000.0)
-    } else {
+    } else if ms < 86_400_000 {
         format!("{:.1}h", ms as f64 / 3_600_000.0)
+    } else {
+        // Wave D2 (`m1.6.3-t1-followup-subday-window-label`): add a day
+        // branch so multi-day windows (e.g. `aggregate --since 30d`)
+        // render `30.0d` instead of the unwieldy `720.0h`.
+        format!("{:.1}d", ms as f64 / 86_400_000.0)
     }
 }
 

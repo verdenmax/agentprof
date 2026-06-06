@@ -342,8 +342,12 @@ fn render_cross_header(
         A::Model(x) => ("model", x.session_count, x.since),
         _ => ("?", 0_usize, None),
     };
-    // Wave C: `since` is now Option<Duration>; None means "all time".
-    let window_label = since.map_or_else(|| "all".to_string(), |d| format!("{}d", d.num_days()));
+    // Wave C / D2: `since` is Option<Duration>; None means "all time".
+    // Wave D2 (`m1.6.3-t1-followup-subday-window-label`) uses
+    // `human_short` for sub-day windows so `--since 6h` shows
+    // `window 6h` instead of the truncated `window 0d` we'd get from
+    // `num_days()` (integer-truncating to 0 for everything < 24h).
+    let window_label = since.map_or_else(|| "all".to_string(), crate::views::format::human_short);
     let block = Block::default().borders(Borders::ALL).title(format!(
         " Aggregate watch — by {by} | {sessions} sessions | window {window_label} ",
     ));

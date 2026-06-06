@@ -429,12 +429,19 @@ impl WatchRunner {
                 Vec::new()
             };
 
-        // Footer reservation precedence:
-        //   1. reload error (pre-existing)
-        //   2. F2.3 pending banner (NEW)
-        //   3. no footer
-        let needs_footer = self.last_error.is_some() || !pending.is_empty();
-        let (body_area, footer_area) = if needs_footer && area.height > 1 {
+        // Wave D2 (`m1.6.3-t1-followup-footer-reflow`) — always reserve
+        // the bottom row in live-watch mode so the body never reflows
+        // when reload-error / pending state toggles. Pre-D2 the reserve
+        // was conditional (`needs_footer = error || !pending.is_empty()`)
+        // and an error appearing or pending becoming non-empty shrank
+        // the body by 1 row mid-frame — visually distracting on a
+        // continuously-refreshing live view. Now the row is permanently
+        // 1px tall when `area.height > 1`; renders blank when nothing
+        // to surface, error banner when `last_error.is_some()`, or the
+        // F2.3 pending banner. Footer-render-precedence rules
+        // (error > pending) are still applied below where the row's
+        // content is chosen.
+        let (body_area, footer_area) = if area.height > 1 {
             (
                 Rect::new(area.x, area.y, area.width, area.height - 1),
                 Some(Rect::new(area.x, area.y + area.height - 1, area.width, 1)),
@@ -520,6 +527,14 @@ impl WatchRunner {
             terminal.draw(|frame| self.render_into(frame))?;
 
             // Drain pending refreshes (collapse N => 1 reload).
+            //
+            // Wave D2 (`m1.6.3-t1-followup-refreshkind-discard`): every
+            // queued `RefreshKind` variant collapses to one `do_reload()`
+            // today — the `_kind` binding is intentional. If future
+            // variants need finer dispatch (e.g. `ConfigChanged` =
+            // re-read theme without re-parsing sessions, `Manual` =
+            // bypass debounce), switch the match to bind `kind` and
+            // route to dedicated reload paths.
             let mut got_refresh = false;
             if let Some(rx) = &self.refresh_rx {
                 while let Ok(_kind) = rx.try_recv() {
@@ -589,6 +604,7 @@ impl WatchRunner {
                         || matches!(
                             &ev,
                             Event::Key(k) if k.code == crossterm::event::KeyCode::Char('q')
+                                && k.modifiers.is_empty()
                         )
                     {
                         return Ok(());
@@ -678,6 +694,17 @@ impl WatchRunner {
             return true;
         }
         if !matches!(self.data, WatchData::Cross(_)) {
+            // Wave D2 (`m1.6.3-t1-followup-key-coupling`): in Single mode,
+            // every key after `?` falls through here to general dispatch
+            // (handled by the caller in `run`'s event loop). This is by
+            // design — Single mode wraps `AppState::dispatch`, which owns
+            // the vocabulary (`1`/`2`/`3`/`4` view-switch, `j`/`k`/`h`/`l`
+            // pane nav, `gg`/`G` scroll, etc.). The Cross-only sort keys
+            // (`c`/`t`/`s`/`p`) and selection keys (handled below) are
+            // explicitly NOT bound in `AppState`, so they'd no-op in
+            // Single mode — and returning `false` here keeps that
+            // separation clean instead of risking a Cross-key leaking
+            // into Single-mode dispatch.
             return false;
         }
         // Vim G / gg motion (cross-session aggregate only). Handle before
