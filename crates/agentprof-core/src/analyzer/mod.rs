@@ -22,6 +22,7 @@
 
 pub mod aggregate;
 pub mod hook_rank;
+pub mod pending;
 pub mod stats;
 pub mod tool_rank;
 pub mod turn_summary;
