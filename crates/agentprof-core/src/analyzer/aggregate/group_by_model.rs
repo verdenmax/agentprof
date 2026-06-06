@@ -87,7 +87,7 @@ pub fn aggregate_by_model(
 
     let report = AggregateReport::new(
         AggregateKey::Model,
-        Duration::zero(),
+        None,
         reports.len(),
         0,
         total_wall,

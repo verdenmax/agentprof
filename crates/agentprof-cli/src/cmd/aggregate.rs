@@ -344,7 +344,11 @@ pub fn compute_aggregate(
     };
 
     // Aggregators don't know --since or failure_count; CLI fills them.
-    fill_metadata(&mut any_report, since_dur_chrono(since_dur), failure_count);
+    fill_metadata(
+        &mut any_report,
+        since_to_opt_chrono(since_dur),
+        failure_count,
+    );
 
     // Apply --limit.
     if cmd.limit > 0 {
@@ -425,12 +429,27 @@ fn load_and_analyze(
 // (consolidation + saturating_mul fix; was already saturating here
 // but the `cmd::list` copy wasn't).
 
-fn since_dur_chrono(d: Duration) -> chrono::Duration {
+/// Convert the CLI's [`std::time::Duration`] (from `parse_since`) into the
+/// optional `chrono::Duration` that flows into `AggregateReport.since`.
+///
+/// Wave C item 1: `Duration::MAX` (the in-band sentinel that
+/// [`crate::cmd::since::parse_since`] returns for `--since all`) collapses
+/// to `None`, modelling "no lower time bound" honestly. JSON output then
+/// omits the field entirely instead of serialising the meaningless raw
+/// integer `9223372036854775807` ms.
+fn since_to_opt_chrono(d: Duration) -> Option<chrono::Duration> {
+    if d == Duration::MAX {
+        return None;
+    }
     let secs = i64::try_from(d.as_secs()).unwrap_or(i64::MAX);
-    chrono::Duration::try_seconds(secs).unwrap_or(chrono::Duration::MAX)
+    Some(chrono::Duration::try_seconds(secs).unwrap_or(chrono::Duration::MAX))
 }
 
-fn fill_metadata(r: &mut AnyAggregateReport, since: chrono::Duration, failure_count: usize) {
+fn fill_metadata(
+    r: &mut AnyAggregateReport,
+    since: Option<chrono::Duration>,
+    failure_count: usize,
+) {
     match r {
         AnyAggregateReport::Tool(x) => {
             x.since = since;

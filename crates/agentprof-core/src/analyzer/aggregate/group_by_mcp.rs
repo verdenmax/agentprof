@@ -87,7 +87,7 @@ pub fn aggregate_by_mcp_server(
 
     let report = AggregateReport::new(
         AggregateKey::McpServer,
-        Duration::zero(),
+        None,
         reports.len(),
         0,
         total_wall,

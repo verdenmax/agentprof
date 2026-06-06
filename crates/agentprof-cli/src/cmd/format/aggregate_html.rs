@@ -39,7 +39,10 @@ pub fn render(report: &AnyAggregateReport, low_threshold: f32, agentprof_version
         by_label: by_label.to_string(),
         session_count,
         failure_count,
-        since_human: human_duration(since),
+        // Wave C: `since` is now Option<Duration>; fold None →
+        // Duration::MAX so `human_duration` renders the existing
+        // "all" branch (>= 100 years).
+        since_human: human_duration(since.unwrap_or(chrono::Duration::MAX)),
         wall_human: human_duration(wall),
         low_threshold,
         low_threshold_visible: matches!(report, AnyAggregateReport::Day(_)),
@@ -79,7 +82,7 @@ fn meta(
     &'static str,
     usize,
     usize,
-    chrono::Duration,
+    Option<chrono::Duration>,
     chrono::Duration,
 ) {
     match r {

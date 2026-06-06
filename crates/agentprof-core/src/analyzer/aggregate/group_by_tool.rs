@@ -108,7 +108,7 @@ pub fn aggregate_by_tool(
 
     let report = AggregateReport::new(
         AggregateKey::Tool,
-        Duration::zero(),
+        None,
         reports.len(),
         0,
         total_wall,

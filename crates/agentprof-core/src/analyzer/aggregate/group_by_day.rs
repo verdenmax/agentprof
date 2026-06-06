@@ -101,7 +101,7 @@ pub fn aggregate_by_day(
 
     let report = AggregateReport::new(
         AggregateKey::Day,
-        Duration::zero(),
+        None,
         reports.len(),
         0,
         total_wall,

@@ -292,7 +292,7 @@ fn render_empty_state(frame: &mut Frame<'_>, area: Rect, block: Block<'_>, messa
 /// use ratatui::Terminal;
 ///
 /// let inner: AggregateReport<ToolBucket> = AggregateReport::new(
-///     AggregateKey::Tool, Duration::zero(), 0, 0, Duration::zero(), Vec::new(),
+///     AggregateKey::Tool, None, 0, 0, Duration::zero(), Vec::new(),
 /// );
 /// let any = AnyAggregateReport::Tool(inner);
 /// let mut term = Terminal::new(TestBackend::new(80, 10)).unwrap();
@@ -340,11 +340,12 @@ fn render_cross_header(
         A::McpServer(x) => ("mcp-server", x.session_count, x.since),
         A::Day(x) => ("day", x.session_count, x.since),
         A::Model(x) => ("model", x.session_count, x.since),
-        _ => ("?", 0_usize, Duration::zero()),
+        _ => ("?", 0_usize, None),
     };
+    // Wave C: `since` is now Option<Duration>; None means "all time".
+    let window_label = since.map_or_else(|| "all".to_string(), |d| format!("{}d", d.num_days()));
     let block = Block::default().borders(Borders::ALL).title(format!(
-        " Aggregate watch — by {by} | {sessions} sessions | window {}d ",
-        since.num_days()
+        " Aggregate watch — by {by} | {sessions} sessions | window {window_label} ",
     ));
     let p = Paragraph::new("Keys: c/t/s/p sort  ↑/↓ select  q quit").block(block);
     frame.render_widget(p, area);

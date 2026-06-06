@@ -31,7 +31,7 @@ fn fake_single() -> WatchData {
 fn fake_cross_tool() -> WatchData {
     let inner: AggregateReport<ToolBucket> = AggregateReport::new(
         AggregateKey::Tool,
-        Duration::days(30),
+        Some(Duration::days(30)),
         0,
         0,
         Duration::zero(),

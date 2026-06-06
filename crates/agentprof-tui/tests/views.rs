@@ -197,7 +197,7 @@ fn cross_session_by_tool_snapshot() {
     );
     let inner: AggregateReport<ToolBucket> = AggregateReport::new(
         AggregateKey::Tool,
-        Duration::days(30),
+        Some(Duration::days(30)),
         3,
         0,
         Duration::seconds(300),
@@ -234,7 +234,7 @@ fn cross_session_by_day_snapshot() {
     );
     let inner: AggregateReport<DayBucket> = AggregateReport::new(
         AggregateKey::Day,
-        Duration::days(7),
+        Some(Duration::days(7)),
         2,
         0,
         Duration::seconds(180),

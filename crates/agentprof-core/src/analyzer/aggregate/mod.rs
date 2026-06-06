@@ -170,7 +170,7 @@ pub enum AggregateKey {
 ///
 /// let r: AggregateReport<ToolBucket> = AggregateReport::new(
 ///     AggregateKey::Tool,
-///     Duration::days(30),
+///     Some(Duration::days(30)),
 ///     0,
 ///     0,
 ///     Duration::zero(),
@@ -187,15 +187,27 @@ pub struct AggregateReport<B> {
     /// Time window the input sessions were filtered to (informational —
     /// the aggregator itself does not filter; the CLI passes it in).
     ///
-    /// **Wire format: integer milliseconds** (CORE #2,
-    /// `wire-format-units`). Pre-CORE-#2 this serialised as seconds via
-    /// a separate `duration_seconds` helper, while the bucket fields
-    /// (also in this JSON tree) serialised as milliseconds. A consumer
-    /// summing bucket durations vs reading `since` got values 1000x
-    /// apart. Now uniformly ms; consumers divide by 1000 if they want
-    /// seconds.
-    #[serde(with = "bucket::ms_duration")]
-    pub since: Duration,
+    /// `None` means "no lower bound" — the CLI maps the `--since all`
+    /// argument to `None` here (Wave C item 1 — `json-since-sentinel`).
+    /// Pre-Wave-C this was a bare `Duration` and the CLI passed
+    /// `Duration::MAX` as an in-band sentinel, which then serialised
+    /// to JSON as the raw integer `9223372036854775807` ms — visibly
+    /// ugly and arithmetically dangerous for any consumer summing
+    /// windows.
+    ///
+    /// **Wire format: optional integer milliseconds** (CORE #2 +
+    /// Wave C). JSON renders as `null` when `None`; rendered as the
+    /// raw ms integer otherwise. Consumers divide by 1000 if they
+    /// want seconds. The field is paired with
+    /// `skip_serializing_if = "Option::is_none"` so legacy consumers
+    /// expecting an integer-or-absent field continue to work without
+    /// observing `null`.
+    #[serde(
+        with = "bucket::ms_duration_opt",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub since: Option<Duration>,
     /// Number of input [`crate::analyzer::AnalysisReport`]s.
     pub session_count: usize,
     /// Number of input sessions that failed to load or parse (reserved
@@ -218,20 +230,30 @@ impl<B> AggregateReport<B> {
     /// which forbids struct-literal construction from outside the crate
     /// (notably integration tests in `tests/`).
     ///
+    /// `since` accepts `Option<Duration>` — pass `None` to model "no
+    /// lower time bound" (matches the CLI's `--since all` argument);
+    /// pass `Some(d)` for a finite window.
+    ///
     /// # Examples
     ///
     /// ```
     /// use agentprof_core::analyzer::aggregate::{AggregateKey, AggregateReport, ToolBucket};
     /// use chrono::Duration;
     ///
+    /// // Finite window:
     /// let _r: AggregateReport<ToolBucket> = AggregateReport::new(
-    ///     AggregateKey::Tool, Duration::zero(), 0, 0, Duration::zero(), Vec::new(),
+    ///     AggregateKey::Tool, Some(Duration::days(7)), 0, 0, Duration::zero(), Vec::new(),
+    /// );
+    ///
+    /// // "All time" window:
+    /// let _r2: AggregateReport<ToolBucket> = AggregateReport::new(
+    ///     AggregateKey::Tool, None, 0, 0, Duration::zero(), Vec::new(),
     /// );
     /// ```
     #[must_use]
     pub const fn new(
         by: AggregateKey,
-        since: Duration,
+        since: Option<Duration>,
         session_count: usize,
         failure_count: usize,
         total_wall_duration: Duration,
@@ -263,7 +285,7 @@ impl<B> AggregateReport<B> {
 /// use chrono::Duration;
 ///
 /// let inner: AggregateReport<ToolBucket> = AggregateReport::new(
-///     AggregateKey::Tool, Duration::zero(), 0, 0, Duration::zero(), Vec::new(),
+///     AggregateKey::Tool, None, 0, 0, Duration::zero(), Vec::new(),
 /// );
 /// let _any = AnyAggregateReport::Tool(inner);
 /// ```

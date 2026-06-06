@@ -27,7 +27,14 @@ pub fn render(report: &AnyAggregateReport) -> String {
     let (by_label, session_count, failure_count, since, wall) = meta(report);
     let _ = writeln!(out, "# agentprof aggregate\n");
     let _ = writeln!(out, "- By: {by_label}");
-    let _ = writeln!(out, "- Window: {}", human_duration(since));
+    // Wave C: `since` is now Option<Duration> (None = "all time").
+    // `human_duration` already renders `>= 100 years` as "all", so
+    // we fold None → Duration::MAX to reuse the existing branch.
+    let _ = writeln!(
+        out,
+        "- Window: {}",
+        human_duration(since.unwrap_or(Duration::MAX))
+    );
     let _ = writeln!(out, "- Sessions: {session_count}");
     if failure_count > 0 {
         let _ = writeln!(out, "- Failed (see stderr): {failure_count}");
@@ -47,7 +54,7 @@ pub fn render(report: &AnyAggregateReport) -> String {
     out
 }
 
-fn meta(r: &AnyAggregateReport) -> (&'static str, usize, usize, Duration, Duration) {
+fn meta(r: &AnyAggregateReport) -> (&'static str, usize, usize, Option<Duration>, Duration) {
     match r {
         AnyAggregateReport::Tool(x) => (
             "tool",

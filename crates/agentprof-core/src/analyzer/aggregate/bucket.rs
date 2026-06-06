@@ -306,3 +306,35 @@ pub(super) mod ms_duration {
         Ok(Duration::milliseconds(ms))
     }
 }
+
+/// Sibling serde helper for `Option<chrono::Duration>` rendered as
+/// optional integer milliseconds. Used by
+/// [`super::AggregateReport::since`] (Wave C item 1 —
+/// `json-since-sentinel`) where `None` semantically means "no lower
+/// bound on the time window" (the CLI's `--since all` argument).
+///
+/// Pre-Wave-C `since` was a bare `Duration` and `--since all` flowed
+/// the in-band sentinel `Duration::MAX` (≈ 292 million years) all
+/// the way into JSON output as the raw integer `9223372036854775807`
+/// ms — visibly ugly and arithmetically dangerous for any downstream
+/// JSON consumer summing windows. With `Option<Duration>`, `--since
+/// all` becomes `None` at the CLI boundary and serializes as JSON
+/// `null` (or omits the field entirely when paired with
+/// `skip_serializing_if`).
+pub(super) mod ms_duration_opt {
+    use chrono::Duration;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    // serde `with = "..."` adapters require `&Option<T>` signature
+    // (NOT `Option<&T>`). The clippy::ref_option lint suggests the
+    // borrowed form, but it would break the serde contract.
+    #[allow(clippy::ref_option)]
+    pub fn serialize<S: Serializer>(d: &Option<Duration>, s: S) -> Result<S::Ok, S::Error> {
+        d.map(|d| d.num_milliseconds()).serialize(s)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Duration>, D::Error> {
+        let ms: Option<i64> = Option::deserialize(d)?;
+        Ok(ms.map(Duration::milliseconds))
+    }
+}
