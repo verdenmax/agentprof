@@ -11,7 +11,9 @@ use chrono::Utc;
 use agentprof_core::analyzer::AnalysisReport;
 use agentprof_core::episode::Episodes;
 use agentprof_core::export::svg_flamegraph::SvgFlamegraph;
-use agentprof_core::model::{SessionMeta, WasteDataSource, WasteReport};
+use agentprof_core::model::{
+    SessionMeta, TokenProvenance, TokenSource, TokenizerKind, WasteDataSource, WasteReport,
+};
 
 use crate::cmd::analyze::AnalysisSection;
 
@@ -170,6 +172,35 @@ fn render_mcp_waste_section(
         _ => "unknown",
     }
     .to_string();
+    let heuristic_ish = matches!(
+        w.token_provenance,
+        TokenProvenance::Heuristic | TokenProvenance::Mixed
+    );
+    let approx_prefix = if heuristic_ish { "≈" } else { "" };
+    let provenance_label = match w.token_provenance {
+        TokenProvenance::Heuristic => "heuristic",
+        TokenProvenance::SidecarExact => "sidecar-exact",
+        TokenProvenance::Mixed => "mixed",
+        _ => "unknown",
+    }
+    .to_string();
+    let tokenizer_label = match w.tokenizer {
+        TokenizerKind::Cl100kBase => "cl100k_base",
+        TokenizerKind::O200kBase => "o200k_base",
+        _ => "unknown",
+    }
+    .to_string();
+    let footer_note = match w.token_provenance {
+        TokenProvenance::Heuristic => Some(
+            "≈ = heuristic per-tool cost. Use `--tool-descriptions <PATH>` for exact counts."
+                .to_string(),
+        ),
+        TokenProvenance::Mixed => Some(
+            "≈ = heuristic for tools not covered by the sidecar; bare numbers are sidecar-exact."
+                .to_string(),
+        ),
+        _ => None,
+    };
     let server_waste: Vec<McpServerRow> = w
         .server_waste
         .iter()
@@ -178,16 +209,47 @@ fn render_mcp_waste_section(
             loaded_count: sw.loaded_count,
             called_count: sw.called_count,
             unused_count: sw.unused_count,
+            unused_tokens: format!("{}{}", approx_prefix, sw.unused_tokens),
             is_fully_unused: sw.is_fully_unused,
         })
         .collect();
+    let mut tool_rows: Vec<McpToolRow> = w
+        .server_waste
+        .iter()
+        .flat_map(|s| {
+            s.tools.iter().map(move |t| McpToolRow {
+                tool_name: t.tool_name.clone(),
+                server: s.server.clone(),
+                call_count: t.call_count,
+                tokens: format!(
+                    "{}{}",
+                    if matches!(t.token_source, TokenSource::Heuristic) {
+                        "≈"
+                    } else {
+                        ""
+                    },
+                    t.description_tokens,
+                ),
+                source: format!("{:?}", t.loaded_source),
+            })
+        })
+        .filter(|row| row.call_count == 0)
+        .collect();
+    tool_rows.sort_by(|a, b| a.tool_name.cmp(&b.tool_name));
+    tool_rows.truncate(20);
     let sub = McpWasteSectionTemplate {
         data_source,
         total_loaded: w.total_loaded_tool_count,
         server_count: w.server_waste.len(),
         total_unused: w.total_unused_tool_count,
         fully_unused_count,
+        total_loaded_tokens: format!("{}{}", approx_prefix, w.total_loaded_tokens),
+        total_unused_tokens: format!("{}{}", approx_prefix, w.total_unused_tokens),
+        provenance_label,
+        tokenizer_label,
+        footer_note,
         server_waste,
+        tool_rows,
     };
     sub.render().unwrap_or_else(|e| {
         format!(
@@ -259,7 +321,13 @@ struct McpWasteSectionTemplate {
     server_count: usize,
     total_unused: usize,
     fully_unused_count: usize,
+    total_loaded_tokens: String,
+    total_unused_tokens: String,
+    provenance_label: String,
+    tokenizer_label: String,
+    footer_note: Option<String>,
     server_waste: Vec<McpServerRow>,
+    tool_rows: Vec<McpToolRow>,
 }
 
 struct McpServerRow {
@@ -267,7 +335,16 @@ struct McpServerRow {
     loaded_count: usize,
     called_count: usize,
     unused_count: usize,
+    unused_tokens: String,
     is_fully_unused: bool,
+}
+
+struct McpToolRow {
+    tool_name: String,
+    server: String,
+    call_count: usize,
+    tokens: String,
+    source: String,
 }
 
 struct TurnRow {

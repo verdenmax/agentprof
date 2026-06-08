@@ -27,6 +27,16 @@ prefix used in commit messages).
 
 ### Added
 
+- **M1.6.6 T3.2** — `analyze --section mcp-waste` renderers (md + html)
+  now emit token-cost columns: per-server `Unused tokens` and per-tool
+  `Tokens`, with `≈` prefix on heuristic-derived numbers. Banner is
+  reshaped to `Loaded: X tools / Y servers, ≈Z tokens (heuristic|sidecar-exact|mixed,
+  <tokenizer>)`. Footer explains `≈` and points to `--tool-descriptions`
+  for exact counts. Snapshot `cli__analyze_section_mcp_waste_md` updated.
+- **M1.6.6 T3.1** — `analyze` gained `--tokens-per-tool <N>` (default 200)
+  and `--tool-descriptions <PATH>` flags, wired into the new
+  `WasteComputeContext` builder.
+
 - **M1.6.5 MCP server waste analysis** (Phase 1 — counts-only;
   token-cost view planned for M1.6.6). Quantify "MCP context bloat" —
   tools / servers the agent had access to but never called.

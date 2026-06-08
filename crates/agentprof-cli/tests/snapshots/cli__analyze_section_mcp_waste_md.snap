@@ -18,22 +18,24 @@ expression: md
 ## MCP Server Waste
 
 Data source: wire notices
-Loaded: 3 tools across 2 MCP servers
-Unused: 2 tools — 1 server with 0 calls
+Loaded: 3 tools / 2 servers, ≈600 tokens (heuristic, cl100k_base)
+Unused: 2 tools (66%), ≈400 tokens — 1 fully-unused server
 
 ### Per-server
 
-| Server | Loaded | Called | Unused | Fully unused? |
-|--------|-------:|-------:|-------:|---------------|
-| github | 2 | 0 | 2 | **yes** |
-| filesystem | 1 | 1 | 0 | no |
+| Server | Loaded | Called | Unused | Unused tokens | Fully unused? |
+|--------|-------:|-------:|-------:|--------------:|---------------|
+| github | 2 | 0 | 2 | ≈400 | **yes** |
+| filesystem | 1 | 1 | 0 | ≈0 | no |
 
 ### Per-tool (top 20 unused, alphabetical)
 
-| Tool | Server | Calls | Source |
-|------|--------|------:|--------|
-| mcp__github__create_issue | github | 0 | Wire |
-| mcp__github__search_issues | github | 0 | Wire |
+| Tool | Server | Calls | Tokens | Source |
+|------|--------|------:|-------:|--------|
+| mcp__github__create_issue | github | 0 | ≈200 | Wire |
+| mcp__github__search_issues | github | 0 | ≈200 | Wire |
+
+> ≈ = heuristic per-tool cost. Use `--tool-descriptions <PATH>` for exact counts.
 
 ## Warnings
 (none)

@@ -13,7 +13,9 @@ use chrono::Duration;
 use agentprof_core::analyzer::AnalysisReport;
 use agentprof_core::episode::{DeriveWarning, Mode, TurnStatus};
 use agentprof_core::error::ParseWarning;
-use agentprof_core::model::{McpToolWaste, WasteDataSource, WasteReport};
+use agentprof_core::model::{
+    McpToolWaste, TokenProvenance, TokenSource, TokenizerKind, WasteDataSource, WasteReport,
+};
 
 use crate::cmd::analyze::AnalysisSection;
 
@@ -244,6 +246,73 @@ fn write_hook_rank(out: &mut String, report: &AnalysisReport) {
 fn write_mcp_waste(out: &mut String, report: &WasteReport) {
     let _ = writeln!(out, "## MCP Server Waste");
     let _ = writeln!(out);
+    write_mcp_waste_banner(out, report);
+    let _ = writeln!(out);
+
+    let heuristic_ish = matches!(
+        report.token_provenance,
+        TokenProvenance::Heuristic | TokenProvenance::Mixed
+    );
+
+    let _ = writeln!(out, "### Per-server");
+    let _ = writeln!(out);
+    let _ = writeln!(
+        out,
+        "| Server | Loaded | Called | Unused | Unused tokens | Fully unused? |"
+    );
+    let _ = writeln!(
+        out,
+        "|--------|-------:|-------:|-------:|--------------:|---------------|"
+    );
+    for sw in &report.server_waste {
+        let _ = writeln!(
+            out,
+            "| {} | {} | {} | {} | {}{} | {} |",
+            md_cell_escape(&sw.server),
+            sw.loaded_count,
+            sw.called_count,
+            sw.unused_count,
+            if heuristic_ish { "≈" } else { "" },
+            format_int(sw.unused_tokens),
+            if sw.is_fully_unused { "**yes**" } else { "no" },
+        );
+    }
+    let _ = writeln!(out);
+
+    let _ = writeln!(out, "### Per-tool (top 20 unused, alphabetical)");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "| Tool | Server | Calls | Tokens | Source |");
+    let _ = writeln!(out, "|------|--------|------:|-------:|--------|");
+    let mut all_tools: Vec<(&String, &McpToolWaste)> = report
+        .server_waste
+        .iter()
+        .flat_map(|s| s.tools.iter().map(move |t| (&s.server, t)))
+        .filter(|(_, t)| t.call_count == 0)
+        .collect();
+    all_tools.sort_by(|a, b| a.1.tool_name.cmp(&b.1.tool_name));
+    for (server, t) in all_tools.iter().take(20) {
+        let _ = writeln!(
+            out,
+            "| {} | {} | {} | {}{} | {:?} |",
+            md_cell_escape(&t.tool_name),
+            md_cell_escape(server),
+            t.call_count,
+            if matches!(t.token_source, TokenSource::Heuristic) {
+                "≈"
+            } else {
+                ""
+            },
+            format_int(t.description_tokens),
+            t.loaded_source,
+        );
+    }
+    let _ = writeln!(out);
+
+    write_mcp_waste_footer(out, report.token_provenance);
+}
+
+/// Emit the data-source / loaded / unused banner lines (M1.6.6 T3.2).
+fn write_mcp_waste_banner(out: &mut String, report: &WasteReport) {
     let _ = writeln!(
         out,
         "Data source: {}",
@@ -255,11 +324,25 @@ fn write_mcp_waste(out: &mut String, report: &WasteReport) {
             _ => "unknown",
         }
     );
+    let heuristic_ish = matches!(
+        report.token_provenance,
+        TokenProvenance::Heuristic | TokenProvenance::Mixed
+    );
+    let provenance_label = match report.token_provenance {
+        TokenProvenance::Heuristic => "heuristic",
+        TokenProvenance::SidecarExact => "sidecar-exact",
+        TokenProvenance::Mixed => "mixed",
+        _ => "unknown",
+    };
     let _ = writeln!(
         out,
-        "Loaded: {} tools across {} MCP servers",
+        "Loaded: {} tools / {} servers, {}{} tokens ({}, {})",
         report.total_loaded_tool_count,
         report.server_waste.len(),
+        if heuristic_ish { "≈" } else { "" },
+        format_int(report.total_loaded_tokens),
+        provenance_label,
+        tokenizer_label(report.tokenizer),
     );
     let fully = report
         .server_waste
@@ -268,51 +351,68 @@ fn write_mcp_waste(out: &mut String, report: &WasteReport) {
         .count();
     let _ = writeln!(
         out,
-        "Unused: {} tools — {fully} server{} with 0 calls",
+        "Unused: {} tools ({}%), {}{} tokens — {fully} fully-unused server{}",
         report.total_unused_tool_count,
+        pct(
+            report.total_unused_tool_count,
+            report.total_loaded_tool_count,
+        ),
+        if heuristic_ish { "≈" } else { "" },
+        format_int(report.total_unused_tokens),
         if fully == 1 { "" } else { "s" },
     );
-    let _ = writeln!(out);
+}
 
-    let _ = writeln!(out, "### Per-server");
-    let _ = writeln!(out);
-    let _ = writeln!(out, "| Server | Loaded | Called | Unused | Fully unused? |");
-    let _ = writeln!(out, "|--------|-------:|-------:|-------:|---------------|");
-    for sw in &report.server_waste {
-        let _ = writeln!(
-            out,
-            "| {} | {} | {} | {} | {} |",
-            md_cell_escape(&sw.server),
-            sw.loaded_count,
-            sw.called_count,
-            sw.unused_count,
-            if sw.is_fully_unused { "**yes**" } else { "no" },
-        );
+/// Emit the `≈` provenance footnote (M1.6.6 T3.2). Silent on `SidecarExact`.
+fn write_mcp_waste_footer(out: &mut String, provenance: TokenProvenance) {
+    match provenance {
+        TokenProvenance::Heuristic => {
+            let _ = writeln!(
+                out,
+                "> ≈ = heuristic per-tool cost. Use `--tool-descriptions <PATH>` for exact counts.",
+            );
+            let _ = writeln!(out);
+        }
+        TokenProvenance::Mixed => {
+            let _ = writeln!(
+                out,
+                "> ≈ = heuristic for tools not covered by the sidecar; bare numbers are sidecar-exact.",
+            );
+            let _ = writeln!(out);
+        }
+        _ => {}
     }
-    let _ = writeln!(out);
+}
 
-    let _ = writeln!(out, "### Per-tool (top 20 unused, alphabetical)");
-    let _ = writeln!(out);
-    let _ = writeln!(out, "| Tool | Server | Calls | Source |");
-    let _ = writeln!(out, "|------|--------|------:|--------|");
-    let mut all_tools: Vec<(&String, &McpToolWaste)> = report
-        .server_waste
-        .iter()
-        .flat_map(|s| s.tools.iter().map(move |t| (&s.server, t)))
-        .filter(|(_, t)| t.call_count == 0)
-        .collect();
-    all_tools.sort_by(|a, b| a.1.tool_name.cmp(&b.1.tool_name));
-    for (server, t) in all_tools.iter().take(20) {
-        let _ = writeln!(
-            out,
-            "| {} | {} | {} | {:?} |",
-            md_cell_escape(&t.tool_name),
-            md_cell_escape(server),
-            t.call_count,
-            t.loaded_source,
-        );
+/// Format `n` with comma thousand-separators (e.g. `1234567 → "1,234,567"`).
+fn format_int(n: u64) -> String {
+    let s = n.to_string();
+    let mut out = String::with_capacity(s.len() + s.len() / 3);
+    for (i, ch) in s.chars().rev().enumerate() {
+        if i > 0 && i % 3 == 0 {
+            out.insert(0, ',');
+        }
+        out.insert(0, ch);
     }
-    let _ = writeln!(out);
+    out
+}
+
+/// Safe integer percentage `num/denom` (returns 0 when `denom == 0`).
+const fn pct(num: usize, denom: usize) -> usize {
+    if denom == 0 {
+        0
+    } else {
+        (num * 100) / denom
+    }
+}
+
+/// Short label for a [`TokenizerKind`] (matches the serde `snake_case` form).
+const fn tokenizer_label(k: TokenizerKind) -> &'static str {
+    match k {
+        TokenizerKind::Cl100kBase => "cl100k_base",
+        TokenizerKind::O200kBase => "o200k_base",
+        _ => "unknown",
+    }
 }
 
 fn write_warnings(out: &mut String, report: &AnalysisReport) {
