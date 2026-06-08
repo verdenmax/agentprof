@@ -10,6 +10,7 @@ pub mod adapter;
 mod event;
 pub mod parser;
 pub mod paths;
+pub mod tools_changed;
 
 pub use adapter::CopilotAdapter;
 pub use event::{
@@ -22,3 +23,4 @@ pub use event::{
     ToolExecData, ToolRequest, ToolResult, ToolResultData, ToolTelemetry, ToolUserArgs,
     ToolUserRequestedData, TurnRefData, UserMessageData, WithEnvelope,
 };
+pub use tools_changed::extract_loaded_set_from_session;

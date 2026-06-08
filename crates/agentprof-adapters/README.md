@@ -31,6 +31,7 @@ for the M1.2 design.
 | `copilot::parser` | line-by-line JSONL parser + `MetaBuilder` (`adapter.parse` span — M1.6.4) |
 | `copilot::paths` | filesystem discovery + `inuse.<pid>.lock` detection (`adapter.discover` span — M1.6.4) |
 | `copilot::adapter` | `impl Adapter for CopilotAdapter` |
+| `copilot::tools_changed` | parse `<tools_changed_notice>` blocks in `user.message.transformedContent` → ever-loaded MCP tool set (M1.6.5 T2.1; ADR-0015 D-1/D-2) |
 | `registry` | `AgentKind` → adapter resolver |
 
 ## Supported agents
