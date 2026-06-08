@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>MCP Waste Report ({{ sessions }} sessions)</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, sans-serif; max-width: 960px; margin: 2em auto; padding: 0 1em; line-height: 1.5; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ddd; padding: 6px 10px; text-align: left; }
+    th { background: #f6f8fa; }
+    td.num { text-align: right; }
+  </style>
+</head>
+<body>
+  <h1>MCP Waste Report ({{ sessions }} sessions)</h1>
+  <h2>Summary</h2>
+  <ul>
+    <li>{{ sessions }} sessions analyzed</li>
+    <li>{{ servers_count }} MCP servers</li>
+    <li>{{ never_called_count }} tools never called across any session</li>
+  </ul>
+  <h2>Always unused (top {{ top }})</h2>
+  <table>
+    <thead><tr><th>Tool</th><th>Sessions loaded</th></tr></thead>
+    <tbody>
+      {% for entry in never_called_top %}
+      <tr><td>{{ entry.tool }}</td><td class="num">{{ entry.sessions_loaded }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <h2>Per-server cross-session</h2>
+  <table>
+    <thead><tr><th>Server</th><th>Sessions loaded</th><th>Sessions w/0 calls</th><th>Calls (sum)</th></tr></thead>
+    <tbody>
+      {% for sw in per_server %}
+      <tr>
+        <td>{{ sw.server }}</td>
+        <td class="num">{{ sw.sessions_loaded }}</td>
+        <td class="num">{{ sw.sessions_with_zero_calls }}</td>
+        <td class="num">{{ sw.total_calls }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</body>
+</html>

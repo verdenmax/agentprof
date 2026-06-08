@@ -7,9 +7,9 @@
 //! `mcp.json` once → per-session
 //! `load_session → derive_episodes → analyze → extract_loaded_set →
 //! compute_waste` → `aggregate_waste` → render → stdout/file.
-//! Renderers (`render_md`, `render_json`, `render_html`) are stubbed and
-//! filled in by T4.3; smoke-running today produces empty output and exit
-//! code 0 on a non-empty session root.
+//! T4.3 fills in the three renderers (`render_md`, `render_json`,
+//! `render_html`) — the HTML output is a self-contained document built
+//! from `templates/mcp_waste_full.html.jinja`.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -88,7 +88,7 @@ pub enum McpWasteExport {
 /// # use std::path::Path;
 /// # use agentprof_cli::cmd::mcp_waste::resolve_mcp_config_path;
 /// // Override wins over the default home-based lookup.
-/// let p = resolve_mcp_config_path(Some(Path::new("./mcp.json"))).unwrap();
+/// let p = resolve_mcp_config_path(Some(Path::new("./mcp.json")));
 /// assert!(p.ends_with("mcp.json"));
 /// ```
 ///
@@ -139,7 +139,7 @@ fn expand_tilde(p: &std::path::Path) -> PathBuf {
 ///    `tracing::warn!`) and skipped, matching `aggregate`'s policy.
 /// 5. Cross-session aggregation via
 ///    [`agentprof_core::analyzer::aggregate_waste`].
-/// 6. Render (md / json / html — stubbed in T4.2; filled by T4.3).
+/// 6. Render (md / json / html — implemented in T4.3).
 /// 7. Write to `--output` or stdout.
 ///
 /// `_cfg` and `_tracing_handle` are accepted for signature uniformity
@@ -268,7 +268,7 @@ pub fn run(
     // 5. Cross-session aggregation.
     let agg = aggregate_waste(&per_session);
 
-    // 6. Render. (T4.3 fills these in; today they return empty strings.)
+    // 6. Render.
     let rendered = match args.export {
         McpWasteExport::Md => render_md(&agg, args.top),
         McpWasteExport::Json => render_json(&agg)?,
@@ -288,44 +288,163 @@ pub fn run(
 
 /// Render the aggregate waste report as Markdown.
 ///
-/// **T4.2 stub**: returns an empty string. T4.3 supplies the real
-/// template (mirrors `aggregate --by mcp-server --export md`) and will
-/// consume both arguments — hence the present lint suppression.
-#[allow(clippy::missing_const_for_fn)]
-fn render_md(_agg: &agentprof_core::model::AggregateWasteReport, _top: usize) -> String {
-    String::new()
+/// Produces three sections — a generation-stamped header, an
+/// "Always unused" table truncated to `top` rows (sessions-loaded
+/// counts looked up from `per_server.tool_usage`), and a per-server
+/// cross-session table summing `total_call_count` across tools.
+/// Mirrors the layout of `aggregate --by mcp-server --export md` so
+/// the two outputs are comparable side-by-side.
+fn render_md(a: &agentprof_core::model::AggregateWasteReport, top: usize) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    let now = chrono::Utc::now().format("%Y-%m-%d");
+    let _ = writeln!(
+        out,
+        "# MCP Waste Report ({} sessions, generated {})\n",
+        a.sessions, now
+    );
+    let _ = writeln!(out, "## Summary\n");
+    let _ = writeln!(out, "- {} sessions analyzed", a.sessions);
+    let _ = writeln!(out, "- {} MCP servers in scope", a.per_server.len());
+    let _ = writeln!(
+        out,
+        "- {} tools NEVER called across ANY session\n",
+        a.never_called_tools.len()
+    );
+
+    if !a.never_called_tools.is_empty() {
+        let _ = writeln!(
+            out,
+            "## \"Always unused\" — {} tools (top {})\n",
+            a.never_called_tools.len(),
+            top.min(a.never_called_tools.len())
+        );
+        let _ = writeln!(out, "| Tool | Sessions loaded |");
+        let _ = writeln!(out, "|------|----------------:|");
+        let mut lookup: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+        for sw in &a.per_server {
+            for t in &sw.tool_usage {
+                lookup.insert(t.tool_name.as_str(), t.sessions_loaded);
+            }
+        }
+        for tname in a.never_called_tools.iter().take(top) {
+            let n = lookup.get(tname.as_str()).copied().unwrap_or(0);
+            let _ = writeln!(out, "| {tname} | {n} |");
+        }
+        let _ = writeln!(out);
+    }
+
+    let _ = writeln!(out, "## Per-server cross-session\n");
+    let _ = writeln!(
+        out,
+        "| Server | Sessions loaded | Sessions w/0 calls | Calls (sum) |"
+    );
+    let _ = writeln!(
+        out,
+        "|--------|----------------:|-------------------:|------------:|"
+    );
+    for sw in &a.per_server {
+        let total_calls: usize = sw.tool_usage.iter().map(|t| t.total_call_count).sum();
+        let _ = writeln!(
+            out,
+            "| {} | {} | {} | {} |",
+            sw.server, sw.sessions_loaded, sw.sessions_with_zero_calls, total_calls
+        );
+    }
+    out
 }
 
-/// Render the aggregate waste report as JSON.
+/// Render the aggregate waste report as pretty-printed JSON.
 ///
-/// **T4.2 stub**: returns an empty string. T4.3 will serialise via
-/// `serde_json::to_string_pretty`, which is fallible — the `Result`
-/// return type is preserved now so T4.3 is a body-only edit.
+/// Appends a trailing newline to match the CLI's existing
+/// `--export json` convention (so `agentprof ... | jq` and POSIX
+/// `read` loops behave predictably).
 ///
 /// # Errors
 ///
-/// Currently infallible (returns `Ok(String::new())`). T4.3 propagates
-/// `serde_json::Error` via `?`.
-#[allow(clippy::unnecessary_wraps, clippy::missing_const_for_fn)]
-fn render_json(_agg: &agentprof_core::model::AggregateWasteReport) -> anyhow::Result<String> {
-    Ok(String::new())
+/// Returns `serde_json::Error` (boxed into `anyhow::Error`) if any
+/// field in the report fails to serialise — should not happen in
+/// practice because every field in `AggregateWasteReport` is
+/// `Serialize`.
+fn render_json(a: &agentprof_core::model::AggregateWasteReport) -> anyhow::Result<String> {
+    let mut s = serde_json::to_string_pretty(a)?;
+    s.push('\n');
+    Ok(s)
 }
 
-/// Render the aggregate waste report as self-contained HTML.
+/// Render the aggregate waste report as a self-contained HTML document.
 ///
-/// **T4.2 stub**: returns an empty string. T4.3 will render via
-/// `askama` (`templates/mcp_waste_full.html.jinja`), which is fallible
-/// — the `Result` return type is preserved now so T4.3 is a body-only
-/// edit.
+/// Uses askama (`templates/mcp_waste_full.html.jinja`) — unlike
+/// `templates/mcp_waste_section.html.jinja` (which is a fragment
+/// injected into `report.html`), this template is a complete
+/// `<!doctype html>` document because `mcp-waste` produces standalone
+/// output (no enclosing report to embed in).
 ///
 /// # Errors
 ///
-/// Currently infallible (returns `Ok(String::new())`). T4.3 propagates
-/// `askama::Error` via `?`.
-#[allow(clippy::unnecessary_wraps, clippy::missing_const_for_fn)]
+/// Returns `askama::Error` (boxed into `anyhow::Error`) if template
+/// rendering fails — typically only a programming error (mismatched
+/// field name vs. template variable).
 fn render_html(
-    _agg: &agentprof_core::model::AggregateWasteReport,
-    _top: usize,
+    a: &agentprof_core::model::AggregateWasteReport,
+    top: usize,
 ) -> anyhow::Result<String> {
-    Ok(String::new())
+    use askama::Template;
+
+    #[derive(Template)]
+    #[template(path = "mcp_waste_full.html.jinja", escape = "html")]
+    struct McpWasteFullTpl<'a> {
+        sessions: usize,
+        servers_count: usize,
+        never_called_count: usize,
+        top: usize,
+        never_called_top: Vec<NeverCalledRow<'a>>,
+        per_server: Vec<PerServerRow<'a>>,
+    }
+    struct NeverCalledRow<'a> {
+        tool: &'a str,
+        sessions_loaded: usize,
+    }
+    struct PerServerRow<'a> {
+        server: &'a str,
+        sessions_loaded: usize,
+        sessions_with_zero_calls: usize,
+        total_calls: usize,
+    }
+
+    let mut lookup: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for sw in &a.per_server {
+        for t in &sw.tool_usage {
+            lookup.insert(t.tool_name.as_str(), t.sessions_loaded);
+        }
+    }
+    let never_called_top: Vec<NeverCalledRow> = a
+        .never_called_tools
+        .iter()
+        .take(top)
+        .map(|tname| NeverCalledRow {
+            tool: tname.as_str(),
+            sessions_loaded: lookup.get(tname.as_str()).copied().unwrap_or(0),
+        })
+        .collect();
+    let per_server: Vec<PerServerRow> = a
+        .per_server
+        .iter()
+        .map(|sw| PerServerRow {
+            server: sw.server.as_str(),
+            sessions_loaded: sw.sessions_loaded,
+            sessions_with_zero_calls: sw.sessions_with_zero_calls,
+            total_calls: sw.tool_usage.iter().map(|t| t.total_call_count).sum(),
+        })
+        .collect();
+
+    let tpl = McpWasteFullTpl {
+        sessions: a.sessions,
+        servers_count: a.per_server.len(),
+        never_called_count: a.never_called_tools.len(),
+        top,
+        never_called_top,
+        per_server,
+    };
+    Ok(tpl.render()?)
 }
