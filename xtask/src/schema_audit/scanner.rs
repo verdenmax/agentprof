@@ -34,7 +34,11 @@ pub struct SessionAudit {
 #[derive(Debug)]
 pub struct RawLine {
     /// 1-based line number within `events.jsonl`.
-    #[allow(dead_code)]
+    ///
+    /// Used by the `aligned_raw_lines` helper in
+    /// `crate::schema_audit::classifier` to re-sync this `Vec` with the
+    /// typed parser's `events` vector when intervening
+    /// `ParseWarning::Json` / `Io` cause drift.
     pub line_no: usize,
     /// Parsed raw JSON value.
     pub value: Value,

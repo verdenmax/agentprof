@@ -196,6 +196,48 @@ fn tool_exec_complete_with_error_parses() {
 }
 
 #[test]
+fn tool_telemetry_absent_restricted_properties_does_not_serialize_null() {
+    // P2 backlog `tooltelemetry-restricted-props-skip-if`: when the
+    // wire payload omits `restrictedProperties` entirely (older Copilot
+    // CLI versions), we deserialize to Value::Null via #[serde(default)]
+    // and must skip re-emitting it on serialize. Otherwise round-trip
+    // gains a spurious `"restrictedProperties": null` field that wasn't
+    // in the source.
+    let line = r#"{"type":"tool.execution_complete","data":{"toolCallId":"tc-skip","model":"gpt-5-mini","interactionId":"int-1","success":true,"result":{"content":"ok","detailedContent":"ok"},"toolTelemetry":{"properties":{"k":"v"},"metrics":{}}},"id":"e-skip","timestamp":"2026-05-26T10:01:09Z","parentId":"e11"}"#;
+    let evt: CopilotEvent = serde_json::from_str(line).expect("parse");
+    let CopilotEvent::ToolExecComplete(env) = evt else {
+        panic!("expected ToolExecComplete");
+    };
+    let tel = env.data.tool_telemetry.expect("toolTelemetry present");
+    assert!(
+        tel.restricted_properties.is_null(),
+        "absent input must deserialize to Null"
+    );
+    let round = serde_json::to_string(&tel).expect("serialize");
+    assert!(
+        !round.contains("restrictedProperties"),
+        "null restricted_properties must NOT be emitted on serialize; got: {round}"
+    );
+}
+
+#[test]
+fn tool_telemetry_present_restricted_properties_round_trips() {
+    // Regression guard: when the field IS present (even as `{}`), it
+    // must still round-trip through serialize.
+    let line = r#"{"type":"tool.execution_complete","data":{"toolCallId":"tc-keep","model":"gpt-5-mini","interactionId":"int-1","success":true,"result":{"content":"ok","detailedContent":"ok"},"toolTelemetry":{"properties":{},"metrics":{},"restrictedProperties":{"redacted":"value"}}},"id":"e-keep","timestamp":"2026-05-26T10:01:10Z","parentId":"e11"}"#;
+    let evt: CopilotEvent = serde_json::from_str(line).expect("parse");
+    let CopilotEvent::ToolExecComplete(env) = evt else {
+        panic!("expected ToolExecComplete");
+    };
+    let tel = env.data.tool_telemetry.expect("toolTelemetry present");
+    let round = serde_json::to_string(&tel).expect("serialize");
+    assert!(
+        round.contains("restrictedProperties"),
+        "non-null restricted_properties MUST be emitted on serialize; got: {round}"
+    );
+}
+
+#[test]
 fn tool_execution_start_with_object_arguments_round_trips() {
     // Real Copilot CLI 1.0.x wire shape: arbitrary JSON object in `arguments`,
     // plus a `turnId` sibling not present in the M1.2 clean-room schema.

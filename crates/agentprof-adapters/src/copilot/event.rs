@@ -525,7 +525,18 @@ pub struct ToolTelemetry {
     #[serde(default)]
     pub metrics: std::collections::BTreeMap<String, u64>,
     /// Sensitive properties scrubbed from analytics streams.
-    #[serde(rename = "restrictedProperties", default)]
+    ///
+    /// Serialized only when non-null — when the field is absent on the
+    /// wire (older Copilot CLI versions) it deserializes to
+    /// [`serde_json::Value::Null`] and is then re-skipped on the
+    /// outbound side so re-serialized payloads do not gain a spurious
+    /// `"restrictedProperties": null` field that was never present in
+    /// the source.
+    #[serde(
+        rename = "restrictedProperties",
+        default,
+        skip_serializing_if = "serde_json::Value::is_null"
+    )]
     pub restricted_properties: serde_json::Value,
 }
 

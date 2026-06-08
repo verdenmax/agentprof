@@ -22,6 +22,40 @@ prefix used in commit messages).
 
 ### Changed
 
+- **`core`: `Span::new` now clamps non-monotonic input to zero-duration**
+  (P2 backlog `negative-duration-span`). Previously, an adapter that
+  saw a `tool.execution_complete` whose `timestamp` predated its
+  `tool.execution_start` (wall-clock skew, restored session, manual
+  log edit) produced a Span with negative duration, which silently
+  corrupted percentile sorting, TUI/HTML duration rendering, and the
+  "zero == orphan-synthesized" convention. `Span::new` now reorders
+  to `started_at == ended_at` whenever `ended_at < started_at`. The
+  upstream `ParseWarning::OutOfOrder` continues to surface the
+  underlying anomaly to the operator. **Note:** `Span::new` is no
+  longer `const fn` (the comparison requires `chrono::DateTime`'s
+  `PartialOrd`, which is not `const`). `Span::instant(t)` remains
+  `const fn` and is functionally equivalent to the old
+  `Span::new(t, t)` for the orphan-synthesis path.
+- **`xtask`: `schema_audit::classifier` now realigns raw lines around
+  typed `ParseWarning`s** (P2 backlog `classifier-zip-fix`). The old
+  positional `raw_lines.iter().zip(typed.events.iter())` mis-attributed
+  every `Unknown` event's wire `type` field after the first
+  `ParseWarning::Json` / `Io` site, because the typed pass drops
+  failing lines while `read_raw_lines` keeps them. A new
+  `aligned_raw_lines` helper filters out raw lines whose `line_no`
+  matches a recorded warning's `line_no` (bridging the 1-based / 0-based
+  convention mismatch), restoring positional sync. Three unit tests
+  pin the helper's contract (Json variant, Io variant, OutOfOrder
+  no-op).
+- **`docs`: post-implementation notes on M1.3 plan and design**
+  (plan_drift `parsewarning-variants`). The historical M1.3 spec/plan
+  referenced `ParseWarning::MissingField` and `UnknownVariant` variants
+  that were superseded during implementation; the actual shipped enum
+  in `agentprof-core::error` differs. Added callouts at the top of
+  both `docs/superpowers/plans/2026-05-27-m1.3-...md` and the
+  corresponding `-design.md` pointing readers to the real enum and
+  documenting that Task 6's `MissingField`-dominance triage was
+  never executed.
 - **Privacy: sanitize personal absolute paths in committed docs.**
   Across 15 `docs/superpowers/plans/*.md` files (~80 occurrences),
   `/home/verden/pfind/2026-spring/code/agentprof` → `/path/to/agentprof`
@@ -48,6 +82,14 @@ prefix used in commit messages).
 
 ### Fixed
 
+- **`adapters`: `ToolTelemetry.restricted_properties` now skips serializing
+  on `Null`** (P2 backlog `tooltelemetry-restricted-props-skip-if`).
+  Older Copilot CLI versions omit the `restrictedProperties` field
+  entirely; `#[serde(default)]` deserialized that into `Value::Null`,
+  and re-serialization then emitted a spurious `"restrictedProperties":
+  null` field absent from the source. Added `skip_serializing_if = "Value::is_null"`
+  so absent-in → absent-out, while `restrictedProperties: {}` continues
+  to round-trip as `{}`. Two round-trip tests pin both cases.
 - **`tests`: cross-platform invalid-path recipe in `log_file_invalid_path_soft_falls_to_stderr`**
   (regression caught by first Windows CI run on commit `ea18bbe`).
   The previous recipe `/this/dir/does/not/exist/agentprof.log` relied

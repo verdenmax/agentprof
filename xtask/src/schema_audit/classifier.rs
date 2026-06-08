@@ -1,13 +1,13 @@
 //! Classify a [`Vec<SessionAudit>`] into the four report sections.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use serde_json::Value;
 
 use agentprof_adapters::copilot::CopilotEvent;
 use agentprof_core::error::ParseWarning;
 
-use crate::schema_audit::scanner::{raw_type, SessionAudit};
+use crate::schema_audit::scanner::{raw_type, RawLine, SessionAudit};
 
 /// Aggregated audit findings across all scanned sessions.
 #[derive(Debug, Default)]
@@ -95,7 +95,14 @@ pub fn classify(audits: &[SessionAudit]) -> Classification {
         }
 
         c.event_count += audit.typed.events.len();
-        for (raw, typed) in audit.raw_lines.iter().zip(audit.typed.events.iter()) {
+        // P2 backlog `classifier-zip-fix`: skip raw lines whose typed
+        // parse produced a `ParseWarning::Json`/`Io` (i.e. the raw line
+        // parsed as JSON but failed CopilotEvent deserialization, or
+        // an I/O glitch dropped the read). Those lines appear in
+        // `audit.raw_lines` but not in `audit.typed.events`; a naive
+        // `.zip()` would shift the alignment for every event after.
+        let aligned = aligned_raw_lines(&audit.raw_lines, &audit.typed.parse_warnings);
+        for (raw, typed) in aligned.iter().zip(audit.typed.events.iter()) {
             let kind = typed.kind();
             *c.event_kind_counts.entry(format!("{kind:?}")).or_insert(0) += 1;
             if matches!(typed, CopilotEvent::Unknown) {
@@ -154,6 +161,39 @@ fn warning_location(session_id: &str, w: &ParseWarning) -> String {
         }
         _ => session_id.to_owned(),
     }
+}
+
+/// Return the subset of `raw_lines` whose `line_no` does NOT correspond
+/// to a typed-pass `ParseWarning::Json` or `ParseWarning::Io`.
+///
+/// Both passes (raw → `serde_json::Value`, typed → [`CopilotEvent`])
+/// independently skip empty lines, and `read_raw_lines` skips lines that
+/// fail at the `Value` level too. But a line CAN parse as a generic
+/// `Value` and then fail as a typed `CopilotEvent` (wrong field types,
+/// missing required fields, etc.) — the typed pass records that as
+/// `ParseWarning::Json { line_no, .. }` while `read_raw_lines` still
+/// pushes the line into `raw_lines`. The two vectors are therefore
+/// off-by-N from that line onward; a naive `raw_lines.iter().zip(...)`
+/// mis-attributes every subsequent Unknown's wire `type` field.
+///
+/// `RawLine.line_no` is 1-based (per `scanner.rs::read_raw_lines`);
+/// `ParseWarning.line_no` is 0-based (per `parser.rs::parse_events_jsonl`).
+/// We bridge with `.saturating_sub(1)` on the raw side.
+fn aligned_raw_lines<'a>(
+    raw_lines: &'a [RawLine],
+    parse_warnings: &[ParseWarning],
+) -> Vec<&'a RawLine> {
+    let bad: HashSet<usize> = parse_warnings
+        .iter()
+        .filter_map(|w| match w {
+            ParseWarning::Json { line_no, .. } | ParseWarning::Io { line_no, .. } => Some(*line_no),
+            _ => None,
+        })
+        .collect();
+    raw_lines
+        .iter()
+        .filter(|r| !bad.contains(&r.line_no.saturating_sub(1)))
+        .collect()
 }
 
 fn redact(v: &Value) -> String {
@@ -256,5 +296,85 @@ mod tests {
         assert!(matches!(rows[0].severity, BalanceSeverity::Ok));
         assert!(matches!(rows[1].severity, BalanceSeverity::Minor));
         assert!(matches!(rows[2].severity, BalanceSeverity::Severe));
+    }
+
+    #[test]
+    fn aligned_raw_lines_realigns_around_typed_parse_warnings() {
+        // P2 backlog `classifier-zip-fix`: 3 raw lines, line 2 (1-based)
+        // produced a `ParseWarning::Json` (0-based line_no = 1), so the
+        // aligned view must contain only lines 1 and 3 — preserving
+        // positional sync with `typed.events` which has 2 entries.
+        let raw_lines = vec![
+            RawLine {
+                line_no: 1,
+                value: serde_json::json!({"type": "session.start"}),
+            },
+            RawLine {
+                line_no: 2,
+                value: serde_json::json!({"type": "tool.execution_start"}),
+            },
+            RawLine {
+                line_no: 3,
+                value: serde_json::json!({"type": "some.unknown"}),
+            },
+        ];
+        let warnings = vec![ParseWarning::Json {
+            line_no: 1, // 0-based ⇒ corresponds to RawLine.line_no = 2
+            error: "missing field `toolCallId`".into(),
+        }];
+        let aligned = aligned_raw_lines(&raw_lines, &warnings);
+        assert_eq!(aligned.len(), 2);
+        assert_eq!(aligned[0].line_no, 1);
+        assert_eq!(
+            aligned[1].line_no, 3,
+            "line 3 must follow line 1 directly, not the dropped line 2"
+        );
+    }
+
+    #[test]
+    fn aligned_raw_lines_handles_io_warning_same_as_json() {
+        // `ParseWarning::Io` shares the same line_no field shape; both
+        // branches must be skipped.
+        let raw_lines = vec![
+            RawLine {
+                line_no: 1,
+                value: serde_json::json!({}),
+            },
+            RawLine {
+                line_no: 2,
+                value: serde_json::json!({}),
+            },
+        ];
+        let warnings = vec![ParseWarning::Io {
+            line_no: 0, // 0-based ⇒ RawLine.line_no = 1
+            error: "EOF mid-line".into(),
+        }];
+        let aligned = aligned_raw_lines(&raw_lines, &warnings);
+        assert_eq!(aligned.len(), 1);
+        assert_eq!(aligned[0].line_no, 2);
+    }
+
+    #[test]
+    fn aligned_raw_lines_unaffected_by_non_line_warnings() {
+        // `ParseWarning::OutOfOrder`, `UnclosedTurn`, etc. carry no
+        // line_no and must not affect alignment.
+        let raw_lines = vec![
+            RawLine {
+                line_no: 1,
+                value: serde_json::json!({}),
+            },
+            RawLine {
+                line_no: 2,
+                value: serde_json::json!({}),
+            },
+        ];
+        let warnings = vec![
+            ParseWarning::OutOfOrder,
+            ParseWarning::UnclosedTurn {
+                turn_id: "t-1".into(),
+            },
+        ];
+        let aligned = aligned_raw_lines(&raw_lines, &warnings);
+        assert_eq!(aligned.len(), 2);
     }
 }

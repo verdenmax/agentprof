@@ -144,8 +144,32 @@ pub struct Span {
 
 impl Span {
     /// Construct from explicit start and end.
+    ///
+    /// Clamps non-monotonic input (`ended_at < started_at`) to a
+    /// zero-duration span at `started_at`. This guarantees no Span ever
+    /// has negative [`Self::duration`], which would otherwise corrupt:
+    ///
+    /// - percentile sorting (a negative value sorts before zero and
+    ///   skews p50 / p95);
+    /// - HTML / TUI rendering (negative `Duration::Display` reads as
+    ///   `"-Ns"`, which surfaces a synthetic anomaly to the user
+    ///   that has no actionable meaning);
+    /// - the documented "zero == orphan-synthesized" convention on
+    ///   [`Span`] itself (a negative span would be neither orphan nor
+    ///   real).
+    ///
+    /// Non-monotonic timestamps are already surfaced to the operator
+    /// upstream via [`crate::error::ParseWarning::OutOfOrder`] in the
+    /// adapter parser, so silently clamping here is safe — the warning
+    /// remains the source of truth that something is amiss in the wire
+    /// stream.
     #[must_use]
-    pub const fn new(started_at: DateTime<Utc>, ended_at: DateTime<Utc>) -> Self {
+    pub fn new(started_at: DateTime<Utc>, ended_at: DateTime<Utc>) -> Self {
+        let ended_at = if ended_at < started_at {
+            started_at
+        } else {
+            ended_at
+        };
         Self {
             started_at,
             ended_at,
@@ -155,10 +179,16 @@ impl Span {
     /// Zero-duration span at a single instant — used for orphan synthesis.
     #[must_use]
     pub const fn instant(at: DateTime<Utc>) -> Self {
-        Self::new(at, at)
+        Self {
+            started_at: at,
+            ended_at: at,
+        }
     }
 
     /// Duration of the span.
+    ///
+    /// Guaranteed non-negative — see [`Self::new`] for the clamp
+    /// contract that enforces this invariant.
     #[must_use]
     pub fn duration(&self) -> chrono::Duration {
         self.ended_at - self.started_at
@@ -176,6 +206,46 @@ mod tests {
     fn span_instant_is_zero_duration() {
         let t = Utc.with_ymd_and_hms(2026, 5, 27, 0, 0, 0).unwrap();
         let s = Span::instant(t);
+        assert_eq!(s.duration(), chrono::Duration::zero());
+    }
+
+    #[test]
+    fn span_new_clamps_non_monotonic_input_to_zero_duration() {
+        // P2 backlog `negative-duration-span`: when an adapter sees a
+        // Complete/End event whose timestamp predates the Start (e.g.
+        // wall-clock skew, restored session, manual log edit), Span::new
+        // must clamp to zero rather than emit a negative duration.
+        let start = Utc.with_ymd_and_hms(2026, 6, 8, 10, 0, 0).unwrap();
+        let bad_end = Utc.with_ymd_and_hms(2026, 6, 8, 9, 59, 0).unwrap();
+        let s = Span::new(start, bad_end);
+        assert_eq!(s.started_at, start);
+        assert_eq!(
+            s.ended_at, start,
+            "ended_at must be clamped up to started_at"
+        );
+        assert_eq!(s.duration(), chrono::Duration::zero());
+        assert!(s.duration() >= chrono::Duration::zero());
+    }
+
+    #[test]
+    fn span_new_preserves_monotonic_input_unchanged() {
+        // Regression guard for the clamp: ordinary forward-in-time
+        // spans must NOT be touched.
+        let start = Utc.with_ymd_and_hms(2026, 6, 8, 10, 0, 0).unwrap();
+        let end = Utc.with_ymd_and_hms(2026, 6, 8, 10, 0, 5).unwrap();
+        let s = Span::new(start, end);
+        assert_eq!(s.started_at, start);
+        assert_eq!(s.ended_at, end);
+        assert_eq!(s.duration(), chrono::Duration::seconds(5));
+    }
+
+    #[test]
+    fn span_new_equal_timestamps_yields_zero_duration() {
+        // Boundary case: equal timestamps (the typical orphan-synthesis
+        // shape that `Span::instant` produces) must remain exactly equal.
+        let t = Utc.with_ymd_and_hms(2026, 6, 8, 10, 0, 0).unwrap();
+        let s = Span::new(t, t);
+        assert_eq!(s.started_at, s.ended_at);
         assert_eq!(s.duration(), chrono::Duration::zero());
     }
 
