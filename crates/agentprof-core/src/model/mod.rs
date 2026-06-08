@@ -15,5 +15,6 @@ pub use session::RawSession;
 pub use tool_source::ToolSource;
 pub use waste::{
     AggregateWasteReport, LoadedSource, McpServerCrossWaste, McpServerWaste,
-    McpToolUsageAcrossSessions, McpToolWaste, WasteDataSource, WasteReport,
+    McpToolUsageAcrossSessions, McpToolWaste, TokenProvenance, TokenSource, TokenizerKind,
+    WasteDataSource, WasteReport,
 };

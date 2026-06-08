@@ -16,7 +16,8 @@ use crate::adapter::SessionRef;
 use crate::analyzer::AnalysisReport;
 use crate::model::{
     AggregateWasteReport, LoadedSource, McpServerCrossWaste, McpServerWaste,
-    McpToolUsageAcrossSessions, McpToolWaste, ToolSource, WasteDataSource, WasteReport,
+    McpToolUsageAcrossSessions, McpToolWaste, TokenSource, ToolSource, WasteDataSource,
+    WasteReport,
 };
 
 /// Compute per-session MCP-server waste from an analysis report and the
@@ -125,6 +126,8 @@ pub fn compute_waste(
                 short_name: short.clone(),
                 call_count,
                 loaded_source: *src,
+                description_tokens: 0,
+                token_source: TokenSource::Heuristic,
             });
     }
 
@@ -143,6 +146,8 @@ pub fn compute_waste(
                 called_count,
                 unused_count,
                 is_fully_unused: called_count == 0,
+                unused_tokens: 0,
+                loaded_tokens: 0,
             }
         })
         .collect();
@@ -178,6 +183,7 @@ pub fn compute_waste(
         data_source,
         total_loaded_tool_count,
         total_unused_tool_count,
+        ..Default::default()
     }
 }
 
@@ -280,6 +286,7 @@ pub fn aggregate_waste(per_session: &[(SessionRef, WasteReport)]) -> AggregateWa
                 sessions_loaded: sacc.sessions_loaded,
                 sessions_with_zero_calls: sacc.sessions_with_zero_calls,
                 tool_usage,
+                total_unused_tokens: 0,
             }
         })
         .collect();
@@ -297,6 +304,7 @@ pub fn aggregate_waste(per_session: &[(SessionRef, WasteReport)]) -> AggregateWa
         sessions: per_session.len(),
         per_server,
         never_called_tools,
+        total_unused_tokens: 0,
     }
 }
 
@@ -565,6 +573,8 @@ mod tests {
                 short_name: (*short).to_string(),
                 call_count: *calls,
                 loaded_source: *src,
+                description_tokens: 0,
+                token_source: TokenSource::Heuristic,
             })
             .collect();
         let loaded_count = tool_waste.len();
@@ -577,10 +587,13 @@ mod tests {
                 called_count,
                 unused_count: loaded_count - called_count,
                 is_fully_unused: called_count == 0,
+                unused_tokens: 0,
+                loaded_tokens: 0,
             }],
             data_source: WasteDataSource::Wire,
             total_loaded_tool_count: loaded_count,
             total_unused_tool_count: loaded_count - called_count,
+            ..Default::default()
         }
     }
 
