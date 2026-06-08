@@ -402,12 +402,8 @@ pub fn format_int(n: u64) -> String {
 }
 
 /// Safe integer percentage `num/denom` (returns 0 when `denom == 0`).
-const fn pct(num: usize, denom: usize) -> usize {
-    if denom == 0 {
-        0
-    } else {
-        (num * 100) / denom
-    }
+fn pct(num: usize, denom: usize) -> usize {
+    (num * 100).checked_div(denom).unwrap_or(0)
 }
 
 /// Short label for a [`TokenizerKind`] (matches the serde `snake_case` form).
