@@ -40,3 +40,7 @@ coverage/
 # Local smoke-test target directories (developer-specific; NEVER commit)
 /local-fixtures/
 /smoke-data/
+
+# superpowers brainstorming visual companion sessions
+# (mockup HTML files + state — not source artifacts)
+.superpowers/

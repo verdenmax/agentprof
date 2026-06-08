@@ -28,7 +28,7 @@
 - [ ] **Step 1: Locate insertion point**
 
 ```bash
-cd /home/verden/pfind/2026-spring/code/agentprof
+cd /path/to/agentprof
 grep -n "fn payload_tool_requests\|fn tool_call_id" crates/agentprof-core/src/adapter.rs
 ```
 
@@ -223,7 +223,7 @@ Locate the block at ~line 1430. Find where `fn payload_model_metrics(&self) ... 
 - [ ] **Step 3: Verify compile + run the new doctests**
 
 ```bash
-cd /home/verden/pfind/2026-spring/code/agentprof
+cd /path/to/agentprof
 cargo test --doc -p agentprof-adapters --all-features payload_success
 cargo test --doc -p agentprof-adapters --all-features payload_error_message
 ```

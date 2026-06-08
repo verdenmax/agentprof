@@ -206,7 +206,7 @@ In `crates/agentprof-core/src/adapter.rs`, find the existing `#[cfg(test)] mod t
 - [ ] **Step 1.3: Run tests + gates**
 
 ```bash
-cd /home/verden/pfind/2026-spring/code/agentprof
+cd /path/to/agentprof
 cargo fmt --all
 cargo test -p agentprof-core --lib adapter 2>&1 | tail -10
 cargo test -p agentprof-core --doc 2>&1 | tail -5
@@ -407,7 +407,7 @@ mod payload_metadata_tests {
 - [ ] **Step 2.4: Run tests + gates**
 
 ```bash
-cd /home/verden/pfind/2026-spring/code/agentprof
+cd /path/to/agentprof
 cargo fmt --all
 cargo test -p agentprof-adapters --lib payload_metadata 2>&1 | tail -10
 cargo clippy --workspace --all-features --all-targets -- -D warnings 2>&1 | tail -5
@@ -826,7 +826,7 @@ The existing `E` test stub (a unit struct that implements `Event` with default `
 - [ ] **Step 3.8: Run unit tests + gates**
 
 ```bash
-cd /home/verden/pfind/2026-spring/code/agentprof
+cd /path/to/agentprof
 cargo fmt --all
 cargo test -p agentprof-core --lib episode::derive::tests 2>&1 | tail -15
 cargo clippy --workspace --all-features --all-targets -- -D warnings 2>&1 | tail -5
@@ -911,7 +911,7 @@ Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 - [ ] **Step 4.1: Run snapshot tests with `INSTA_UPDATE=always` to regenerate**
 
 ```bash
-cd /home/verden/pfind/2026-spring/code/agentprof
+cd /path/to/agentprof
 INSTA_UPDATE=always cargo test -p agentprof-adapters 2>&1 | tail -20
 ```
 
@@ -1062,7 +1062,7 @@ fn analyze_minimal_fixture_populates_turn_metadata_in_json() {
 - [ ] **Step 5.2: Run the new test**
 
 ```bash
-cd /home/verden/pfind/2026-spring/code/agentprof
+cd /path/to/agentprof
 cargo test -p agentprof-cli --test cli analyze_minimal_fixture_populates 2>&1 | tail -8
 ```
 
@@ -1208,7 +1208,7 @@ Discovered while validating the M1.4 audit fixes by running `agentprof analyze` 
 - [ ] **Step 6.3: Run rustdoc + final gates**
 
 ```bash
-cd /home/verden/pfind/2026-spring/code/agentprof
+cd /path/to/agentprof
 cargo fmt --all
 cargo clippy --workspace --all-features --all-targets -- -D warnings 2>&1 | tail -5
 cargo test --workspace --all-features 2>&1 | grep "test result:" | awk '{p+=$4; f+=$6} END {print "passed:", p, "failed:", f}'
@@ -1313,7 +1313,7 @@ All references resolve.
 ### Final acceptance gates
 
 ```bash
-cd /home/verden/pfind/2026-spring/code/agentprof
+cd /path/to/agentprof
 cargo fmt --all -- --check
 cargo clippy --workspace --all-features --all-targets -- -D warnings 2>&1 | tail -5
 cargo test --workspace --all-features 2>&1 | grep "test result:" | awk '{p+=$4; f+=$6} END {print "passed:", p, "failed:", f}'

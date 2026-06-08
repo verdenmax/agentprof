@@ -73,7 +73,7 @@
 - [ ] **Step 1: Confirm branch + clean tree + HEAD**
 
 ```bash
-cd /home/verden/pfind/2026-spring/code/agentprof
+cd /path/to/agentprof
 git status                  # expect: On branch main / nothing to commit
 git log --oneline -3        # HEAD should be 9911e94 (spec/ADR amend) or newer
 ```

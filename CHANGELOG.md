@@ -13,6 +13,41 @@ prefix used in commit messages).
 
 ## [Unreleased]
 
+### Added
+
+- `CHANGELOG.md` pre-seeded `### Added` / `### Changed` / `### Fixed`
+  stubs under `[Unreleased]` per [Keep-a-Changelog 1.1](https://keepachangelog.com/en/1.1.0/)
+  template convention — gives contributors a clear template (closes M-1
+  from T8 quality review).
+
+### Changed
+
+- **Privacy: sanitize personal absolute paths in committed docs.**
+  Across 15 `docs/superpowers/plans/*.md` files (~80 occurrences),
+  `/home/verden/pfind/2026-spring/code/agentprof` → `/path/to/agentprof`
+  placeholder; AI subagent execution scripts no longer leak the
+  maintainer's Unix username + project layout. `docs/features/privacy.md`
+  L51 Tier-HIGH `meta.cwd` example similarly sanitized to
+  `/home/<user>/<projects>/agentprof` placeholder (illustrative purpose
+  preserved). `docs/internals/adr-0012-...md` REF-007 session path
+  retained per policy decision (cited as empirical wire-survey evidence).
+  Git author identity (260 commits) retained per policy decision —
+  rewriting via `filter-repo` would invalidate the v0.1.0 release SHA
+  `7e29d97` referenced from ADR-0014 and CHANGELOG. Secret/token scan
+  performed concurrently: **zero hits** for API keys, JWT/bearer
+  tokens, private keys, webhooks, passwords.
+- `README.md` line 6 status badge now leads with
+  **"v0.1.0 shipped 2026-06-06"** instead of "M1.6.4 — Speedscope + HTML
+  …" — release deserves the lede; M1.6.4 wave is now parenthetical
+  context (closes I-1 from T8 quality review).
+- `README.md` PATH hint: removed parenthetical
+  *"(The installer's output also reminds you.)"* — decouples our docs
+  from upstream `cargo-dist` installer UX (cargo-dist may change its
+  output format; our README claim becomes silently false) (closes M-2
+  from T8 quality review).
+
+### Fixed
+
 ## [0.1.0] - 2026-06-06
 
 ### Added

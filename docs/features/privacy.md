@@ -48,7 +48,7 @@ information (SII), graded by sensitivity.
 
 | Field | Tier | Example | Why it's sensitive |
 |---|---|---|---|
-| `meta.cwd` | 🔴 HIGH | `/home/verden/pfind/2026-spring/code/agentprof` | Leaks Unix username + project path layout |
+| `meta.cwd` | 🔴 HIGH | `/home/<user>/<projects>/agentprof` | Leaks Unix username + project path layout |
 | `meta.branch` | 🔴 HIGH | `feat/internal-secret-feature` | Leaks branch naming conventions + WIP feature codenames |
 | `meta.model` (inside `turn_summary[i].model`) | 🔴 HIGH | `claude-opus-4.7-1m-internal` | Identifies internal / preview model access |
 | `meta.id` | 🔴 HIGH | `252068e5-ca16-4186-a181-719462643d83` | Persistent UUID, cross-references local session-state dir |
