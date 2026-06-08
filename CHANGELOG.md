@@ -27,6 +27,16 @@ prefix used in commit messages).
 
 ### Added
 
+- **M1.6.6 T5.1** — `tui::views::mcp_waste` banner expands to **2 lines**:
+  line 1 carries `Loaded` / `Unused` token totals (with `≈` prefix when
+  `TokenProvenance::Heuristic` / `Mixed`); line 2 is `Tokenizer: <kind>
+  Token source: <provenance>`. Both the server-summary and per-tool
+  tables gain a `Tokens` column (8 cells, `format_int_short` —
+  `1.6K` style for `>= 1000`) with per-row `≈` prefix for
+  `TokenSource::Heuristic`. Outer layout reserves
+  `Constraint::Length(4)` for the banner block. 9 view tests now cover
+  the view (7 from M1.6.5 + 2 new: 2-line + ≈-prefix).
+
 - **M1.6.6 T4.1** — `agentprof mcp-waste` extended with the same
   `--tokens-per-tool <N>` (default 200) and `--tool-descriptions <PATH>`
   flags as `analyze` / `aggregate`; sidecar is loaded once outside the

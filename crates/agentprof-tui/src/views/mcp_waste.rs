@@ -12,7 +12,7 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::widgets::{Block, Borders, Cell, Row, Table, TableState};
 
-use agentprof_core::model::WasteReport;
+use agentprof_core::model::{TokenProvenance, TokenSource, TokenizerKind, WasteReport};
 
 /// Render the MCP Waste view into `area`. Split-pane: left = servers
 /// summary table; right = tools for the cursor-selected server.
@@ -40,7 +40,7 @@ pub fn render(f: &mut ratatui::Frame, area: Rect, report: &WasteReport, state: &
     // Top banner (data source + totals).
     let outer = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Min(0)])
+        .constraints([Constraint::Length(4), Constraint::Min(0)])
         .split(area);
 
     let banner = banner_lines(report);
@@ -59,7 +59,7 @@ pub fn render(f: &mut ratatui::Frame, area: Rect, report: &WasteReport, state: &
 }
 
 fn banner_lines(r: &WasteReport) -> Vec<ratatui::text::Line<'static>> {
-    use ratatui::text::{Line, Span};
+    use ratatui::text::Line;
     let ds = match r.data_source {
         agentprof_core::model::WasteDataSource::None => "no data".to_string(),
         agentprof_core::model::WasteDataSource::Wire => "wire notices".to_string(),
@@ -69,10 +69,54 @@ fn banner_lines(r: &WasteReport) -> Vec<ratatui::text::Line<'static>> {
         _ => "unknown".to_string(),
     };
     let fully = r.server_waste.iter().filter(|s| s.is_fully_unused).count();
-    vec![Line::from(vec![Span::raw(format!(
-        "Source: {ds}   Loaded: {}   Unused: {}   Fully-unused servers: {fully}",
-        r.total_loaded_tool_count, r.total_unused_tool_count
-    ))])]
+    let prefix = if matches!(
+        r.token_provenance,
+        TokenProvenance::Heuristic | TokenProvenance::Mixed
+    ) {
+        "≈"
+    } else {
+        ""
+    };
+    let tokenizer = match r.tokenizer {
+        TokenizerKind::Cl100kBase => "cl100k_base",
+        TokenizerKind::O200kBase => "o200k_base",
+        // `TokenizerKind` is `#[non_exhaustive]`.
+        _ => "unknown",
+    };
+    let token_source = match r.token_provenance {
+        TokenProvenance::Heuristic => "heuristic",
+        TokenProvenance::SidecarExact => "sidecar exact",
+        TokenProvenance::Mixed => "mixed",
+        _ => "unknown",
+    };
+    vec![
+        Line::from(format!(
+            "Source: {ds}   Loaded: {}/{prefix}{} tokens   Unused: {}/{prefix}{} tokens   Fully-unused servers: {fully}",
+            r.total_loaded_tool_count,
+            format_int_short(r.total_loaded_tokens),
+            r.total_unused_tool_count,
+            format_int_short(r.total_unused_tokens),
+        )),
+        Line::from(format!(
+            "Tokenizer: {tokenizer}   Token source: {token_source}"
+        )),
+    ]
+}
+
+/// Format a `u64` compactly for narrow TUI cells.
+///
+/// Values `< 1000` render as-is; values `>= 1000` render as `X.YK`
+/// (one decimal place). Used by the M1.6.6 MCP-Waste banner + Tokens
+/// columns so an 8-cell column fits up to `999999K` worth of digits
+/// without truncation in practice.
+fn format_int_short(n: u64) -> String {
+    if n >= 1000 {
+        #[allow(clippy::cast_precision_loss)]
+        let f = n as f64 / 1000.0;
+        format!("{f:.1}K")
+    } else {
+        n.to_string()
+    }
 }
 
 fn render_server_table(
@@ -81,6 +125,14 @@ fn render_server_table(
     report: &WasteReport,
     state: &mut McpWasteState,
 ) {
+    let token_prefix = if matches!(
+        report.token_provenance,
+        TokenProvenance::Heuristic | TokenProvenance::Mixed
+    ) {
+        "≈"
+    } else {
+        ""
+    };
     let rows: Vec<Row> = report
         .server_waste
         .iter()
@@ -88,6 +140,10 @@ fn render_server_table(
             Row::new(vec![
                 Cell::from(sw.server.clone()),
                 Cell::from(format!("{}/{}", sw.loaded_count, sw.unused_count)),
+                Cell::from(format!(
+                    "{token_prefix}{}",
+                    format_int_short(sw.unused_tokens)
+                )),
                 Cell::from(if sw.is_fully_unused { "!" } else { "" }),
             ])
         })
@@ -98,11 +154,13 @@ fn render_server_table(
         [
             Constraint::Length(24),
             Constraint::Length(8),
+            Constraint::Length(8),
             Constraint::Length(2),
         ],
     )
     .header(
-        Row::new(vec!["Server", "L/U", "F"]).style(Style::default().add_modifier(Modifier::BOLD)),
+        Row::new(vec!["Server", "L/U", "Tokens", "F"])
+            .style(Style::default().add_modifier(Modifier::BOLD)),
     )
     .block(
         Block::default()
@@ -137,9 +195,18 @@ fn render_tool_table(
                 .iter()
                 .filter(|t| !state.unused_only || t.call_count == 0)
                 .map(|t| {
+                    let prefix = if matches!(t.token_source, TokenSource::Heuristic) {
+                        "≈"
+                    } else {
+                        ""
+                    };
                     Row::new(vec![
                         Cell::from(t.tool_name.clone()),
                         Cell::from(t.call_count.to_string()),
+                        Cell::from(format!(
+                            "{prefix}{}",
+                            format_int_short(t.description_tokens)
+                        )),
                         Cell::from(format!("{:?}", t.loaded_source)),
                     ])
                 })
@@ -158,11 +225,12 @@ fn render_tool_table(
         [
             Constraint::Min(30),
             Constraint::Length(6),
+            Constraint::Length(8),
             Constraint::Length(18),
         ],
     )
     .header(
-        Row::new(vec!["Tool", "Calls", "Source"])
+        Row::new(vec!["Tool", "Calls", "Tokens", "Source"])
             .style(Style::default().add_modifier(Modifier::BOLD)),
     )
     .block(Block::default().borders(Borders::ALL).title(title));
@@ -394,5 +462,37 @@ mod tests {
             .collect();
         assert!(joined.contains("Loaded: 3"));
         assert!(joined.contains("Unused: 2"));
+    }
+
+    #[test]
+    fn banner_lines_renders_2_lines_with_tokenizer() {
+        let r = one_server("github", 3, 1);
+        let banner = banner_lines(&r);
+        assert_eq!(banner.len(), 2, "M1.6.6 banner has 2 lines");
+        let second: String = banner[1]
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert!(second.contains("Tokenizer:"));
+        assert!(second.contains("Token source:"));
+    }
+
+    #[test]
+    fn banner_uses_tilde_prefix_for_heuristic_provenance() {
+        // `one_server` builds a WasteReport without overriding `token_provenance`,
+        // so it deserializes to the default `TokenProvenance::Heuristic` —
+        // banner line 1 must therefore prefix token counts with `≈`.
+        let r = one_server("github", 3, 1);
+        let banner = banner_lines(&r);
+        let first: String = banner[0]
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert!(
+            first.contains('≈'),
+            "heuristic provenance should render ≈ prefix; got: {first}"
+        );
     }
 }
