@@ -48,6 +48,18 @@ prefix used in commit messages).
 
 ### Fixed
 
+- **`tests`: cross-platform invalid-path recipe in `log_file_invalid_path_soft_falls_to_stderr`**
+  (regression caught by first Windows CI run on commit `ea18bbe`).
+  The previous recipe `/this/dir/does/not/exist/agentprof.log` relied
+  on POSIX-only behavior — `create_dir_all` fails at `/` due to
+  permissions on Linux/macOS, but on Windows the same path maps to
+  `D:\this\dir\...` in user-writable drive-root space where
+  `create_dir_all` succeeds silently. New recipe: create a regular
+  *file* first, then ask the CLI to log at `<file>/sub/agentprof.log`
+  — `fs::create_dir_all` rejects this with `NotADirectory` on every
+  OS because the parent path component is already a non-directory
+  entry. Net effect: test now exercises the same soft-fall branch
+  it always intended to, on all three CI platforms.
 - **`cli`: honor `$XDG_STATE_HOME` on macOS / Windows** (regression caught
   by the first public-CI run on macOS aarch64). `directories::BaseDirs::state_dir()`
   returns `None` on macOS by design (Apple has no XDG state spec), so the

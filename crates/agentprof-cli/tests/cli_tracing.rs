@@ -119,11 +119,25 @@ fn log_file_flag_writes_to_path() {
 
 #[test]
 fn log_file_invalid_path_soft_falls_to_stderr() {
+    // Cross-platform "create_dir_all guaranteed to fail" recipe:
+    // create a *regular file* and ask the CLI to log under a subpath
+    // of it (`<file>/sub/agentprof.log`). `fs::create_dir_all` on every
+    // OS rejects this with `NotADirectory` because the parent component
+    // is already a non-directory entry.
+    //
+    // (The previous `/this/dir/does/not/exist/agentprof.log` recipe
+    // relied on POSIX permissions at `/` and silently passed on Windows
+    // — see CI run 27114448939 / job 80018588083 for the regression.)
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let blocking_file = tmp.path().join("blocking_file");
+    std::fs::write(&blocking_file, b"not a directory").expect("write blocker");
+    let log_path = blocking_file.join("sub").join("agentprof.log");
+
     let assert = agentprof()
         .arg("--log-level")
         .arg("warn")
         .arg("--log-file")
-        .arg("/this/dir/does/not/exist/agentprof.log")
+        .arg(&log_path)
         .arg("list")
         .arg("--root")
         .arg(env!("CARGO_MANIFEST_DIR"))
