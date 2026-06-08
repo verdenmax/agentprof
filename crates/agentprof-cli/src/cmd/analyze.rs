@@ -120,10 +120,19 @@ pub enum AnalysisSection {
     ToolRank,
     /// Per-hook ranking table.
     HookRank,
+    /// MCP server waste — loaded-but-uncalled tools and fully-unused
+    /// servers (M1.6.5). Scaffolded in T3.1: opt-in via
+    /// `--section mcp-waste`; renderer wiring (md / json / html) lands
+    /// in T3.2, at which point this variant may join [`Self::all_vec`].
+    McpWaste,
 }
 
 impl AnalysisSection {
     /// All defined sections (default for `--section`).
+    ///
+    /// Note: [`Self::McpWaste`] is intentionally excluded until T3.2
+    /// ships its renderers, keeping default `analyze` output
+    /// byte-identical to the pre-M1.6.5 baseline.
     #[must_use]
     pub fn all_vec() -> Vec<Self> {
         vec![Self::TurnSummary, Self::ToolRank, Self::HookRank]
@@ -193,6 +202,28 @@ pub fn run(
     let episodes = derive_episodes(&raw.events, &raw.meta);
     let report = analyze(&episodes, &raw.meta, &raw.parse_warnings);
 
+    // M1.6.5 T3.1 scaffold — compute MCP waste when opted in via
+    // `--section mcp-waste`. Renderer wiring (md / json / html) lands
+    // in T3.2; binding the `#[must_use]` `WasteReport` here keeps the
+    // adapter + core dispatch path live end-to-end without altering
+    // user-visible output. The branch is reachable (clap accepts the
+    // new variant) so clippy doesn't flag it as dead.
+    if cmd.section.contains(&AnalysisSection::McpWaste) {
+        let wire_loaded = agentprof_adapters::copilot::extract_loaded_set_from_session(&raw.events);
+        let mcp_config_path = resolve_mcp_config_path(None)?;
+        let parsed_cfg = agentprof_adapters::copilot::load_mcp_config(&mcp_config_path);
+        let config_loaded = parsed_cfg.as_ref().map(|c| {
+            c.servers
+                .iter()
+                .filter_map(|(name, info)| info.tools.as_ref().map(|t| (name.clone(), t.clone())))
+                .collect::<std::collections::BTreeMap<_, _>>()
+        });
+        let _waste_for_t3_2 =
+            agentprof_core::analyzer::compute_waste(&report, &wire_loaded, config_loaded.as_ref());
+        // T3.2 will thread `_waste_for_t3_2` into `render_report` and
+        // emit it from the md / json / html renderers.
+    }
+
     if cmd.export == ExportFormat::Tui {
         // Polish #4: warn (don't error) if user passed flags that the TUI
         // dispatch ignores. Documented in ExportFormat::Tui doc-comment
@@ -253,6 +284,30 @@ fn run_tui(
     let res = runner.run(&mut term);
     let _ = agentprof_tui::app::terminal::leave(&mut term);
     res.map_err(|e| ExitKind::OutputError.into_anyhow(format!("tui runtime: {e}")))
+}
+
+/// Resolve the path to the user's `mcp.json`.
+///
+/// Returns `override_path` when set, else `$HOME/.copilot/mcp.json`.
+/// Fails with [`ExitKind::UserError`] when neither is available
+/// (e.g. minimal CI containers without `HOME`).
+///
+/// Introduced for M1.6.5 T3.1 scaffold; T4.1 (`cmd::mcp_waste`) will
+/// re-export / relocate this helper when the dedicated `mcp-waste`
+/// subcommand lands. Keep `pub(crate)` so the move is non-breaking.
+pub fn resolve_mcp_config_path(override_path: Option<&Path>) -> Result<PathBuf> {
+    if let Some(p) = override_path {
+        return Ok(p.to_path_buf());
+    }
+    std::env::var_os("HOME")
+        .map(|home| PathBuf::from(home).join(".copilot").join("mcp.json"))
+        .ok_or_else(|| {
+            ExitKind::UserError.into_anyhow(
+                "could not determine mcp.json path (HOME unset); \
+                 pass an explicit path or set HOME"
+                    .to_string(),
+            )
+        })
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref)] // CopilotAdapter is a unit struct today but the Adapter trait API takes &self.
