@@ -1,0 +1,40 @@
+{
+  "github": [
+    {
+      "name": "search_issues",
+      "description": "Search GitHub issues by query. Returns up to 30 most relevant issues with title, body, labels, and metadata.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string", "description": "GitHub search syntax"},
+          "limit": {"type": "integer", "minimum": 1, "maximum": 100}
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "create_issue",
+      "description": "Create a new GitHub issue in the specified repository.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "repo": {"type": "string"},
+          "title": {"type": "string"},
+          "body": {"type": "string"}
+        },
+        "required": ["repo", "title"]
+      }
+    }
+  ],
+  "filesystem": [
+    {
+      "name": "read_file",
+      "description": "Read the contents of a file from the local filesystem.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {"path": {"type": "string"}},
+        "required": ["path"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "tools": [
+    {
+      "name": "search_issues",
+      "description": "Search GitHub issues by query.",
+      "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}}}
+    },
+    {
+      "name": "create_issue",
+      "description": "Create a new GitHub issue.",
+      "inputSchema": {"type": "object", "properties": {"title": {"type": "string"}, "body": {"type": "string"}}}
+    }
+  ]
+}
