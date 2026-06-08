@@ -145,6 +145,7 @@ playwright.click   |   1240        |   0   |     ∞ (waste)   | ✗ kill
 - [x] 实时刷新 TUI ✅ M1.6.3（`agentprof watch` 单 session + `watch aggregate ...` 跨 session；`aggregate --export tui` 也一并激活，[ADR-0009](internals/adr-0009-watch-runner-and-notify.md)）
 - [x] 全工程结构化 tracing ✅ M1.6.4 (2026-06-02)（canonical observability across all 5 crates；13 `eprintln!` → `tracing::*!`；全局 `--log-level` / `--log-file` flags + `AGENTPROF_LOG_FULL_PATHS` env；TUI 模式自动重定向到 `$XDG_STATE_HOME/agentprof/agentprof.log`；4 层 span 拓扑 `cmd` → `adapter` → `analyzer`/`aggregator` → events；PII：session 路径默认 sha256[..8] hash；[ADR-0010](internals/adr-0010-tracing-infrastructure.md)）
 - [x] MCP server waste analysis ✅ M1.6.5（`agentprof mcp-waste`, `analyze --section mcp-waste`, `aggregate --by mcp-server` 加 waste 列, TUI 5th view key `5`，[ADR-0015](internals/adr-0015-mcp-waste-architecture.md)）
+- [x] MCP waste token-cost view ✅ M1.6.6（`--tokens-per-tool` heuristic + `--tool-descriptions` sidecar 走 tiktoken 精确计数；3 个子命令统一接入；TUI 5th view banner 2 行 + Tokens 列；aggregate `--by mcp-server` 加 Wasted-tokens 列；[ADR-0016](internals/adr-0016-mcp-token-cost-architecture.md)）
 
 ### Phase 2：工程化（再 1 周）
 - [ ] 接入 OTLP（订阅 Claude Code 的 telemetry endpoint）
@@ -171,17 +172,16 @@ playwright.click   |   1240        |   0   |     ∞ (waste)   | ✗ kill
 
 ## 8. 下一步行动
 
-> **2026-06-03 更新**：MVP 8/8 shippable surface ≈ 98% (M1.1–M1.6.4 ✅; 剩 M1.7 v0.1.0 release) 已交付。MVP feature work 已完成；2026-06-03 M1.6.4 follow-up wave（8 cleanup commits `d87adec` → `766b8f0`）落地。剩 M1.7 v0.1.0 release。M1.6.5（MCP waste）属于增量增强，可推到 0.2.0。
+> **2026-06-03 更新**：MVP 8/8 shippable surface ≈ 98% (M1.1–M1.6.4 ✅; 剩 M1.7 v0.1.0 release) 已交付。MVP feature work 已完成；2026-06-03 M1.6.4 follow-up wave（8 cleanup commits `d87adec` → `766b8f0`）落地。剩 M1.7 v0.1.0 release。M1.6.5（MCP waste counts）+ M1.6.6（MCP waste token cost）属于增量增强，已在 0.1.x 内 ship。
 
-**当前位置**：M1.6.4 ✅ ship 2026-06-02（tracing 基础设施）；**M1.6.5 ✅ ship 2026-06-08**（MCP server waste analysis, Phase 1 counts-only：`mcp-waste` 子命令 + `analyze --section mcp-waste` + `aggregate --by mcp-server` 加 waste 列 + TUI 5th view key `5`，ADR-0015）→ 下一步推荐：
+**当前位置**：M1.6.4 ✅ ship 2026-06-02（tracing 基础设施）；M1.6.5 ✅ ship 2026-06-08（MCP server waste analysis, Phase 1 counts-only，ADR-0015）；**M1.6.6 ✅ ship 2026-06-08**（MCP waste token-cost view：`--tokens-per-tool` heuristic + `--tool-descriptions` sidecar 走 tiktoken 精确计数；3 个子命令 `analyze` / `aggregate` / `mcp-waste` 统一接入；TUI 5th view banner 2 行 + Tokens 列；[ADR-0016](internals/adr-0016-mcp-token-cost-architecture.md)）→ 下一步推荐：
 
-> **2026-06-08 更新**：M1.6.5 ✅ ship (Phase 1 counts-only). M1.6.6
-> (token-cost view via tiktoken-rs + mcp.json descriptions) is the
-> next layered milestone. v0.1.x 内容收尾，下一步推 v0.2.0 (OTLP /
-> SQLite / Web dashboard) 或继续 Phase 3 (Claude / Codex adapters)。
+> **2026-06-08 更新**：M1.6.5 + M1.6.6 ✅ ship. v0.1.x MCP waste 故事
+> （counts + token cost）已闭环；下一步推 v0.1.0 cut (M1.7) 或 v0.2.0
+> (OTLP / SQLite / Web dashboard) 或继续 Phase 3 (Claude / Codex
+> adapters)。
 
 - **M1.7 v0.1.0 release**（推荐）：cargo-dist 多平台 binary + GitHub Release + CHANGELOG cut。走 `github-release` skill。
-- **M1.6.6 MCP waste token-cost view**（Phase 2 of waste analysis）：tiktoken-rs 估 unused tools 的 token 占用 + 读 `mcp.json` description / schema 补全人类可读列。
 
 **进入下一个 milestone 入口**：走 9 阶段 pipeline 的 Stage 1（brainstorming）。在 `docs/superpowers/specs/` 写 `2026-XX-XX-m1.7-<topic>-design.md`。
 

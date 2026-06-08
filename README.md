@@ -174,9 +174,10 @@ full CLI documentation.
 Quantify "MCP context bloat" — which MCP tools / servers the agent had access to but never called:
 
 - `agentprof analyze --section mcp-waste` — single-session "MCP Server Waste" section (md / json / html; opt-in via `--section`).
-- `agentprof aggregate --by mcp-server` — cross-session leaderboard, now with `Unused tools` + `Sessions w/0 calls` columns.
+- `agentprof aggregate --by mcp-server` — cross-session leaderboard, now with `Unused tools` + `Sessions w/0 calls` + (M1.6.6) `Wasted tokens` columns.
 - `agentprof mcp-waste` — dedicated cross-session report (md / json / html); top servers with their always-unused tool sets.
-- TUI: press `5` inside `analyze --export tui` to open the split-pane MCP Waste view (server list on the left, per-tool detail on the right; `u` toggles unused-only).
+- TUI: press `5` inside `analyze --export tui` to open the split-pane MCP Waste view (server list on the left, per-tool detail on the right; `u` toggles unused-only). M1.6.6 — banner expands to 2 lines (`Tokenizer: …  Token source: …`) and both tables gain a `Tokens` column.
+- **M1.6.6 token-cost view** — all three subcommands above accept `--tokens-per-tool <N>` (default `200`, per-tool heuristic) and `--tool-descriptions <path>` (file or dir of `tools/list` sidecars; matched tools switch to tiktoken-exact counts). Loaded once outside the per-session loop; per-server / per-tool token columns get a leading `≈` whenever any cell falls back to the heuristic. See [ADR-0016](docs/internals/adr-0016-mcp-token-cost-architecture.md).
 
 ---
 

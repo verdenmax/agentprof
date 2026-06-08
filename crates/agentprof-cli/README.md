@@ -74,7 +74,21 @@ agentprof analyze --export json --output report.json
 
 # Only Turn Summary + Tool Rank (skip Hook Rank); md export only
 agentprof analyze --section turn-summary,tool-rank
+
+# M1.6.6 — token-cost columns on the MCP Server Waste section (heuristic or sidecar-exact)
+agentprof analyze --section mcp-waste                                         # heuristic only (default 200 tokens/tool)
+agentprof analyze --section mcp-waste --tokens-per-tool 150                   # tune the heuristic
+agentprof analyze --section mcp-waste --tool-descriptions ~/.copilot/tools/   # sidecar dir → tiktoken-exact counts where covered
 ```
+
+The two M1.6.6 flags (`--tokens-per-tool <N>`, default `200`, and
+`--tool-descriptions <path>`, file or dir, `~` expanded) are only
+consulted when `--section mcp-waste` is rendered; on every other
+`--section` they are accepted silently and ignored. Sidecar shape =
+file = global `{"tools":[{name,description},…]}` JSON; dir = one
+`<server>.json` per server in either `{"tools":[…]}` or bare-array
+shape. Per-tool counts default to the heuristic and switch to
+`TokenSource::SidecarExact` only when the sidecar covers that tool.
 
 Set `AGENTPROF_LOG=debug` to enable `tracing` output on stderr.
 
@@ -310,13 +324,15 @@ This crate produces a binary, not a library. The user-facing protocol is the CLI
 
 ```text
 agentprof analyze    [--agent copilot] [--session ...] [--root ...]
-                     [--export md|json|tui|speedscope|html] [--output ...] [--section ...]    # ✓ shipped (M1.4 + M1.5 tui + M1.6.4 speedscope|html)
+                     [--export md|json|tui|speedscope|html] [--output ...] [--section ...]
+                     [--tokens-per-tool 200] [--tool-descriptions ...]      # ✓ shipped (M1.4 + M1.5 tui + M1.6.4 speedscope|html + M1.6.6 tokens)
 agentprof list       [--agent copilot] [--root ...]
                      [--since <N>d|h|m|s|all] [--limit N]                 # ✓ shipped (M1.6.1)
 agentprof aggregate  [--agent copilot] [--root ...] [--by tool|mcp-server|day|model]
                      [--since <N>d|h|m|s|all] [--limit N]
                      [--export md|json|csv|html|tui] [--output ...]
-                     [--low-utilization-threshold 20]                       # ✓ shipped (M1.6.2 + M1.6.3 tui)
+                     [--low-utilization-threshold 20]
+                     [--tokens-per-tool 200] [--tool-descriptions ...]      # ✓ shipped (M1.6.2 + M1.6.3 tui + M1.6.6 tokens on --by mcp-server)
 agentprof watch      [--agent copilot] [--session ...] [--root ...] [--debounce-ms 250]
                      [aggregate --by ... [...all aggregate flags]]          # ✓ shipped (M1.6.3)
 agentprof mcp-waste  [--root ...] [--since 7d] [--top 20] [--mcp-config ...]

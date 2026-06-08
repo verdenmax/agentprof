@@ -349,7 +349,7 @@ M1.4 引入的纯函数 rollups，消费 `&Episodes` 产出 per-row 分析数据
 
 ## 8. CLI 协议（`agentprof <COMMAND>`）
 
-> **当前实现状态**（2026-06-01）：`analyze` ✅ M1.4 + `--export tui` M1.5 + `--export speedscope|html` M1.6.4 / `list` ✅ M1.6.1 / `aggregate` ✅ M1.6.2 + `--export tui` M1.6.3 / `watch` ✅ M1.6.3 已 ship；`ingest-otlp` / `config` 规划中（Phase 2）；`export` 已取消（与 `analyze --export` 100% 重复，CLI surface 已移除）。
+> **当前实现状态**（2026-06-08）：`analyze` ✅ M1.4 + `--export tui` M1.5 + `--export speedscope|html` M1.6.4 + `--section mcp-waste` M1.6.5 + `--tokens-per-tool` / `--tool-descriptions` M1.6.6 / `list` ✅ M1.6.1 / `aggregate` ✅ M1.6.2 + `--export tui` M1.6.3 + waste cols M1.6.5 + wasted-tokens col M1.6.6 / `watch` ✅ M1.6.3 / `mcp-waste` ✅ M1.6.5 + token-cost flags M1.6.6 已 ship；`ingest-otlp` / `config` 规划中（Phase 2）；`export` 已取消（与 `analyze --export` 100% 重复，CLI surface 已移除）。
 
 ```
 analyze [--agent copilot]                     # ✅ M1.4: copilot only; auto/claude/codex 留给 Phase 3
@@ -358,6 +358,8 @@ analyze [--agent copilot]                     # ✅ M1.4: copilot only; auto/cla
         [--export md|json|tui|speedscope|html]   # ✅ M1.4 (md/json) + M1.5 (tui) + M1.6.4 (speedscope/html); csv 推迟到 M1.6.5
         [--output <file>]                     # 写文件而非 stdout（--export tui 时会 warn 并忽略）
         [--section turn-summary,tool-rank,hook-rank,mcp-waste]   # 只影响 --export md；默认全部（--export tui 时会 warn 并忽略）；`mcp-waste` ✅ M1.6.5
+        [--tokens-per-tool 200]               # ✅ M1.6.6 — heuristic token cost per MCP tool when no sidecar covers it; only consulted by --section mcp-waste
+        [--tool-descriptions <path>]          # ✅ M1.6.6 — sidecar (file or dir, ~ expanded) of per-tool descriptions for exact tiktoken counts; only consulted by --section mcp-waste
     分析单个 session（默认 latest），输出 markdown / JSON 报告或进入 TUI。
     Session 选择优先级：显式 path > UUID > latest/previous（按 mtime 排序）。
     --export tui 要求 stdin 和 stdout 都是 TTY；否则提示并退出。
@@ -379,6 +381,8 @@ aggregate [--agent copilot]                  # ✅ M1.6.2: copilot only
           [--export md|json|csv|html|tui]    # ✅ M1.6.2 (md/json/csv/html) + ✅ M1.6.3 (tui, 静态跨 session 聚合 TUI)
           [--output <file>]                  # write to file instead of stdout (ignored for tui)
           [--low-utilization-threshold 20]   # day bucket warn threshold (0-100)
+          [--tokens-per-tool 200]            # ✅ M1.6.6 — heuristic token cost per MCP tool when no sidecar covers it; only consulted by --by mcp-server
+          [--tool-descriptions <path>]       # ✅ M1.6.6 — sidecar (file or dir, ~ expanded) of per-tool descriptions for exact tiktoken counts; only consulted by --by mcp-server
     Cross-session aggregation:
       --by tool        — per-tool ranks (sum calls/duration; re-computed p50/p95 from pooled per-call data)
       --by mcp-server  — per-MCP-server stats + unused_tool_count + fully_unused_session_count columns ✅ M1.6.5
@@ -411,6 +415,8 @@ mcp-waste [--root <dir>]                       # ✅ M1.6.5
           [--since 7d]                         # 时间窗口：<N>d/h/m/s 或 all（默认 7d）
           [--top 20]                           # "Always unused" 表格 Top-N（默认 20）
           [--mcp-config <path>]                # 覆盖 ~/.copilot/mcp.json
+          [--tokens-per-tool 200]              # ✅ M1.6.6 — heuristic token cost per MCP tool when no sidecar covers it; folded into Summary / per-server / per-tool token columns
+          [--tool-descriptions <path>]         # ✅ M1.6.6 — sidecar (file or dir, ~ expanded) of per-tool descriptions for exact tiktoken counts; same on-disk schema as `analyze --tool-descriptions`
           [--export md|json|html]              # 输出格式（**不含 tui**，spec §7.3 / §10）
           [--output <file>]                    # 默认 stdout
     跨 session 的 MCP 服务器浪费报告（"加载了但从未被调用"）：
@@ -422,6 +428,11 @@ mcp-waste [--root <dir>]                       # ✅ M1.6.5
         "MCP Waste"）打开；mcp-waste 子命令本身只产 md/json/html。
       - 见 [ADR-0015](internals/adr-0015-mcp-waste-architecture.md) 与 spec
         `docs/superpowers/specs/2026-06-08-m1.6.5-mcp-waste-design.md`。
+      - M1.6.6 token-cost flags：`--tokens-per-tool` (default 200) 是 sidecar 缺失时
+        的 per-tool heuristic；`--tool-descriptions <path>` 接受 file（全局 JSON）
+        或 dir（per-server `*.json`，支持 `{"tools":[…]}` 与 bare-array 两种 shape），
+        命中描述时走 tiktoken 精确计数。Loaded 一次后在每个 session 复用（spec §6.2 +
+        [ADR-0016](internals/adr-0016-mcp-token-cost-architecture.md)）。
 
 ingest-otlp [--listen 0.0.0.0:4317]            # 🚧 规划中 — Phase 2
     启动 OTLP receiver，订阅 Claude Code telemetry（feature: otlp）。
