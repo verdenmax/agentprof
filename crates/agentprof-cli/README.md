@@ -285,6 +285,8 @@ agentprof mcp-waste --mcp-config ./mcp.json --export html --output waste.html
 | `--mcp-config` | `~/.copilot/mcp.json` | Override mcp config path (`~/` expanded) |
 | `--export` | `md` | `md` / `json` / `html` (**no `tui`** — spec §7.3 / §10; use the `[5] McpWaste` view inside `agentprof analyze --export tui` instead) |
 | `--output` | stdout | Output file |
+| `--tokens-per-tool` | `200` | M1.6.6 — heuristic token cost per MCP tool when no sidecar covers a tool. Folded into Summary `≈X wasted tokens`, per-tool, and per-server columns. |
+| `--tool-descriptions` | _(none)_ | M1.6.6 — sidecar path (file or dir) with per-tool descriptions for exact token counts. Same on-disk schema as `analyze --tool-descriptions`. Loaded once outside the per-session loop. |
 
 Pipeline: `cmd::mcp_waste::run()` → load every session in the window via
 the adapter → per-session `agentprof_core::analyzer::compute_waste` →
@@ -318,7 +320,8 @@ agentprof aggregate  [--agent copilot] [--root ...] [--by tool|mcp-server|day|mo
 agentprof watch      [--agent copilot] [--session ...] [--root ...] [--debounce-ms 250]
                      [aggregate --by ... [...all aggregate flags]]          # ✓ shipped (M1.6.3)
 agentprof mcp-waste  [--root ...] [--since 7d] [--top 20] [--mcp-config ...]
-                     [--export md|json|html] [--output ...]                 # ✓ shipped (M1.6.5)
+                     [--tokens-per-tool 200] [--tool-descriptions ...]
+                     [--export md|json|html] [--output ...]                 # ✓ shipped (M1.6.5 + M1.6.6 tokens)
 agentprof ingest-otlp [--listen 0.0.0.0:4317]   # feature: otlp            # planned (Phase 2)
 agentprof config     [show | edit | path]                                  # planned (Phase 2)
 ```

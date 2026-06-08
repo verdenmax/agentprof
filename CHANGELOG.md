@@ -27,6 +27,17 @@ prefix used in commit messages).
 
 ### Added
 
+- **M1.6.6 T4.1** — `agentprof mcp-waste` extended with the same
+  `--tokens-per-tool <N>` (default 200) and `--tool-descriptions <PATH>`
+  flags as `analyze` / `aggregate`; sidecar is loaded once outside the
+  per-session loop. Renderers (md / json / html) now surface a
+  Summary `≈X wasted tokens` line plus a `Largest waste: <server>,
+  ≈X tokens across N sessions` line, the "Always unused" table gains
+  a `Server` + `Tokens (per session)` column, and the per-server
+  cross-session table gains a `Wasted tokens` column. JSON output
+  exposes the new `total_unused_tokens` fields (`AggregateWasteReport`
+  + `McpServerCrossWaste`) populated by `core::analyzer::aggregate_waste`.
+
 - **M1.6.6 T3.3** — `agentprof aggregate --by mcp-server` extended with a
   `Wasted tokens` column (sum of per-session `McpServerWaste.unused_tokens`)
   across all 4 renderers (md / csv / html / TUI). `aggregate` gained

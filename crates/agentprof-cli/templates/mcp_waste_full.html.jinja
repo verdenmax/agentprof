@@ -18,19 +18,28 @@
     <li>{{ sessions }} sessions analyzed</li>
     <li>{{ servers_count }} MCP servers</li>
     <li>{{ never_called_count }} tools never called across any session</li>
+    <li>&approx;{{ total_unused_tokens }} wasted tokens (heuristic / sidecar / mixed — see JSON export for per-session provenance)</li>
+    {% if let Some(lw) = largest_waste %}
+    <li>Largest waste: <code>{{ lw.server }}</code> server, &approx;{{ lw.wasted_tokens }} tokens across {{ lw.sessions_loaded }} sessions</li>
+    {% endif %}
   </ul>
   <h2>Always unused (top {{ top }})</h2>
   <table>
-    <thead><tr><th>Tool</th><th>Sessions loaded</th></tr></thead>
+    <thead><tr><th>Tool</th><th>Server</th><th>Sessions loaded</th><th>Tokens (per session)</th></tr></thead>
     <tbody>
       {% for entry in never_called_top %}
-      <tr><td>{{ entry.tool }}</td><td class="num">{{ entry.sessions_loaded }}</td></tr>
+      <tr>
+        <td>{{ entry.tool }}</td>
+        <td>{{ entry.server }}</td>
+        <td class="num">{{ entry.sessions_loaded }}</td>
+        <td class="num">&approx;{{ entry.tokens }}</td>
+      </tr>
       {% endfor %}
     </tbody>
   </table>
   <h2>Per-server cross-session</h2>
   <table>
-    <thead><tr><th>Server</th><th>Sessions loaded</th><th>Sessions w/0 calls</th><th>Calls (sum)</th></tr></thead>
+    <thead><tr><th>Server</th><th>Sessions loaded</th><th>Sessions w/0 calls</th><th>Calls (sum)</th><th>Wasted tokens</th></tr></thead>
     <tbody>
       {% for sw in per_server %}
       <tr>
@@ -38,6 +47,7 @@
         <td class="num">{{ sw.sessions_loaded }}</td>
         <td class="num">{{ sw.sessions_with_zero_calls }}</td>
         <td class="num">{{ sw.total_calls }}</td>
+        <td class="num">&approx;{{ sw.wasted_tokens }}</td>
       </tr>
       {% endfor %}
     </tbody>

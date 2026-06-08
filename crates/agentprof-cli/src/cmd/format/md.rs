@@ -385,7 +385,11 @@ fn write_mcp_waste_footer(out: &mut String, provenance: TokenProvenance) {
 }
 
 /// Format `n` with comma thousand-separators (e.g. `1234567 → "1,234,567"`).
-fn format_int(n: u64) -> String {
+///
+/// Sibling subcommand modules (e.g. `cmd::mcp_waste`) reuse this without
+/// duplicating the helper; `cmd` is a private bin-crate module so this
+/// stays effectively crate-private.
+pub fn format_int(n: u64) -> String {
     let s = n.to_string();
     let mut out = String::with_capacity(s.len() + s.len() / 3);
     for (i, ch) in s.chars().rev().enumerate() {

@@ -508,6 +508,11 @@ fn short_name(full: &str) -> Option<&str> {
 /// alphabetically by `tool_name`; `never_called_tools` is sorted and
 /// de-duplicated.
 ///
+/// M1.6.6: also accumulates `McpServerCrossWaste.total_unused_tokens`
+/// (Σ per-session `McpServerWaste.unused_tokens`) and the report-level
+/// `AggregateWasteReport.total_unused_tokens` (Σ across servers) so
+/// `mcp-waste` can surface the "Largest waste by tokens" summary line.
+///
 /// # Examples
 ///
 /// ```
@@ -534,6 +539,10 @@ pub fn aggregate_waste(per_session: &[(SessionRef, WasteReport)]) -> AggregateWa
             if sw.is_fully_unused {
                 server_acc.sessions_with_zero_calls += 1;
             }
+            // M1.6.6 T4.1 — accumulate per-server unused-token totals
+            // across sessions so the cross-session report can surface
+            // "Largest waste by tokens" alongside session counts.
+            server_acc.total_unused_tokens += sw.unused_tokens;
             for t in &sw.tools {
                 let tool_acc = server_acc.tools.entry(t.tool_name.clone()).or_default();
                 tool_acc.sessions_loaded += 1;
@@ -570,7 +579,7 @@ pub fn aggregate_waste(per_session: &[(SessionRef, WasteReport)]) -> AggregateWa
                 sessions_loaded: sacc.sessions_loaded,
                 sessions_with_zero_calls: sacc.sessions_with_zero_calls,
                 tool_usage,
-                total_unused_tokens: 0,
+                total_unused_tokens: sacc.total_unused_tokens,
             }
         })
         .collect();
@@ -584,11 +593,13 @@ pub fn aggregate_waste(per_session: &[(SessionRef, WasteReport)]) -> AggregateWa
     never_called_tools.sort();
     never_called_tools.dedup();
 
+    let total_unused_tokens = per_server.iter().map(|s| s.total_unused_tokens).sum();
+
     AggregateWasteReport {
         sessions: per_session.len(),
         per_server,
         never_called_tools,
-        total_unused_tokens: 0,
+        total_unused_tokens,
     }
 }
 
@@ -596,6 +607,7 @@ pub fn aggregate_waste(per_session: &[(SessionRef, WasteReport)]) -> AggregateWa
 struct ServerAcc {
     sessions_loaded: usize,
     sessions_with_zero_calls: usize,
+    total_unused_tokens: u64,
     tools: BTreeMap<String, ToolAcc>,
 }
 

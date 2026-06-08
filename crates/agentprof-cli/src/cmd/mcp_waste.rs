@@ -10,6 +10,16 @@
 //! T4.3 fills in the three renderers (`render_md`, `render_json`,
 //! `render_html`) — the HTML output is a self-contained document built
 //! from `templates/mcp_waste_full.html.jinja`.
+//!
+//! M1.6.6 T4.1: also accepts `--tokens-per-tool` and
+//! `--tool-descriptions` (same shape as `analyze` / `aggregate`); the
+//! sidecar is loaded ONCE outside the per-session loop and layered
+//! onto the per-session `WasteComputeContext`. Renderers surface the
+//! resulting token costs as a Summary `≈X wasted tokens` line, a
+//! `Largest waste` line, a "Tokens (per session)" column on the
+//! always-unused table, and a `Wasted tokens` column on the per-server
+//! table. See `docs/superpowers/plans/2026-06-08-m1.6.6-token-cost.md`
+//! §T4.1.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -56,6 +66,18 @@ pub struct McpWasteArgs {
     /// Output file (default: stdout).
     #[arg(long)]
     pub output: Option<PathBuf>,
+
+    /// Heuristic token cost per MCP tool when no sidecar covers a tool.
+    /// Default 200 (≈ description + small inputSchema). M1.6.6 T4.1.
+    #[arg(long, default_value_t = agentprof_core::analyzer::waste::DEFAULT_HEURISTIC_TOKENS)]
+    pub tokens_per_tool: u64,
+
+    /// Optional sidecar path with per-tool descriptions for exact token counts.
+    /// Path → file: global JSON `{"<server>": [<ToolEntry>, ...]}`.
+    /// Path → dir: per-server `<server>.json` files (MCP `tools/list` shape).
+    /// Absent → heuristic-only mode. M1.6.6 T4.1.
+    #[arg(long, value_name = "PATH")]
+    pub tool_descriptions: Option<PathBuf>,
 }
 
 /// Output formats supported by `agentprof mcp-waste`.
@@ -226,6 +248,20 @@ pub fn run(
             .collect()
     });
 
+    // M1.6.6 T4.1 — load the optional `--tool-descriptions` sidecar
+    // ONCE outside the per-session loop (mirrors `cmd::analyze` /
+    // `cmd::aggregate`). Heuristic-only mode when `None`.
+    let sidecar = if let Some(path) = args.tool_descriptions.as_deref() {
+        Some(
+            agentprof_adapters::copilot::tool_sidecar::load_sidecar(path).map_err(|e| {
+                ExitKind::UserError
+                    .into_anyhow(format!("sidecar load failed for {}: {e}", path.display()))
+            })?,
+        )
+    } else {
+        None
+    };
+
     // 4. Per session: load, derive episodes, analyze, compute_waste.
     let mut per_session: Vec<(
         agentprof_core::adapter::SessionRef,
@@ -238,18 +274,23 @@ pub fn run(
             let episodes = derive_episodes(&raw.events, &raw.meta);
             let report = analyze(&episodes, &raw.meta, &raw.parse_warnings);
             let wire = extract_loaded_set_from_session(&raw.events);
-            // M1.6.6 T1.4: assemble the WasteComputeContext (tokenizer
-            // inferred from the session's first observed model; sidecar
-            // wiring lands in M1.6.6 T3.1).
+            // M1.6.6 T1.4 + T4.1: assemble the WasteComputeContext —
+            // tokenizer inferred from the session's first observed
+            // model, then layer `--tokens-per-tool` (heuristic) and
+            // `--tool-descriptions` (sidecar) per ADR-0016 D-2.
             let model_hint: Option<String> = report
                 .model_metrics
                 .as_ref()
                 .and_then(|m| m.keys().next().cloned());
             let tokenizer = agentprof_core::analyzer::waste::infer_tokenizer(model_hint.as_deref());
             let mut waste_ctx = agentprof_core::analyzer::waste::WasteComputeContext::new(&wire)
-                .with_tokenizer(tokenizer);
+                .with_tokenizer(tokenizer)
+                .with_heuristic(args.tokens_per_tool);
             if let Some(c) = cfg_map.as_ref() {
                 waste_ctx = waste_ctx.with_config(c);
+            }
+            if let Some(s) = sidecar.as_ref() {
+                waste_ctx = waste_ctx.with_sidecar(s);
             }
             Ok(compute_waste(&report, &waste_ctx))
         })();
@@ -282,11 +323,29 @@ pub fn run(
     // 5. Cross-session aggregation.
     let agg = aggregate_waste(&per_session);
 
+    // M1.6.6 T4.1 — build a tool_name → description_tokens lookup from
+    // per-session WasteReports so the rendered "Always unused" table
+    // can show a per-session token count. Token cost for a given tool
+    // is a function of its description+schema, so values should be
+    // identical across sessions; we take the max defensively in case
+    // a sidecar update changes the cost mid-window.
+    let mut tool_tokens: BTreeMap<String, u64> = BTreeMap::new();
+    for (_sref, wreport) in &per_session {
+        for sw in &wreport.server_waste {
+            for t in &sw.tools {
+                let entry = tool_tokens.entry(t.tool_name.clone()).or_insert(0);
+                if t.description_tokens > *entry {
+                    *entry = t.description_tokens;
+                }
+            }
+        }
+    }
+
     // 6. Render.
     let rendered = match args.export {
-        McpWasteExport::Md => render_md(&agg, args.top),
+        McpWasteExport::Md => render_md(&agg, args.top, &tool_tokens),
         McpWasteExport::Json => render_json(&agg)?,
-        McpWasteExport::Html => render_html(&agg, args.top)?,
+        McpWasteExport::Html => render_html(&agg, args.top, &tool_tokens)?,
     };
 
     // 7. Output.
@@ -302,13 +361,31 @@ pub fn run(
 
 /// Render the aggregate waste report as Markdown.
 ///
-/// Produces three sections — a generation-stamped header, an
-/// "Always unused" table truncated to `top` rows (sessions-loaded
-/// counts looked up from `per_server.tool_usage`), and a per-server
-/// cross-session table summing `total_call_count` across tools.
-/// Mirrors the layout of `aggregate --by mcp-server --export md` so
-/// the two outputs are comparable side-by-side.
-fn render_md(a: &agentprof_core::model::AggregateWasteReport, top: usize) -> String {
+/// Produces a generation-stamped header followed by:
+///
+/// - **Summary** — sessions / servers / never-called counts, the
+///   M1.6.6 `≈X wasted tokens` total, and (when at least one server
+///   shows non-zero token waste) a `Largest waste: <server>, ≈X tokens
+///   across N sessions` line.
+/// - **Always unused** table — truncated to `top` rows; columns
+///   `Tool | Server | Sessions loaded | Tokens (per session)`. The
+///   server name is recovered from the same `per_server` walk that
+///   feeds `sessions_loaded`; the token count comes from `tool_tokens`
+///   built across the per-session reports (see [`run`]).
+/// - **Per-server cross-session** table — one row per server with
+///   `Sessions loaded | Sessions w/0 calls | Calls (sum) |
+///   Wasted tokens`. Wasted tokens is the sum of
+///   `McpServerWaste.unused_tokens` rolled up by `aggregate_waste`.
+///
+/// Token figures are prefixed with `≈` because v0.1.x aggregates a
+/// mix of heuristic and sidecar-derived per-session sums into a single
+/// scalar; per-session provenance is preserved in `--export json`.
+fn render_md(
+    a: &agentprof_core::model::AggregateWasteReport,
+    top: usize,
+    tool_tokens: &BTreeMap<String, u64>,
+) -> String {
+    use crate::cmd::format::md::format_int;
     use std::fmt::Write as _;
     let mut out = String::new();
     let now = chrono::Utc::now().format("%Y-%m-%d");
@@ -322,9 +399,31 @@ fn render_md(a: &agentprof_core::model::AggregateWasteReport, top: usize) -> Str
     let _ = writeln!(out, "- {} MCP servers in scope", a.per_server.len());
     let _ = writeln!(
         out,
-        "- {} tools NEVER called across ANY session\n",
+        "- {} tools NEVER called across ANY session",
         a.never_called_tools.len()
     );
+    // M1.6.6 T4.1 — total wasted tokens (≈ because heuristic / sidecar
+    // mix is folded; per-session token_provenance is in --export json).
+    let _ = writeln!(
+        out,
+        "- ≈{} wasted tokens (heuristic / sidecar / mixed — see `--export json` for per-session provenance)",
+        format_int(a.total_unused_tokens),
+    );
+    if let Some(top_server) = a
+        .per_server
+        .iter()
+        .filter(|s| s.total_unused_tokens > 0)
+        .max_by_key(|s| s.total_unused_tokens)
+    {
+        let _ = writeln!(
+            out,
+            "- Largest waste: `{}` server, ≈{} tokens across {} sessions",
+            top_server.server,
+            format_int(top_server.total_unused_tokens),
+            top_server.sessions_loaded,
+        );
+    }
+    let _ = writeln!(out);
 
     if !a.never_called_tools.is_empty() {
         let _ = writeln!(
@@ -333,17 +432,36 @@ fn render_md(a: &agentprof_core::model::AggregateWasteReport, top: usize) -> Str
             a.never_called_tools.len(),
             top.min(a.never_called_tools.len())
         );
-        let _ = writeln!(out, "| Tool | Sessions loaded |");
-        let _ = writeln!(out, "|------|----------------:|");
-        let mut lookup: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+        let _ = writeln!(
+            out,
+            "| Tool | Server | Sessions loaded | Tokens (per session) |"
+        );
+        let _ = writeln!(
+            out,
+            "|------|--------|----------------:|---------------------:|"
+        );
+        // tool_name → (server, sessions_loaded)
+        let mut lookup: std::collections::HashMap<&str, (&str, usize)> =
+            std::collections::HashMap::new();
         for sw in &a.per_server {
             for t in &sw.tool_usage {
-                lookup.insert(t.tool_name.as_str(), t.sessions_loaded);
+                lookup.insert(
+                    t.tool_name.as_str(),
+                    (sw.server.as_str(), t.sessions_loaded),
+                );
             }
         }
         for tname in a.never_called_tools.iter().take(top) {
-            let n = lookup.get(tname.as_str()).copied().unwrap_or(0);
-            let _ = writeln!(out, "| {tname} | {n} |");
+            let (server, n) = lookup
+                .get(tname.as_str())
+                .copied()
+                .unwrap_or(("(unknown)", 0));
+            let tokens = tool_tokens.get(tname).copied().unwrap_or(0);
+            let _ = writeln!(
+                out,
+                "| {tname} | {server} | {n} | ≈{} |",
+                format_int(tokens)
+            );
         }
         let _ = writeln!(out);
     }
@@ -351,18 +469,22 @@ fn render_md(a: &agentprof_core::model::AggregateWasteReport, top: usize) -> Str
     let _ = writeln!(out, "## Per-server cross-session\n");
     let _ = writeln!(
         out,
-        "| Server | Sessions loaded | Sessions w/0 calls | Calls (sum) |"
+        "| Server | Sessions loaded | Sessions w/0 calls | Calls (sum) | Wasted tokens |"
     );
     let _ = writeln!(
         out,
-        "|--------|----------------:|-------------------:|------------:|"
+        "|--------|----------------:|-------------------:|------------:|--------------:|"
     );
     for sw in &a.per_server {
         let total_calls: usize = sw.tool_usage.iter().map(|t| t.total_call_count).sum();
         let _ = writeln!(
             out,
-            "| {} | {} | {} | {} |",
-            sw.server, sw.sessions_loaded, sw.sessions_with_zero_calls, total_calls
+            "| {} | {} | {} | {} | ≈{} |",
+            sw.server,
+            sw.sessions_loaded,
+            sw.sessions_with_zero_calls,
+            total_calls,
+            format_int(sw.total_unused_tokens),
         );
     }
     out
@@ -394,6 +516,10 @@ fn render_json(a: &agentprof_core::model::AggregateWasteReport) -> anyhow::Resul
 /// `<!doctype html>` document because `mcp-waste` produces standalone
 /// output (no enclosing report to embed in).
 ///
+/// M1.6.6 T4.1: extended with the cross-session token totals
+/// (`total_unused_tokens` + per-server `wasted_tokens`) and a
+/// per-tool token column in the "Always unused" table.
+///
 /// # Errors
 ///
 /// Returns `askama::Error` (boxed into `anyhow::Error`) if template
@@ -402,6 +528,7 @@ fn render_json(a: &agentprof_core::model::AggregateWasteReport) -> anyhow::Resul
 fn render_html(
     a: &agentprof_core::model::AggregateWasteReport,
     top: usize,
+    tool_tokens: &BTreeMap<String, u64>,
 ) -> anyhow::Result<String> {
     use askama::Template;
 
@@ -412,33 +539,56 @@ fn render_html(
         servers_count: usize,
         never_called_count: usize,
         top: usize,
+        total_unused_tokens: u64,
+        largest_waste: Option<LargestWasteRow<'a>>,
         never_called_top: Vec<NeverCalledRow<'a>>,
         per_server: Vec<PerServerRow<'a>>,
     }
     struct NeverCalledRow<'a> {
         tool: &'a str,
+        server: &'a str,
         sessions_loaded: usize,
+        tokens: u64,
     }
     struct PerServerRow<'a> {
         server: &'a str,
         sessions_loaded: usize,
         sessions_with_zero_calls: usize,
         total_calls: usize,
+        wasted_tokens: u64,
+    }
+    struct LargestWasteRow<'a> {
+        server: &'a str,
+        wasted_tokens: u64,
+        sessions_loaded: usize,
     }
 
-    let mut lookup: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    // tool_name → (server, sessions_loaded)
+    let mut lookup: std::collections::HashMap<&str, (&str, usize)> =
+        std::collections::HashMap::new();
     for sw in &a.per_server {
         for t in &sw.tool_usage {
-            lookup.insert(t.tool_name.as_str(), t.sessions_loaded);
+            lookup.insert(
+                t.tool_name.as_str(),
+                (sw.server.as_str(), t.sessions_loaded),
+            );
         }
     }
     let never_called_top: Vec<NeverCalledRow> = a
         .never_called_tools
         .iter()
         .take(top)
-        .map(|tname| NeverCalledRow {
-            tool: tname.as_str(),
-            sessions_loaded: lookup.get(tname.as_str()).copied().unwrap_or(0),
+        .map(|tname| {
+            let (server, sessions_loaded) = lookup
+                .get(tname.as_str())
+                .copied()
+                .unwrap_or(("(unknown)", 0));
+            NeverCalledRow {
+                tool: tname.as_str(),
+                server,
+                sessions_loaded,
+                tokens: tool_tokens.get(tname).copied().unwrap_or(0),
+            }
         })
         .collect();
     let per_server: Vec<PerServerRow> = a
@@ -449,14 +599,27 @@ fn render_html(
             sessions_loaded: sw.sessions_loaded,
             sessions_with_zero_calls: sw.sessions_with_zero_calls,
             total_calls: sw.tool_usage.iter().map(|t| t.total_call_count).sum(),
+            wasted_tokens: sw.total_unused_tokens,
         })
         .collect();
+    let largest_waste = a
+        .per_server
+        .iter()
+        .filter(|s| s.total_unused_tokens > 0)
+        .max_by_key(|s| s.total_unused_tokens)
+        .map(|s| LargestWasteRow {
+            server: s.server.as_str(),
+            wasted_tokens: s.total_unused_tokens,
+            sessions_loaded: s.sessions_loaded,
+        });
 
     let tpl = McpWasteFullTpl {
         sessions: a.sessions,
         servers_count: a.per_server.len(),
         never_called_count: a.never_called_tools.len(),
         top,
+        total_unused_tokens: a.total_unused_tokens,
+        largest_waste,
         never_called_top,
         per_server,
     };
