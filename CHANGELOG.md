@@ -15,69 +15,43 @@ prefix used in commit messages).
 
 ### Added
 
-- **`tui,cli`: wire key `5` + `AppRunner::new_with_waste` (M1.6.5 T5.3)**
-  Routes key `5` in `AppRunner` to `View::McpWaste` (top-level + detail-view
-  fall-through) and adds per-view key handling inside the McpWaste arm:
-  `Up`/`Down`/`k`/`j` move the server cursor (via
-  `dispatch_mcp_waste_view_key` calling `McpWasteState::cursor_up` /
-  `cursor_down(server_count)`); `u` toggles the unused-tools-only filter.
-  Replaces the T5.1 placeholder render with `views::mcp_waste::render`
-  driven by `AppState.waste_report: Option<&'a WasteReport>` +
-  `AppState.mcp_waste_state: McpWasteState` (both initialized by
-  `AppState::new`; `waste_report` flips to `Some` only via the new
-  constructor). Adds `AppRunner::new_with_waste(report, episodes, waste)`
-  as an **additive non-breaking** sibling of `AppRunner::new` —
-  non-waste callers like `cmd::watch` keep using `new` and the McpWaste
-  view shows a "data not provided" fallback banner. `AppRunner::render_into`
-  + `draw_frame` switch to `&mut self` because `views::mcp_waste::render`
-  needs `&mut McpWasteState` (ratatui `render_stateful_widget`); existing
-  test bindings are already mutable thanks to `set_view`. `cli analyze
-  --export tui` now computes `compute_waste` before entering the
-  alt-screen (consistent with M1.4 "compute then display" — no waste IO
-  inside the TUI loop) by extending the `--section mcp-waste` waste-eval
-  trigger to also fire for `cmd.export == ExportFormat::Tui`. Help
-  overlay (`?`) updated to advertise key `5` and the `u` filter toggle.
+- **M1.6.5 MCP server waste analysis** (Phase 1 — counts-only;
+  token-cost view planned for M1.6.6). Quantify "MCP context bloat" —
+  tools / servers the agent had access to but never called.
+  ([Design spec](docs/superpowers/specs/2026-06-08-m1.6.5-mcp-waste-design.md),
+  [ADR-0015](docs/internals/adr-0015-mcp-waste-architecture.md))
 
-- **`cli`: scaffold `mcp-waste` subcommand (M1.6.5 T4.1)**
-  Registers the `agentprof mcp-waste` subcommand with its full clap
-  surface (`--root` / `--since` / `--top` / `--mcp-config` / `--export
-  md|json|html` / `--output`). The `McpWasteExport` enum deliberately
-  omits `tui` per spec §7.3 / §10. Also relocates the
-  `resolve_mcp_config_path` helper from `cmd::analyze` to
-  `cmd::mcp_waste` (the new natural owner) and switches its home-dir
-  lookup from raw `$HOME` to `directories::BaseDirs` so `~/`-prefixed
-  overrides expand consistently across the two callers
-  (`analyze --section mcp-waste` and `aggregate --by mcp-server`).
-  `run()` returns a not-yet-implemented `anyhow::Error` until T4.2
-  fills in the adapter-walk → waste-analyzer → renderer-dispatch
-  pipeline.
-- **`core,cli`: extend `McpServerBucket` with M1.6.5 waste fields (T3.3)**
-  `agentprof_core::analyzer::aggregate::McpServerBucket` gains two
-  `#[serde(default)]` fields — `unused_tool_count` and
-  `fully_unused_session_count` — so `--by mcp-server` aggregates carry
-  the same "loaded but never called" signal that `analyze --section
-  mcp-waste` already surfaces per session. `aggregate_by_mcp_server`
-  takes a new `waste_per_report: &[WasteReport]` parameter; cli
-  computes the per-session `WasteReport` (via
-  `extract_loaded_set_from_session` + `load_mcp_config` +
-  `compute_waste`) before invoking. All renderers (md / csv / html)
-  grow two rightmost columns (`Unused tools` / `Sessions w/0 calls`);
-  json is auto-extended via serde. Pre-M1.6.5 cached aggregate json
-  remains deserializable thanks to `#[serde(default)]`, and
-  `#[non_exhaustive]` keeps downstream re-construction safe.
-  `WasteReport` / `WasteDataSource` derive `Default` so empty waste
-  vectors are easy to build in tests.
-- **`cli`: `analyze --section mcp-waste` md / json / html renderers (M1.6.5 T3.2)**
-  surface the per-session `WasteReport` (computed via
-  `agentprof_core::analyzer::compute_waste`). Markdown emits a
-  per-server table plus a top-20 unused-tools table per spec §7.1; JSON
-  adds an optional `mcp_waste` top-level field via a new
-  `AnalyzeJsonOutput` wrapper (auto-skipped when the section isn't
-  requested, so existing JSON consumers see byte-identical output);
-  HTML renders a new askama sub-template (`mcp_waste_section.html.jinja`)
-  reusable by the upcoming `mcp-waste` subcommand. New snapshot test
-  `analyze_section_mcp_waste_md` pins the markdown shape against the
-  `with-mcp-waste` Copilot fixture.
+  New types in `agentprof-core::model::waste`: `WasteReport`,
+  `McpServerWaste`, `McpToolWaste`, `LoadedSource`, `WasteDataSource`,
+  `AggregateWasteReport`, `McpServerCrossWaste`, `McpToolUsageAcrossSessions`.
+
+  New pure functions in `agentprof-core::analyzer::waste`:
+  `compute_waste` (per-session reducer), `aggregate_waste`
+  (cross-session reducer).
+
+  New adapter helpers in `agentprof-adapters::copilot`:
+  `tools_changed::extract_loaded_set_from_session` (wire parser for
+  `<tools_changed_notice>` blocks embedded in
+  `user.message.transformedContent`); `mcp_config::load_mcp_config`
+  (best-effort `~/.copilot/mcp.json` parse, VSCode + self-describing
+  schemas).
+
+  New CLI surfaces:
+  - `agentprof analyze --section mcp-waste` (md/json/html/tui)
+  - `agentprof aggregate --by mcp-server` extended with
+    `unused_tool_count` and `fully_unused_session_count` columns
+    (all export formats)
+  - `agentprof mcp-waste [--since 7d] [--top 20] [--mcp-config P]`
+    new dedicated cross-session 專題 report subcommand (md/json/html)
+  - TUI 5th view at key `5` ("MCP Waste"), split-pane like Models view
+
+  New fixture `crates/agentprof-adapters/tests/fixtures/copilot/with-mcp-waste/`
+  exercises the 3-tools-advertised, 1-tool-called case.
+
+  ~52 new tests across all layers (unit + view + integration + insta
+  snapshot). Algorithm complexity O(loaded + called) per session;
+  100-session aggregate ~1s.
+
 - `CHANGELOG.md` pre-seeded `### Added` / `### Changed` / `### Fixed`
   stubs under `[Unreleased]` per [Keep-a-Changelog 1.1](https://keepachangelog.com/en/1.1.0/)
   template convention — gives contributors a clear template (closes M-1
