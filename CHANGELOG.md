@@ -57,16 +57,26 @@ prefix used in commit messages).
   `resolve_xdg_log_path` now reads `$XDG_STATE_HOME` directly first
   (cross-platform XDG-spec primary) before falling back to `BaseDirs`.
   Two unit tests pinned at the function boundary on every platform.
-- **`ci`: appease clippy 1.96 `unnecessary_sort_by` lint** (17 sites
+- **`ci`: appease clippy 1.96 `unnecessary_sort_by` lint** (18 sites
   across `agentprof-core`, `agentprof-adapters`, `agentprof-tui`).
   Mechanical conversion `sort_by(|a, b| b.X.cmp(&a.X))` →
   `sort_by_key(|b| std::cmp::Reverse(b.X))`; behavior unchanged.
-  Multi-statement closures with secondary tiebreakers (5 sites) retained
-  as-is — the lint does not flag them.
+  Includes one tuple-destructuring variant in `turn_detail.rs:673`
+  (`sort_by(|(_,_,a), (_,_,b)| ...)`). Multi-statement closures with
+  secondary tiebreakers (5 sites) retained as-is — the lint does not
+  flag them.
 - **`ci`: pin `xtask` path-dep versions** (`agentprof-core` /
   `agentprof-adapters` now carry `version = "0.1.0"` alongside `path = ...`)
   so `cargo deny check` no longer reports `wildcard` errors against the
   unpublished helper crate.
+- **`ci`: allow `CDLA-Permissive-2.0` license** for `webpki-roots` 1.0.x
+  Mozilla CA root certificate data set (transitive via `reqwest` →
+  `hyper-rustls`). CDLA-Permissive-2.0 is OSI-equivalent permissive
+  (https://cdla.dev/permissive-2-0/): no copyleft, no patent
+  restrictions, attribution only. The crate's Rust code itself is
+  triple-licensed MPL/Apache/MIT; the SPDX `license` field carries
+  the data-set license per CDLA convention. Rationale comment added
+  in `deny.toml` next to the entry.
 - **`ci`: ignore RUSTSEC-2024-0436 in `deny.toml`** with rationale
   comment (advisory ID, why-can't-fix, upstream tracking, re-evaluation
   trigger). `paste` 1.0.15 reaches us transitively through `ratatui`

@@ -40,6 +40,15 @@ allow = [
     "Zlib",
     "CC0-1.0",
     "MPL-2.0",
+    # Community Data License Agreement Permissive 2.0 — used by
+    # `webpki-roots` 1.0.x to license the bundled Mozilla CA root
+    # certificates *data set* (the crate's Rust code itself is
+    # MPL-2.0/Apache-2.0/MIT, but the data carries its own SPDX tag).
+    # CDLA-Permissive-2.0 is OSI-equivalent permissive
+    # (https://cdla.dev/permissive-2-0/): no copyleft, no patent
+    # restrictions, attribution only. Reaches us transitively via
+    # `reqwest` → `hyper-rustls` → `webpki-roots`.
+    "CDLA-Permissive-2.0",
 ]
 
 [bans]

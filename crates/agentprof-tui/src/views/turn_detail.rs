@@ -670,7 +670,7 @@ pub fn render_turn_detail(
             resolved
         })
         .collect();
-    resolved.sort_by(|(_, _, a), (_, _, b)| b.span.duration().cmp(&a.span.duration()));
+    resolved.sort_by_key(|(_, _, b)| std::cmp::Reverse(b.span.duration()));
 
     let width = body_area.width as usize;
     let mut lines: Vec<Line<'static>> = Vec::new();
