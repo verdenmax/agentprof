@@ -478,14 +478,16 @@ impl WatchRunner {
                             crate::views::models::render(frame, body_area, &transient);
                         }
                         crate::views::View::McpWaste => {
-                            // M1.6.5 T5.1 scaffold: the watch runner does
-                            // not yet expose the per-session WasteReport
-                            // needed for the split-pane (T5.2). Draw a
-                            // placeholder so the view is reachable via
-                            // Tab/`5` without crashing.
+                            // The watch runner doesn't compute waste data
+                            // (WatchRunner currently only re-tokenizes the
+                            // tail; MCP-waste needs the full per-session
+                            // WasteReport pipeline from `analyze`). Draw a
+                            // placeholder explaining the limitation so the
+                            // view stays reachable via Tab/`5`. M1.6.6+ may
+                            // wire WasteReport through the watch loop.
                             let block = ratatui::widgets::Block::default()
                                 .borders(ratatui::widgets::Borders::ALL)
-                                .title(" MCP Waste — view under construction (T5.2) ");
+                                .title(" MCP Waste — not available in watch mode (use `agentprof analyze --export tui`) ");
                             frame.render_widget(block, body_area);
                         }
                     }

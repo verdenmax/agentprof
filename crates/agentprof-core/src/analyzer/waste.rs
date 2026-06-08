@@ -155,7 +155,16 @@ pub fn compute_waste(
     });
 
     // Step 6: derive data_source enum + totals.
-    let data_source = match (wire_loaded.is_empty(), config_loaded.is_some()) {
+    //
+    // Treat `Some(empty)` as `None` for banner purposes: the VSCode-shape
+    // `~/.copilot/mcp.json` (server names only, `tools = None` per entry)
+    // collapses to an empty `BTreeMap` after the cli-side filter, but
+    // contributes nothing to the analysis — flipping the banner to
+    // `Both`/`Config` in that case broke snapshot hermeticity for hosts
+    // that happened to have a real mcp.json installed. See M1.6.5 review
+    // M-1 + M-2 (2026-06-08).
+    let config_contributed = config_loaded.is_some_and(|c| !c.is_empty());
+    let data_source = match (wire_loaded.is_empty(), config_contributed) {
         (true, true) => WasteDataSource::Config,
         (false, true) => WasteDataSource::Both,
         (false, false) => WasteDataSource::Wire,
@@ -503,6 +512,38 @@ mod tests {
             .map(|t| t.short_name.as_str())
             .collect();
         assert_eq!(shorts, vec!["alpha", "mango", "zebra"]);
+    }
+
+    #[test]
+    fn empty_config_map_does_not_flip_to_both() {
+        // Regression for M-1 + M-2 (review 2026-06-08): the VSCode-shape
+        // mcp.json schema produces Some(BTreeMap::new()) after cli-side
+        // tools filter. Don't flip the data_source banner to Both/Config
+        // when the config map carried zero tools — that broke snapshot
+        // hermeticity for anyone with a real ~/.copilot/mcp.json installed.
+        let wire: BTreeSet<String> = ["mcp__github__search"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let cfg: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        let r = compute_waste(&empty_report(), &wire, Some(&cfg));
+        assert!(
+            matches!(r.data_source, WasteDataSource::Wire),
+            "empty config map must NOT promote Wire to Both; got {:?}",
+            r.data_source
+        );
+    }
+
+    #[test]
+    fn empty_config_map_with_no_wire_yields_none_not_config() {
+        let wire: BTreeSet<String> = BTreeSet::new();
+        let cfg: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        let r = compute_waste(&empty_report(), &wire, Some(&cfg));
+        assert!(
+            matches!(r.data_source, WasteDataSource::None),
+            "empty config + empty wire must yield None; got {:?}",
+            r.data_source
+        );
     }
 
     fn session_ref(id: &str) -> SessionRef {

@@ -59,6 +59,12 @@ prefix used in commit messages).
 
 ### Changed
 
+- **BREAKING (agentprof-core, pre-1.0):** `analyzer::aggregate::group_by_mcp::aggregate_by_mcp_server`
+  signature gained a 3rd parameter `waste_per_report: &[WasteReport]` (M1.6.5 T3.3).
+  Callers must compute per-session waste via `compute_waste` and pass the
+  resulting slice. No published external consumers exist; flagged here
+  for v0.2.0 release-notes accuracy.
+
 - **`tests`: pin in-turn skill rollup contract + document `/tmp/sess` test path rationale**
   (closes P3 backlog `skill-call-count-fixture` + P4 backlog `t9-tmp-path-rationale`).
   The committed Copilot integration fixtures (`with-skill-invoked`,
