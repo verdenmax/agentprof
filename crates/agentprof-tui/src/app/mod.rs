@@ -14,6 +14,7 @@ use std::time::Duration;
 
 use agentprof_core::analyzer::AnalysisReport;
 use agentprof_core::episode::Episodes;
+use agentprof_core::model::WasteReport;
 use crossterm::event::poll;
 use ratatui::backend::Backend;
 use ratatui::layout::Rect;
@@ -24,7 +25,7 @@ use ratatui::{Frame, Terminal};
 use crate::app::event::Event;
 use crate::app::state::{dispatch, Action, AppState};
 use crate::error::TuiError;
-use crate::views::{aggregate, flamegraph, roi, View};
+use crate::views::{aggregate, flamegraph, mcp_waste, roi, View};
 
 pub mod event;
 pub mod state;
@@ -66,16 +67,56 @@ impl<'a> AppRunner<'a> {
         }
     }
 
+    /// Construct an `AppRunner` with an additional borrowed [`WasteReport`]
+    /// so the [`View::McpWaste`] split-pane has data to render.
+    ///
+    /// Additive non-breaking sibling of [`Self::new`] — callers that don't
+    /// have / don't need waste data (e.g. `cmd::watch`) keep using
+    /// [`Self::new`] and the `McpWaste` view shows a "data not provided"
+    /// banner.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::adapter::AgentKind;
+    /// use agentprof_core::analyzer::AnalysisReport;
+    /// use agentprof_core::episode::Episodes;
+    /// use agentprof_core::model::{SessionMeta, WasteReport};
+    /// use agentprof_tui::AppRunner;
+    /// use chrono::Utc;
+    ///
+    /// let meta = SessionMeta::new("s".into(), AgentKind::Copilot, Utc::now(), false);
+    /// let report = AnalysisReport::new(meta);
+    /// let episodes = Episodes::new();
+    /// let waste = WasteReport::default();
+    /// let runner = AppRunner::new_with_waste(&report, &episodes, &waste);
+    /// let _ = runner;
+    /// ```
+    #[must_use]
+    pub fn new_with_waste(
+        report: &'a AnalysisReport,
+        episodes: &'a Episodes,
+        waste: &'a WasteReport,
+    ) -> Self {
+        let mut runner = Self::new(report, episodes);
+        runner.state.waste_report = Some(waste);
+        runner
+    }
+
     /// Render one frame of the current view into the provided backend.
     ///
     /// Exposed for snapshot testing — `tests/views.rs` calls this directly
     /// with a `TestBackend` instead of running the live event loop.
     ///
+    /// Takes `&mut self` because some views (e.g. M1.6.5 [`View::McpWaste`])
+    /// hold ratatui `TableState` cursors that `render_stateful_widget`
+    /// mutates each frame.
+    ///
     /// # Errors
     ///
     /// Returns [`TuiError::Io`] if `terminal.draw` fails.
-    pub fn draw_frame<B: Backend>(&self, terminal: &mut Terminal<B>) -> Result<(), TuiError> {
-        terminal.draw(|frame| self.render_into(frame))?;
+    pub fn draw_frame<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<(), TuiError> {
+        terminal.draw(|frame| Self::render_into(&mut self.state, frame))?;
         Ok(())
     }
 
@@ -104,7 +145,7 @@ impl<'a> AppRunner<'a> {
     /// Returns [`TuiError::Io`] on any terminal/draw/poll failure.
     pub fn run<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<(), TuiError> {
         loop {
-            terminal.draw(|frame| self.render_into(frame))?;
+            terminal.draw(|frame| Self::render_into(&mut self.state, frame))?;
             // 250 ms tick keeps the UI responsive without burning CPU.
             if poll(Duration::from_millis(250))? {
                 let raw = crossterm::event::read()?;
@@ -118,26 +159,37 @@ impl<'a> AppRunner<'a> {
         }
     }
 
-    fn render_into(&self, frame: &mut Frame<'_>) {
+    fn render_into(state: &mut AppState<'a>, frame: &mut Frame<'_>) {
         let area = frame.area();
-        if let Some(detail) = self.state.detail_view.as_ref() {
-            crate::views::turn_detail::render_turn_detail(frame, area, detail, &self.state);
+        if let Some(detail) = state.detail_view.as_ref() {
+            crate::views::turn_detail::render_turn_detail(frame, area, detail, state);
         } else {
-            match self.state.view {
-                View::Flamegraph => flamegraph::render(frame, area, &self.state),
-                View::Roi => roi::render(frame, area, &self.state),
-                View::Aggregate => aggregate::render(frame, area, &self.state),
-                View::Models => crate::views::models::render(frame, area, &self.state),
+            match state.view {
+                View::Flamegraph => flamegraph::render(frame, area, state),
+                View::Roi => roi::render(frame, area, state),
+                View::Aggregate => aggregate::render(frame, area, state),
+                View::Models => crate::views::models::render(frame, area, state),
                 View::McpWaste => {
-                    // M1.6.5 T5.1 scaffold: real split-pane render lands in T5.2.
-                    let block = Block::default()
-                        .borders(Borders::ALL)
-                        .title(" MCP Waste — view under construction (T5.2) ");
-                    frame.render_widget(block, area);
+                    // M1.6.5 T5.3: real split-pane render when a
+                    // `WasteReport` was threaded in via
+                    // `AppRunner::new_with_waste`; fallback banner
+                    // otherwise (e.g. `cmd::watch` constructs via
+                    // `AppRunner::new` and never computes waste).
+                    if let Some(waste) = state.waste_report {
+                        mcp_waste::render(frame, area, waste, &mut state.mcp_waste_state);
+                    } else {
+                        let block = Block::default().borders(Borders::ALL).title(" MCP Waste ");
+                        let p = Paragraph::new(
+                            "MCP waste data not provided to TUI\n\
+                             (run `agentprof analyze --export tui` to enable this view)",
+                        )
+                        .block(block);
+                        frame.render_widget(p, area);
+                    }
                 }
             }
         }
-        if self.state.help_open {
+        if state.help_open {
             draw_help_overlay(frame, area);
         }
     }
@@ -163,20 +215,21 @@ pub(crate) fn draw_help_overlay(frame: &mut Frame<'_>, full: Rect) {
         .style(Style::default().fg(Color::Yellow));
     let text = [
         "q / Ctrl-C       Quit",
-        "1 / 2 / 3 / 4    Switch view (Flamegraph / Roi / Aggregate / Models)",
+        "1 / 2 / 3 / 4 / 5    Switch view (Flamegraph / Roi / Aggregate / Models / McpWaste)",
         "Tab / S-Tab      Cycle views forward / backward",
         "h / l            Vim aliases for S-Tab / Tab (prev / next view)",
         "↑ / ↓ or k / j   Scroll / select (viewport follows cursor)",
         "G                Jump to last row",
         "gg               Jump to first row (two-key vim sequence)",
         "t/c/s/p (Roi)    Cycle sort key (Total / Calls / Success% / p50)",
+        "u (McpWaste)     Toggle unused-tools-only filter (M1.6.5)",
         "?                This help",
         "",
         "Detail view (Flamegraph → Enter):",
         "  Enter           Toggle args expand",
         "  Esc             Return to flamegraph",
         "  j / k / G / gg  Navigate tool calls",
-        "  1 / 2 / 3 / 4   Pop detail + switch view",
+        "  1 / 2 / 3 / 4 / 5   Pop detail + switch view",
         "  h / l           Pop detail + cycle prev / next view",
         "",
         "Flamegraph cell legend:",

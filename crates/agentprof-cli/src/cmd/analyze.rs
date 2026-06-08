@@ -204,12 +204,18 @@ pub fn run(
     let episodes = derive_episodes(&raw.events, &raw.meta);
     let report = analyze(&episodes, &raw.meta, &raw.parse_warnings);
 
-    // M1.6.5 T3.2 — compute MCP waste when opted in via
-    // `--section mcp-waste`. The `WasteReport` is then threaded into
-    // `render_report` so md / json / html renderers can surface it.
-    // Skipped entirely when the section isn't requested so the default
-    // analyze path remains byte-identical to the pre-M1.6.5 baseline.
-    let waste = if cmd.section.contains(&AnalysisSection::McpWaste) {
+    // M1.6.5 T3.2 + T5.3 — compute MCP waste when:
+    //   - explicitly opted in via `--section mcp-waste` (md / json / html
+    //     renderers surface it), OR
+    //   - `--export tui` is selected (the McpWaste view at key `5` needs
+    //     it; computed BEFORE entering the alt-screen so there's no IO
+    //     inside the TUI loop, matching the M1.4 "compute then display"
+    //     shape).
+    // Skipped entirely otherwise so the default analyze path remains
+    // byte-identical to the pre-M1.6.5 baseline.
+    let waste = if cmd.section.contains(&AnalysisSection::McpWaste)
+        || cmd.export == ExportFormat::Tui
+    {
         let wire_loaded = agentprof_adapters::copilot::extract_loaded_set_from_session(&raw.events);
         let mcp_config_path = resolve_mcp_config_path(None)?;
         let parsed_cfg = agentprof_adapters::copilot::load_mcp_config(&mcp_config_path);
@@ -238,7 +244,7 @@ pub fn run(
         if cmd.section != AnalysisSection::all_vec() {
             tracing::warn!(flag = "--section", with = "--export tui", "flag ignored");
         }
-        return run_tui(&report, &episodes, cfg, tracing_handle);
+        return run_tui(&report, &episodes, waste.as_ref(), cfg, tracing_handle);
     }
 
     if cmd.export == ExportFormat::Speedscope && cmd.section != AnalysisSection::all_vec() {
@@ -263,6 +269,7 @@ pub fn run(
 fn run_tui(
     report: &AnalysisReport,
     episodes: &Episodes,
+    waste: Option<&agentprof_core::model::WasteReport>,
     cfg: &crate::cmd::LogConfig,
     tracing_handle: &crate::cmd::TracingHandle,
 ) -> Result<()> {
@@ -284,7 +291,13 @@ fn run_tui(
     agentprof_tui::app::terminal::install_panic_hook();
     let mut term = agentprof_tui::app::terminal::enter()
         .map_err(|e| ExitKind::OutputError.into_anyhow(format!("entering tui: {e}")))?;
-    let mut runner = agentprof_tui::AppRunner::new(report, episodes);
+    // M1.6.5 T5.3: prefer the waste-aware constructor when a `WasteReport`
+    // was pre-computed; fall back to the legacy `new` for non-waste
+    // callers (kept for `cmd::watch` and back-compat).
+    let mut runner = waste.map_or_else(
+        || agentprof_tui::AppRunner::new(report, episodes),
+        |w| agentprof_tui::AppRunner::new_with_waste(report, episodes, w),
+    );
     let res = runner.run(&mut term);
     let _ = agentprof_tui::app::terminal::leave(&mut term);
     res.map_err(|e| ExitKind::OutputError.into_anyhow(format!("tui runtime: {e}")))

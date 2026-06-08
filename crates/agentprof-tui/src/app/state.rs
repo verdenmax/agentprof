@@ -12,9 +12,11 @@ use std::collections::HashMap;
 
 use agentprof_core::analyzer::AnalysisReport;
 use agentprof_core::episode::Episodes;
+use agentprof_core::model::WasteReport;
 use crossterm::event::{KeyCode, KeyModifiers};
 
 use crate::app::event::Event;
+use crate::views::mcp_waste::McpWasteState;
 use crate::views::View;
 
 /// Sort key for [`crate::views::roi`]'s tool table.
@@ -101,6 +103,18 @@ pub struct AppState<'a> {
     pub report: &'a AnalysisReport,
     /// Source episodes (per-call timing for `FlamegraphView`).
     pub episodes: &'a Episodes,
+    /// Optional MCP waste report rendered by [`View::McpWaste`] (M1.6.5).
+    ///
+    /// `None` when the CLI constructed the runner via [`crate::AppRunner::new`]
+    /// (e.g. `cmd::watch` — no waste pipeline yet); `Some` when constructed
+    /// via [`crate::AppRunner::new_with_waste`] (the `analyze --export tui`
+    /// path). The `McpWaste` view renders a "data not provided" banner when
+    /// `None`.
+    pub waste_report: Option<&'a WasteReport>,
+    /// Per-view state for the `McpWaste` split-pane (server cursor +
+    /// unused-only filter). Always present, even when `waste_report` is
+    /// `None` — keystrokes touching it are no-ops in that case.
+    pub mcp_waste_state: McpWasteState,
 }
 
 impl<'a> AppState<'a> {
@@ -139,6 +153,8 @@ impl<'a> AppState<'a> {
             models_selected: 0,
             report,
             episodes,
+            waste_report: None,
+            mcp_waste_state: McpWasteState::new(),
         }
     }
 }
@@ -232,12 +248,15 @@ pub fn dispatch(state: &mut AppState<'_>, event: Event) -> Action {
     // Number keys ALWAYS switch view (no Roi exception).
     // (Previously 1-4 re-sorted in Roi per spec §7; user reported that as
     // a discoverability bug. Sort keys are now t/c/s/p, see below.)
-    if let KeyCode::Char(c @ ('1' | '2' | '3' | '4')) = k.code {
+    // M1.6.5 T5.3: `5` switches to McpWaste; in-view Up/Down/u are handled
+    // by `dispatch_mcp_waste_view_key` further down.
+    if let KeyCode::Char(c @ ('1' | '2' | '3' | '4' | '5')) = k.code {
         state.view = match c {
             '1' => View::Flamegraph,
             '2' => View::Roi,
             '3' => View::Aggregate,
             '4' => View::Models,
+            '5' => View::McpWaste,
             _ => state.view, // unreachable; appeases match
         };
         return Action::None;
@@ -266,6 +285,18 @@ pub fn dispatch(state: &mut AppState<'_>, event: Event) -> Action {
     // two-key sequence stays consistent with other views.
     if state.view == View::Models {
         if let Some(action) = dispatch_models_view_key(state, &k) {
+            return action;
+        }
+    }
+
+    // McpWaste view (M1.6.5 T5.3): j/k/↑/↓ move the server cursor; `u`
+    // toggles the unused-only filter. Letter keys other than `u` fall
+    // through to the generic dispatcher (Tab / help / etc.). `g` / `gg`
+    // / `G` are intentionally NOT handled here — they fall through to
+    // the global gg/G block above (scroll_to_top/bottom are no-ops for
+    // this view, matching the M1.6.5 scaffold scope).
+    if state.view == View::McpWaste {
+        if let Some(action) = dispatch_mcp_waste_view_key(state, &k) {
             return action;
         }
     }
@@ -392,11 +423,12 @@ fn dispatch_detail(state: &mut AppState<'_>, k: &crossterm::event::KeyEvent) -> 
             }
             DetailFlow::Handled
         }
-        KeyCode::Char('1' | '2' | '3' | '4' | 'h' | 'l') => {
+        KeyCode::Char('1' | '2' | '3' | '4' | '5' | 'h' | 'l') => {
             // Pop detail; let the top-level number-key / Tab block switch
             // view. `h` / `l` are vim aliases for `Shift-Tab` / `Tab`
             // (cycle prev / next view) — mirroring the same parity in
-            // the top-level dispatch arm.
+            // the top-level dispatch arm. `5` pops + switches to McpWaste
+            // (M1.6.5 T5.3).
             state.detail_view = None;
             state.pending_gg = false;
             DetailFlow::FallThrough
@@ -450,6 +482,42 @@ fn dispatch_models_view_key(
     }
 }
 
+/// Dispatch for keys consumed by the `McpWaste` view (M1.6.5 T5.3).
+///
+/// Handles:
+/// - `Up` / `k`: move server cursor up
+/// - `Down` / `j`: move server cursor down (clamped to server count)
+/// - `u`: toggle the unused-tools-only filter
+///
+/// Returns `Some(Action::None)` when handled; `None` otherwise so the
+/// caller falls through to the generic dispatch (Tab / `?` / etc.).
+///
+/// The server count is derived inline from `state.waste_report` (no
+/// helper method on `AppState` — keeps the dependency surface narrow).
+/// When `waste_report` is `None` the server count is 0 and all cursor
+/// moves are no-ops.
+fn dispatch_mcp_waste_view_key(
+    state: &mut AppState<'_>,
+    k: &crossterm::event::KeyEvent,
+) -> Option<Action> {
+    let server_count = state.waste_report.map_or(0, |w| w.server_waste.len());
+    match k.code {
+        KeyCode::Up | KeyCode::Char('k') => {
+            state.mcp_waste_state.cursor_up();
+            Some(Action::None)
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            state.mcp_waste_state.cursor_down(server_count);
+            Some(Action::None)
+        }
+        KeyCode::Char('u') => {
+            state.mcp_waste_state.toggle_unused_only();
+            Some(Action::None)
+        }
+        _ => None,
+    }
+}
+
 fn scroll_up(state: &mut AppState<'_>) {
     match state.view {
         View::Roi => state.roi_selected = state.roi_selected.saturating_sub(1),
@@ -464,9 +532,10 @@ fn scroll_up(state: &mut AppState<'_>) {
             // scroll_up); this arm is reached only if a future code
             // path forwards arrow keys here. Aggregate intentionally
             // stays no-op.
-            // M1.6.5 T5.1: McpWaste view is a scaffold; T5.3 will wire
-            // j/k/↑/↓ through a dedicated dispatch helper so this arm
-            // stays a no-op fallback.
+            // M1.6.5 T5.3: McpWaste handles Up/Down via
+            // `dispatch_mcp_waste_view_key` (consumed before reaching
+            // scroll_up); this arm is reached only if a future code
+            // path forwards arrow keys here.
         }
     }
 }
@@ -492,8 +561,9 @@ fn scroll_down(state: &mut AppState<'_>) {
             }
         }
         View::Aggregate | View::Models | View::McpWaste => {
-            // See scroll_up: same no-op rationale for Aggregate / Models
-            // / McpWaste (T5.3 will add dedicated dispatch for McpWaste).
+            // See scroll_up: same no-op rationale. McpWaste handles
+            // Up/Down via `dispatch_mcp_waste_view_key` before reaching
+            // here (M1.6.5 T5.3).
         }
     }
 }
@@ -504,8 +574,9 @@ fn scroll_to_top(state: &mut AppState<'_>) {
         View::Flamegraph => state.flame_selected = 0,
         View::Aggregate | View::McpWaste => {
             // Mirrors scroll_up/scroll_down: Aggregate has no scrollable
-            // element in M1.5, so jump-to-top is a no-op. M1.6.5 T5.1
-            // scaffold: McpWasteState gg/G wiring lands in T5.3.
+            // element in M1.5, so jump-to-top is a no-op. M1.6.5 T5.3:
+            // McpWaste intentionally leaves gg/G unwired (out of
+            // scaffold scope; cursor_up/cursor_down via j/k suffice).
         }
         View::Models => state.models_selected = 0,
     }
@@ -523,8 +594,8 @@ fn scroll_to_bottom(state: &mut AppState<'_>) {
             state.flame_selected = state.report.turn_summary.len().saturating_sub(1);
         }
         View::Aggregate | View::McpWaste => {
-            // No scrollable element in M1.5 Aggregate; McpWaste scaffold
-            // gg/G wiring lands in T5.3.
+            // No scrollable element in M1.5 Aggregate; McpWaste has no
+            // gg/G semantics (M1.6.5 T5.3 — out of scaffold scope).
         }
         View::Models => {
             let count = state

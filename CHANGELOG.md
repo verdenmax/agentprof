@@ -15,6 +15,29 @@ prefix used in commit messages).
 
 ### Added
 
+- **`tui,cli`: wire key `5` + `AppRunner::new_with_waste` (M1.6.5 T5.3)**
+  Routes key `5` in `AppRunner` to `View::McpWaste` (top-level + detail-view
+  fall-through) and adds per-view key handling inside the McpWaste arm:
+  `Up`/`Down`/`k`/`j` move the server cursor (via
+  `dispatch_mcp_waste_view_key` calling `McpWasteState::cursor_up` /
+  `cursor_down(server_count)`); `u` toggles the unused-tools-only filter.
+  Replaces the T5.1 placeholder render with `views::mcp_waste::render`
+  driven by `AppState.waste_report: Option<&'a WasteReport>` +
+  `AppState.mcp_waste_state: McpWasteState` (both initialized by
+  `AppState::new`; `waste_report` flips to `Some` only via the new
+  constructor). Adds `AppRunner::new_with_waste(report, episodes, waste)`
+  as an **additive non-breaking** sibling of `AppRunner::new` —
+  non-waste callers like `cmd::watch` keep using `new` and the McpWaste
+  view shows a "data not provided" fallback banner. `AppRunner::render_into`
+  + `draw_frame` switch to `&mut self` because `views::mcp_waste::render`
+  needs `&mut McpWasteState` (ratatui `render_stateful_widget`); existing
+  test bindings are already mutable thanks to `set_view`. `cli analyze
+  --export tui` now computes `compute_waste` before entering the
+  alt-screen (consistent with M1.4 "compute then display" — no waste IO
+  inside the TUI loop) by extending the `--section mcp-waste` waste-eval
+  trigger to also fire for `cmd.export == ExportFormat::Tui`. Help
+  overlay (`?`) updated to advertise key `5` and the `u` filter toggle.
+
 - **`cli`: scaffold `mcp-waste` subcommand (M1.6.5 T4.1)**
   Registers the `agentprof mcp-waste` subcommand with its full clap
   surface (`--root` / `--since` / `--top` / `--mcp-config` / `--export
