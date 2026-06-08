@@ -144,6 +144,7 @@ playwright.click   |   1240        |   0   |     ∞ (waste)   | ✗ kill
 - [x] Speedscope JSON + HTML 报告导出 ✅ M1.6.4（`analyze --export speedscope|html`，[ADR-0007](internals/adr-0007-speedscope-export.md)）
 - [x] 实时刷新 TUI ✅ M1.6.3（`agentprof watch` 单 session + `watch aggregate ...` 跨 session；`aggregate --export tui` 也一并激活，[ADR-0009](internals/adr-0009-watch-runner-and-notify.md)）
 - [x] 全工程结构化 tracing ✅ M1.6.4 (2026-06-02)（canonical observability across all 5 crates；13 `eprintln!` → `tracing::*!`；全局 `--log-level` / `--log-file` flags + `AGENTPROF_LOG_FULL_PATHS` env；TUI 模式自动重定向到 `$XDG_STATE_HOME/agentprof/agentprof.log`；4 层 span 拓扑 `cmd` → `adapter` → `analyzer`/`aggregator` → events；PII：session 路径默认 sha256[..8] hash；[ADR-0010](internals/adr-0010-tracing-infrastructure.md)）
+- [x] MCP server waste analysis ✅ M1.6.5（`agentprof mcp-waste`, `analyze --section mcp-waste`, `aggregate --by mcp-server` 加 waste 列, TUI 5th view key `5`，[ADR-0015](internals/adr-0015-mcp-waste-architecture.md)）
 
 ### Phase 2：工程化（再 1 周）
 - [ ] 接入 OTLP（订阅 Claude Code 的 telemetry endpoint）
@@ -172,10 +173,15 @@ playwright.click   |   1240        |   0   |     ∞ (waste)   | ✗ kill
 
 > **2026-06-03 更新**：MVP 8/8 shippable surface ≈ 98% (M1.1–M1.6.4 ✅; 剩 M1.7 v0.1.0 release) 已交付。MVP feature work 已完成；2026-06-03 M1.6.4 follow-up wave（8 cleanup commits `d87adec` → `766b8f0`）落地。剩 M1.7 v0.1.0 release。M1.6.5（MCP waste）属于增量增强，可推到 0.2.0。
 
-**当前位置**：M1.6.4 ✅ 已 ship 2026-06-02（tracing 基础设施：13 `eprintln!` → `tracing`，全局 `--log-level` / `--log-file`，TUI 自动 XDG state log，PII hash，4 层 span 拓扑，ADR-0010）→ 下一步推荐：
+**当前位置**：M1.6.4 ✅ ship 2026-06-02（tracing 基础设施）；**M1.6.5 ✅ ship 2026-06-08**（MCP server waste analysis, Phase 1 counts-only：`mcp-waste` 子命令 + `analyze --section mcp-waste` + `aggregate --by mcp-server` 加 waste 列 + TUI 5th view key `5`，ADR-0015）→ 下一步推荐：
+
+> **2026-06-08 更新**：M1.6.5 ✅ ship (Phase 1 counts-only). M1.6.6
+> (token-cost view via tiktoken-rs + mcp.json descriptions) is the
+> next layered milestone. v0.1.x 内容收尾，下一步推 v0.2.0 (OTLP /
+> SQLite / Web dashboard) 或继续 Phase 3 (Claude / Codex adapters)。
 
 - **M1.7 v0.1.0 release**（推荐）：cargo-dist 多平台 binary + GitHub Release + CHANGELOG cut。走 `github-release` skill。
-- **M1.6.5 MCP server waste analysis**（post-MVP，可推到 0.2.0）：parse `.copilot/mcp.json` registration data + 计算 `loaded - called` 集合 per session；扩展 AggregateReport 加 `waste_score` 字段。
+- **M1.6.6 MCP waste token-cost view**（Phase 2 of waste analysis）：tiktoken-rs 估 unused tools 的 token 占用 + 读 `mcp.json` description / schema 补全人类可读列。
 
 **进入下一个 milestone 入口**：走 9 阶段 pipeline 的 Stage 1（brainstorming）。在 `docs/superpowers/specs/` 写 `2026-XX-XX-m1.7-<topic>-design.md`。
 

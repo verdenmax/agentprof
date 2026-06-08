@@ -357,7 +357,7 @@ analyze [--agent copilot]                     # ✅ M1.4: copilot only; auto/cla
         [--root <dir>]                        # 覆盖 adapter 默认 session-state 根
         [--export md|json|tui|speedscope|html]   # ✅ M1.4 (md/json) + M1.5 (tui) + M1.6.4 (speedscope/html); csv 推迟到 M1.6.5
         [--output <file>]                     # 写文件而非 stdout（--export tui 时会 warn 并忽略）
-        [--section turn-summary,tool-rank,hook-rank]   # 只影响 --export md；默认全部（--export tui 时会 warn 并忽略）
+        [--section turn-summary,tool-rank,hook-rank,mcp-waste]   # 只影响 --export md；默认全部（--export tui 时会 warn 并忽略）；`mcp-waste` ✅ M1.6.5
     分析单个 session（默认 latest），输出 markdown / JSON 报告或进入 TUI。
     Session 选择优先级：显式 path > UUID > latest/previous（按 mtime 排序）。
     --export tui 要求 stdin 和 stdout 都是 TTY；否则提示并退出。
@@ -381,7 +381,7 @@ aggregate [--agent copilot]                  # ✅ M1.6.2: copilot only
           [--low-utilization-threshold 20]   # day bucket warn threshold (0-100)
     Cross-session aggregation:
       --by tool        — per-tool ranks (sum calls/duration; re-computed p50/p95 from pooled per-call data)
-      --by mcp-server  — per-MCP-server stats (NOT a 'waste' analysis — see M1.6.5 future)
+      --by mcp-server  — per-MCP-server stats + unused_tool_count + fully_unused_session_count columns ✅ M1.6.5
       --by day         — per-UTC-day with utilization_pct + auto warn rows
       --by model       — per-first-turn-model session counts + totals
     --export tui 要求 stdin + stdout 都是 TTY；适合一次性快速查看，不带 live-refresh
@@ -407,17 +407,21 @@ watch   [--agent copilot]                     # ✅ M1.6.3: copilot only
       - notify init 失败时退出 DataError (2) 并提示用 `--export md` 走 headless 一次性输出（无 polling fallback，D-15）。
     见 [ADR-0009](internals/adr-0009-watch-runner-and-notify.md)。
 
-mcp-waste [--root <dir>]                       # 🚧 M1.6.5 T4.1 — scaffold only (run() 未实现，T4.2 填充)
+mcp-waste [--root <dir>]                       # ✅ M1.6.5
           [--since 7d]                         # 时间窗口：<N>d/h/m/s 或 all（默认 7d）
           [--top 20]                           # "Always unused" 表格 Top-N（默认 20）
           [--mcp-config <path>]                # 覆盖 ~/.copilot/mcp.json
           [--export md|json|html]              # 输出格式（**不含 tui**，spec §7.3 / §10）
           [--output <file>]                    # 默认 stdout
     跨 session 的 MCP 服务器浪费报告（"加载了但从未被调用"）：
-      - 与 `analyze --section mcp-waste` 共享 `resolve_mcp_config_path` 实现。
-      - T4.1 scaffold 阶段 `run()` 返回 not-yet-implemented；T4.2 填充
-        adapter walk → waste analyzer → renderer dispatch 管线。
-      - 见 spec `docs/superpowers/specs/2026-06-08-m1.6.5-mcp-waste-design.md` §7.3。
+      - 读 `user.message.transformedContent` 中的 `<tools_changed_notice>` blocks
+        + 可选 `~/.copilot/mcp.json` baseline，计算 loaded − called 集合。
+      - 与 `analyze --section mcp-waste` 共享 `resolve_mcp_config_path` + 同一
+        `compute_waste` / `aggregate_waste` 实现（见 agentprof-core::analyzer::waste）。
+      - 跨 session 视角在 TUI 里通过 `aggregate --export tui` 的 5th view（key `5`，
+        "MCP Waste"）打开；mcp-waste 子命令本身只产 md/json/html。
+      - 见 [ADR-0015](internals/adr-0015-mcp-waste-architecture.md) 与 spec
+        `docs/superpowers/specs/2026-06-08-m1.6.5-mcp-waste-design.md`。
 
 ingest-otlp [--listen 0.0.0.0:4317]            # 🚧 规划中 — Phase 2
     启动 OTLP receiver，订阅 Claude Code telemetry（feature: otlp）。
