@@ -9,7 +9,7 @@
 //!
 //! See `docs/superpowers/specs/2026-06-08-m1.6.5-mcp-waste-design.md` §6
 //! for the algorithm and `docs/internals/adr-0015-mcp-waste-architecture.md`
-//! (M1.6.5) + `docs/internals/adr-0016-mcp-tool-token-cost-architecture.md`
+//! (M1.6.5) + `docs/internals/adr-0016-mcp-token-cost-architecture.md`
 //! (M1.6.6) for design decisions.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -204,7 +204,14 @@ impl<'a> WasteComputeContext<'a> {
 )]
 pub fn infer_tokenizer(model: Option<&str>) -> TokenizerKind {
     match model {
-        Some(m) if m.starts_with("gpt-5") || m.starts_with("gpt-4o") => TokenizerKind::O200kBase,
+        Some(m)
+            if m.starts_with("gpt-5")
+                || m.starts_with("gpt-4o")
+                || m.starts_with("o1")
+                || m.starts_with("o3") =>
+        {
+            TokenizerKind::O200kBase
+        }
         _ => TokenizerKind::Cl100kBase,
     }
 }
@@ -1010,6 +1017,21 @@ mod tests {
             TokenizerKind::Cl100kBase
         );
         assert_eq!(infer_tokenizer(Some("")), TokenizerKind::Cl100kBase);
+    }
+
+    #[test]
+    fn infer_tokenizer_o1_reasoning_returns_o200k() {
+        assert_eq!(infer_tokenizer(Some("o1")), TokenizerKind::O200kBase);
+        assert_eq!(
+            infer_tokenizer(Some("o1-preview")),
+            TokenizerKind::O200kBase
+        );
+    }
+
+    #[test]
+    fn infer_tokenizer_o3_reasoning_returns_o200k() {
+        assert_eq!(infer_tokenizer(Some("o3")), TokenizerKind::O200kBase);
+        assert_eq!(infer_tokenizer(Some("o3-mini")), TokenizerKind::O200kBase);
     }
 
     #[test]
