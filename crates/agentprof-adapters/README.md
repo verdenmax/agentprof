@@ -32,6 +32,7 @@ for the M1.2 design.
 | `copilot::paths` | filesystem discovery + `inuse.<pid>.lock` detection (`adapter.discover` span — M1.6.4) |
 | `copilot::adapter` | `impl Adapter for CopilotAdapter` |
 | `copilot::tools_changed` | parse `<tools_changed_notice>` blocks in `user.message.transformedContent` → ever-loaded MCP tool set (M1.6.5 T2.1; ADR-0015 D-1/D-2) |
+| `copilot::mcp_config` | best-effort `~/.copilot/mcp.json` loader → `ParsedMcpConfig` (recognizes VSCode `mcpServers` + self-describing `servers` schemas; degrades to empty on unknown; M1.6.5 T2.2; ADR-0015 spec §6.2) |
 | `registry` | `AgentKind` → adapter resolver |
 
 ## Supported agents

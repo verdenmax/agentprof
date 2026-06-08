@@ -8,6 +8,7 @@
 
 pub mod adapter;
 mod event;
+pub mod mcp_config;
 pub mod parser;
 pub mod paths;
 pub mod tools_changed;
@@ -23,4 +24,5 @@ pub use event::{
     ToolExecData, ToolRequest, ToolResult, ToolResultData, ToolTelemetry, ToolUserArgs,
     ToolUserRequestedData, TurnRefData, UserMessageData, WithEnvelope,
 };
+pub use mcp_config::{load_mcp_config, ParsedMcpConfig, ServerInfo};
 pub use tools_changed::extract_loaded_set_from_session;
