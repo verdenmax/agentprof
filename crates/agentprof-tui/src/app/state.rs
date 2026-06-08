@@ -454,7 +454,7 @@ fn scroll_up(state: &mut AppState<'_>) {
     match state.view {
         View::Roi => state.roi_selected = state.roi_selected.saturating_sub(1),
         View::Flamegraph => state.flame_selected = state.flame_selected.saturating_sub(1),
-        View::Aggregate | View::Models => {
+        View::Aggregate | View::Models | View::McpWaste => {
             // M1.5 Aggregate is a fixed 50/50 By-Mode + By-Hook split with
             // no scrollable element; ↑/↓ are intentionally no-ops here.
             // M1.6 may add a focused-pane concept allowing scroll within
@@ -464,6 +464,9 @@ fn scroll_up(state: &mut AppState<'_>) {
             // scroll_up); this arm is reached only if a future code
             // path forwards arrow keys here. Aggregate intentionally
             // stays no-op.
+            // M1.6.5 T5.1: McpWaste view is a scaffold; T5.3 will wire
+            // j/k/↑/↓ through a dedicated dispatch helper so this arm
+            // stays a no-op fallback.
         }
     }
 }
@@ -488,16 +491,9 @@ fn scroll_down(state: &mut AppState<'_>) {
                 state.flame_selected += 1;
             }
         }
-        View::Aggregate | View::Models => {
-            // M1.5 Aggregate is a fixed 50/50 By-Mode + By-Hook split with
-            // no scrollable element; ↑/↓ are intentionally no-ops here.
-            // M1.6 may add a focused-pane concept allowing scroll within
-            // the (potentially long) hook table.
-            // F1.7: Models view dispatches Up/Down/k/j via
-            // dispatch_models_view_key (consumed before reaching
-            // scroll_down); this arm is reached only if a future code
-            // path forwards arrow keys here. Aggregate intentionally
-            // stays no-op.
+        View::Aggregate | View::Models | View::McpWaste => {
+            // See scroll_up: same no-op rationale for Aggregate / Models
+            // / McpWaste (T5.3 will add dedicated dispatch for McpWaste).
         }
     }
 }
@@ -506,9 +502,10 @@ fn scroll_to_top(state: &mut AppState<'_>) {
     match state.view {
         View::Roi => state.roi_selected = 0,
         View::Flamegraph => state.flame_selected = 0,
-        View::Aggregate => {
+        View::Aggregate | View::McpWaste => {
             // Mirrors scroll_up/scroll_down: Aggregate has no scrollable
-            // element in M1.5, so jump-to-top is a no-op.
+            // element in M1.5, so jump-to-top is a no-op. M1.6.5 T5.1
+            // scaffold: McpWasteState gg/G wiring lands in T5.3.
         }
         View::Models => state.models_selected = 0,
     }
@@ -525,8 +522,9 @@ fn scroll_to_bottom(state: &mut AppState<'_>) {
         View::Flamegraph => {
             state.flame_selected = state.report.turn_summary.len().saturating_sub(1);
         }
-        View::Aggregate => {
-            // No scrollable element in M1.5; no-op.
+        View::Aggregate | View::McpWaste => {
+            // No scrollable element in M1.5 Aggregate; McpWaste scaffold
+            // gg/G wiring lands in T5.3.
         }
         View::Models => {
             let count = state
@@ -611,9 +609,11 @@ mod tests {
         dispatch(&mut s, key(KeyCode::Tab));
         assert_eq!(s.view, View::Models);
         dispatch(&mut s, key(KeyCode::Tab));
+        assert_eq!(s.view, View::McpWaste);
+        dispatch(&mut s, key(KeyCode::Tab));
         assert_eq!(s.view, View::Flamegraph);
         dispatch(&mut s, key(KeyCode::BackTab));
-        assert_eq!(s.view, View::Models);
+        assert_eq!(s.view, View::McpWaste);
     }
 
     // ──────────────────────────────────────────────────────────────────
@@ -624,7 +624,7 @@ mod tests {
     fn l_cycles_view_forward_like_tab() {
         // `l` (vim right) must be an exact alias for `Tab`: cycle to the
         // next view in the same order (Flamegraph → Roi → Aggregate →
-        // Models → Flamegraph).
+        // Models → McpWaste → Flamegraph).
         let r = empty_report();
         let e = Episodes::new();
         let mut s = AppState::new(&r, &e);
@@ -636,18 +636,22 @@ mod tests {
         dispatch(&mut s, key(KeyCode::Char('l')));
         assert_eq!(s.view, View::Models);
         dispatch(&mut s, key(KeyCode::Char('l')));
+        assert_eq!(s.view, View::McpWaste);
+        dispatch(&mut s, key(KeyCode::Char('l')));
         assert_eq!(s.view, View::Flamegraph);
     }
 
     #[test]
     fn h_cycles_view_backward_like_shift_tab() {
         // `h` (vim left) must be an exact alias for `Shift-Tab`: cycle
-        // to the previous view (Flamegraph → Models → Aggregate → Roi →
-        // Flamegraph).
+        // to the previous view (Flamegraph → McpWaste → Models →
+        // Aggregate → Roi → Flamegraph).
         let r = empty_report();
         let e = Episodes::new();
         let mut s = AppState::new(&r, &e);
         assert_eq!(s.view, View::Flamegraph);
+        dispatch(&mut s, key(KeyCode::Char('h')));
+        assert_eq!(s.view, View::McpWaste);
         dispatch(&mut s, key(KeyCode::Char('h')));
         assert_eq!(s.view, View::Models);
         dispatch(&mut s, key(KeyCode::Char('h')));
@@ -666,7 +670,13 @@ mod tests {
         // Tab-equivalent arm.
         let r = empty_report();
         let e = Episodes::new();
-        for start in [View::Flamegraph, View::Roi, View::Aggregate, View::Models] {
+        for start in [
+            View::Flamegraph,
+            View::Roi,
+            View::Aggregate,
+            View::Models,
+            View::McpWaste,
+        ] {
             let mut s = AppState::new(&r, &e);
             s.view = start;
             dispatch(&mut s, key(KeyCode::Char('l')));
@@ -723,7 +733,7 @@ mod tests {
         );
         assert_eq!(
             s.view,
-            View::Models,
+            View::McpWaste,
             "view must cycle backward after popping"
         );
     }
@@ -1523,6 +1533,8 @@ mod models_view_dispatch_tests {
         let _ = dispatch(&mut s, k(KeyCode::Tab));
         assert_eq!(s.view, View::Models, "Aggregate → Models via Tab");
         let _ = dispatch(&mut s, k(KeyCode::Tab));
-        assert_eq!(s.view, View::Flamegraph, "Models → Flamegraph via Tab");
+        assert_eq!(s.view, View::McpWaste, "Models → McpWaste via Tab");
+        let _ = dispatch(&mut s, k(KeyCode::Tab));
+        assert_eq!(s.view, View::Flamegraph, "McpWaste → Flamegraph via Tab");
     }
 }

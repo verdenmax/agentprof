@@ -477,6 +477,17 @@ impl WatchRunner {
                         crate::views::View::Models => {
                             crate::views::models::render(frame, body_area, &transient);
                         }
+                        crate::views::View::McpWaste => {
+                            // M1.6.5 T5.1 scaffold: the watch runner does
+                            // not yet expose the per-session WasteReport
+                            // needed for the split-pane (T5.2). Draw a
+                            // placeholder so the view is reachable via
+                            // Tab/`5` without crashing.
+                            let block = ratatui::widgets::Block::default()
+                                .borders(ratatui::widgets::Borders::ALL)
+                                .title(" MCP Waste — view under construction (T5.2) ");
+                            frame.render_widget(block, body_area);
+                        }
                     }
                 }
                 if self.view_state.help_overlay {

@@ -128,6 +128,13 @@ impl<'a> AppRunner<'a> {
                 View::Roi => roi::render(frame, area, &self.state),
                 View::Aggregate => aggregate::render(frame, area, &self.state),
                 View::Models => crate::views::models::render(frame, area, &self.state),
+                View::McpWaste => {
+                    // M1.6.5 T5.1 scaffold: real split-pane render lands in T5.2.
+                    let block = Block::default()
+                        .borders(Borders::ALL)
+                        .title(" MCP Waste — view under construction (T5.2) ");
+                    frame.render_widget(block, area);
+                }
             }
         }
         if self.state.help_open {
