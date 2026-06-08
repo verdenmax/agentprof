@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 /// assert_eq!(r.total_loaded_tool_count, 0);
 /// assert!(matches!(r.data_source, WasteDataSource::None));
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct WasteReport {
     /// Per-server breakdown, sorted by server name.
@@ -128,10 +128,11 @@ pub enum LoadedSource {
 /// use agentprof_core::model::WasteDataSource;
 /// assert_ne!(WasteDataSource::None, WasteDataSource::Wire);
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum WasteDataSource {
     /// No loaded-tool source was available (no wire, config, or calls).
+    #[default]
     None,
     /// Loaded set came from wire-protocol `tools/list` only.
     Wire,

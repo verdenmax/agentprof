@@ -52,10 +52,10 @@ Cross-session aggregation reports.
 - [`analyzer::aggregate::AggregateReport<B>`](src/analyzer/aggregate/mod.rs) — generic per-bucket-type report
 - [`analyzer::aggregate::AnyAggregateReport`](src/analyzer/aggregate/mod.rs) — serde-tagged outer enum (CLI/serde boundary)
 - [`analyzer::aggregate::AggregateKey`](src/analyzer/aggregate/mod.rs) — Tool / McpServer / Day / Model
-- 4 bucket types in [`analyzer::aggregate::bucket`](src/analyzer/aggregate/bucket.rs): `ToolBucket`, `McpServerBucket`, `DayBucket` (carries `utilization_pct` + `is_low_utilization`), `ModelBucket`
+- 4 bucket types in [`analyzer::aggregate::bucket`](src/analyzer/aggregate/bucket.rs): `ToolBucket`, `McpServerBucket` (M1.6.5: also carries `unused_tool_count` + `fully_unused_session_count`), `DayBucket` (carries `utilization_pct` + `is_low_utilization`), `ModelBucket`
 - 4 pure aggregator functions:
   - [`aggregate_by_tool`](src/analyzer/aggregate/group_by_tool.rs)
-  - [`aggregate_by_mcp_server`](src/analyzer/aggregate/group_by_mcp.rs)
+  - [`aggregate_by_mcp_server`](src/analyzer/aggregate/group_by_mcp.rs) — also takes `&[WasteReport]` (M1.6.5) so server buckets carry per-session waste counters
   - [`aggregate_by_day`](src/analyzer/aggregate/group_by_day.rs)
   - [`aggregate_by_model`](src/analyzer/aggregate/group_by_model.rs)
 

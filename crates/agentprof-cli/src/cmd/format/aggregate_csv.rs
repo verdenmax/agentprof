@@ -82,6 +82,8 @@ fn write_mcp<W: std::io::Write>(
         "failure_count",
         "total_duration_ms",
         "session_count",
+        "unused_tool_count",
+        "fully_unused_session_count",
     ])
     .context("write mcp header")?;
     for b in &r.buckets {
@@ -92,6 +94,8 @@ fn write_mcp<W: std::io::Write>(
             &b.failure_count.to_string(),
             &b.total_duration.num_milliseconds().to_string(),
             &b.session_count.to_string(),
+            &b.unused_tool_count.to_string(),
+            &b.fully_unused_session_count.to_string(),
         ])
         .context("write mcp row")?;
     }

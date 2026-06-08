@@ -15,6 +15,22 @@ prefix used in commit messages).
 
 ### Added
 
+- **`core,cli`: extend `McpServerBucket` with M1.6.5 waste fields (T3.3)**
+  `agentprof_core::analyzer::aggregate::McpServerBucket` gains two
+  `#[serde(default)]` fields — `unused_tool_count` and
+  `fully_unused_session_count` — so `--by mcp-server` aggregates carry
+  the same "loaded but never called" signal that `analyze --section
+  mcp-waste` already surfaces per session. `aggregate_by_mcp_server`
+  takes a new `waste_per_report: &[WasteReport]` parameter; cli
+  computes the per-session `WasteReport` (via
+  `extract_loaded_set_from_session` + `load_mcp_config` +
+  `compute_waste`) before invoking. All renderers (md / csv / html)
+  grow two rightmost columns (`Unused tools` / `Sessions w/0 calls`);
+  json is auto-extended via serde. Pre-M1.6.5 cached aggregate json
+  remains deserializable thanks to `#[serde(default)]`, and
+  `#[non_exhaustive]` keeps downstream re-construction safe.
+  `WasteReport` / `WasteDataSource` derive `Default` so empty waste
+  vectors are easy to build in tests.
 - **`cli`: `analyze --section mcp-waste` md / json / html renderers (M1.6.5 T3.2)**
   surface the per-session `WasteReport` (computed via
   `agentprof_core::analyzer::compute_waste`). Markdown emits a

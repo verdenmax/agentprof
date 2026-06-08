@@ -160,17 +160,20 @@ fn render_mcp(r: &AggregateReport<McpServerBucket>) -> String {
     let mut s = String::new();
     s.push_str("<section id=\"buckets\"><table><thead><tr>");
     s.push_str("<th>Server</th><th class=\"num\">Tools</th><th class=\"num\">Calls</th>");
-    s.push_str("<th class=\"num\">Failures</th><th class=\"num\">Total</th><th class=\"num\">Sessions</th></tr></thead><tbody>");
+    s.push_str("<th class=\"num\">Failures</th><th class=\"num\">Total</th><th class=\"num\">Sessions</th>");
+    s.push_str("<th class=\"num\">Unused tools</th><th class=\"num\">Sessions w/0 calls</th></tr></thead><tbody>");
     for b in &r.buckets {
         let _ = write!(
             s,
-            "<tr><td>{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td></tr>",
+            "<tr><td>{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td></tr>",
             html_escape(&b.server),
             b.tool_count,
             b.call_count,
             b.failure_count,
             human_duration(b.total_duration),
             b.session_count,
+            b.unused_tool_count,
+            b.fully_unused_session_count,
         );
     }
     s.push_str("</tbody></table></section>");

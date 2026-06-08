@@ -298,13 +298,27 @@ pub fn compute_aggregate(
     // Sequential parse (D-2; rayon deferred).
     let mut reports: Vec<AnalysisReport> = Vec::with_capacity(refs.len());
     let mut episodes_vec: Vec<Episodes> = Vec::with_capacity(refs.len());
+    // M1.6.5 T3.3: when `--by mcp-server`, keep the per-session raw
+    // event vectors so we can run `extract_loaded_set_from_session +
+    // compute_waste` after parsing and feed the resulting waste
+    // reports to `aggregate_by_mcp_server`. For every other --by we
+    // leave this empty (cost = zero allocations beyond the Vec header).
+    let want_waste = matches!(cmd.by.to_key(), AggregateKey::McpServer);
+    let mut events_vec: Vec<Vec<agentprof_adapters::copilot::CopilotEvent>> = if want_waste {
+        Vec::with_capacity(refs.len())
+    } else {
+        Vec::new()
+    };
     let mut failure_count: usize = 0;
 
     for sref in &refs {
-        match load_and_analyze(adapter, sref) {
-            Ok((report, episodes)) => {
+        match load_and_analyze(adapter, sref, want_waste) {
+            Ok((report, episodes, events)) => {
                 reports.push(report);
                 episodes_vec.push(episodes);
+                if want_waste {
+                    events_vec.push(events);
+                }
             }
             Err(e) => {
                 tracing::warn!(
@@ -328,7 +342,35 @@ pub fn compute_aggregate(
     let mut any_report = match cmd.by.to_key() {
         AggregateKey::Tool => AnyAggregateReport::Tool(aggregate_by_tool(&reports, &episodes_vec)),
         AggregateKey::McpServer => {
-            AnyAggregateReport::McpServer(aggregate_by_mcp_server(&reports, &episodes_vec))
+            // Compute per-session WasteReport. `mcp.json` is loaded
+            // once (same path for every session) — load failures
+            // degrade to `None` so cli stays usable on hosts without
+            // a Copilot mcp config.
+            let mcp_config_path = crate::cmd::analyze::resolve_mcp_config_path(None).ok();
+            let parsed_cfg = mcp_config_path
+                .as_deref()
+                .and_then(agentprof_adapters::copilot::load_mcp_config);
+            let config_loaded = parsed_cfg.as_ref().map(|c| {
+                c.servers
+                    .iter()
+                    .filter_map(|(name, info)| {
+                        info.tools.as_ref().map(|t| (name.clone(), t.clone()))
+                    })
+                    .collect::<std::collections::BTreeMap<_, _>>()
+            });
+            let waste_per_report: Vec<agentprof_core::model::WasteReport> = reports
+                .iter()
+                .zip(events_vec.iter())
+                .map(|(r, events)| {
+                    let wire = agentprof_adapters::copilot::extract_loaded_set_from_session(events);
+                    agentprof_core::analyzer::compute_waste(r, &wire, config_loaded.as_ref())
+                })
+                .collect();
+            AnyAggregateReport::McpServer(aggregate_by_mcp_server(
+                &reports,
+                &episodes_vec,
+                &waste_per_report,
+            ))
         }
         AggregateKey::Day => AnyAggregateReport::Day(aggregate_by_day(
             &reports,
@@ -416,13 +458,24 @@ fn run_tui_for_aggregate(
 fn load_and_analyze(
     adapter: &CopilotAdapter,
     sref: &SessionRef,
-) -> Result<(AnalysisReport, Episodes)> {
+    keep_events: bool,
+) -> Result<(
+    AnalysisReport,
+    Episodes,
+    Vec<agentprof_adapters::copilot::CopilotEvent>,
+)> {
     let raw = adapter
         .load_session(sref)
         .with_context(|| format!("loading session {}", sref.path.display()))?;
     let episodes = derive_episodes(&raw.events, &raw.meta);
     let report = analyze(&episodes, &raw.meta, &raw.parse_warnings);
-    Ok((report, episodes))
+    // Caller passes `keep_events = true` only when the per-session
+    // raw events are needed downstream (M1.6.5 T3.3: waste
+    // computation for `--by mcp-server`). Otherwise we drop them
+    // immediately to keep peak memory close to the pre-M1.6.5
+    // baseline.
+    let events = if keep_events { raw.events } else { Vec::new() };
+    Ok((report, episodes, events))
 }
 
 // `parse_since` moved to `crate::cmd::since` per full-review CLI #1

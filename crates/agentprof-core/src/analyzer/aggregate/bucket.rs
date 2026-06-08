@@ -106,6 +106,8 @@ impl ToolBucket {
 ///
 /// let b = McpServerBucket::new("github".to_string(), 0, 0, 0, Duration::zero(), 0);
 /// assert_eq!(b.tool_count, 0);
+/// assert_eq!(b.unused_tool_count, 0);
+/// assert_eq!(b.fully_unused_session_count, 0);
 /// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -123,10 +125,29 @@ pub struct McpServerBucket {
     pub total_duration: Duration,
     /// Number of input sessions that used this server at least once.
     pub session_count: usize,
+    /// M1.6.5 — sum of per-session "unused tool" counts (tools loaded
+    /// in ≥ 1 session under this server but never called in that
+    /// session). The strongest "remove from `mcp.json`" signal at
+    /// the per-server granularity. `#[serde(default)]` keeps
+    /// pre-M1.6.5 cached JSON deserializable.
+    #[serde(default)]
+    pub unused_tool_count: usize,
+    /// M1.6.5 — count of sessions in which this server was loaded
+    /// (≥ 1 tool present in wire / `mcp.json`) but received zero
+    /// tool calls. Server-level waste signal.
+    /// `#[serde(default)]` keeps pre-M1.6.5 cached JSON
+    /// deserializable.
+    #[serde(default)]
+    pub fully_unused_session_count: usize,
 }
 
 impl McpServerBucket {
     /// Construct a [`McpServerBucket`].
+    ///
+    /// The two M1.6.5 waste fields (`unused_tool_count`,
+    /// `fully_unused_session_count`) are initialised to `0`; the
+    /// aggregator constructs via struct literal when waste data is
+    /// available (see [`crate::analyzer::aggregate::group_by_mcp::aggregate_by_mcp_server`]).
     ///
     /// # Examples
     ///
@@ -151,6 +172,8 @@ impl McpServerBucket {
             failure_count,
             total_duration,
             session_count,
+            unused_tool_count: 0,
+            fully_unused_session_count: 0,
         }
     }
 }

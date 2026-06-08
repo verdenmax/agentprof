@@ -17,6 +17,7 @@ use agentprof_core::analyzer::aggregate::group_by_model::aggregate_by_model;
 use agentprof_core::analyzer::aggregate::group_by_tool::aggregate_by_tool;
 use agentprof_core::analyzer::{analyze, AnalysisReport};
 use agentprof_core::episode::{derive_episodes, Episodes};
+use agentprof_core::model::WasteReport;
 
 fn fixture(slug: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -81,7 +82,7 @@ fn aggregate_by_tool_recomputes_percentiles_from_pool() {
 #[test]
 fn aggregate_by_mcp_server_groups_by_server_prefix() {
     let (reports, eps) = load_three_sessions();
-    let r = aggregate_by_mcp_server(&reports, &eps);
+    let r = aggregate_by_mcp_server(&reports, &eps, &vec![WasteReport::default(); reports.len()]);
     let github = r
         .buckets
         .iter()

@@ -126,19 +126,21 @@ fn render_mcp(out: &mut String, r: &AggregateReport<McpServerBucket>) {
     }
     let _ = writeln!(
         out,
-        "| Server | Tools | Calls | Failures | Total | Sessions |"
+        "| Server | Tools | Calls | Failures | Total | Sessions | **Unused tools** | **Sessions w/0 calls** |"
     );
-    let _ = writeln!(out, "|---|---:|---:|---:|---:|---:|");
+    let _ = writeln!(out, "|---|---:|---:|---:|---:|---:|---:|---:|");
     for b in &r.buckets {
         let _ = writeln!(
             out,
-            "| {} | {} | {} | {} | {} | {} |",
+            "| {} | {} | {} | {} | {} | {} | {} | {} |",
             md_escape(&b.server),
             b.tool_count,
             b.call_count,
             b.failure_count,
             human_duration(b.total_duration),
             b.session_count,
+            b.unused_tool_count,
+            b.fully_unused_session_count,
         );
     }
 }

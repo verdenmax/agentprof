@@ -140,7 +140,7 @@ use agentprof_core::analyzer::aggregate::{
 use agentprof_core::analyzer::AnalysisReport;
 use agentprof_core::episode::turn::{Turn, TurnStatus};
 use agentprof_core::episode::Episodes;
-use agentprof_core::model::SessionMeta;
+use agentprof_core::model::{SessionMeta, WasteReport};
 use chrono::{TimeZone, Utc};
 
 /// Build a synthetic (`AnalysisReport`, `Episodes`) pair whose wall
@@ -191,7 +191,7 @@ fn aggregate_by_mcp_total_wall_duration_equals_sum() {
     let (r1, e1) = synthetic_session("s1", 0, 5);
     let (r2, e2) = synthetic_session("s2", 50, 15);
 
-    let report = aggregate_by_mcp_server(&[r1, r2], &[e1, e2]);
+    let report = aggregate_by_mcp_server(&[r1, r2], &[e1, e2], &vec![WasteReport::default(); 2]);
     assert_eq!(
         report.total_wall_duration,
         Duration::seconds(5 + 15),
