@@ -363,7 +363,22 @@ pub fn compute_aggregate(
                 .zip(events_vec.iter())
                 .map(|(r, events)| {
                     let wire = agentprof_adapters::copilot::extract_loaded_set_from_session(events);
-                    agentprof_core::analyzer::compute_waste(r, &wire, config_loaded.as_ref())
+                    // M1.6.6 T1.4: build a WasteComputeContext per session.
+                    // Tokenizer inferred from the first model in `model_metrics`
+                    // (best signal until an explicit `meta.model` lands).
+                    let model_hint: Option<String> = r
+                        .model_metrics
+                        .as_ref()
+                        .and_then(|m| m.keys().next().cloned());
+                    let tokenizer =
+                        agentprof_core::analyzer::waste::infer_tokenizer(model_hint.as_deref());
+                    let mut waste_ctx =
+                        agentprof_core::analyzer::waste::WasteComputeContext::new(&wire)
+                            .with_tokenizer(tokenizer);
+                    if let Some(c) = config_loaded.as_ref() {
+                        waste_ctx = waste_ctx.with_config(c);
+                    }
+                    agentprof_core::analyzer::compute_waste(r, &waste_ctx)
                 })
                 .collect();
             AnyAggregateReport::McpServer(aggregate_by_mcp_server(

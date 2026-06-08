@@ -13,6 +13,18 @@ prefix used in commit messages).
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING:** `agentprof_core::analyzer::compute_waste` signature now
+  takes `(&AnalysisReport, &WasteComputeContext)` instead of the flat
+  `(&AnalysisReport, &BTreeSet<String>, Option<&BTreeMap<…>>)` triple
+  (M1.6.6 T1.4). The new `WasteComputeContext` is `#[non_exhaustive]`
+  and exposes a builder (`new` / `with_config` / `with_sidecar` /
+  `with_heuristic` / `with_tokenizer`), so future M1.6.7+ inputs become
+  non-breaking additions. The body now also computes per-tool
+  `description_tokens` + per-server `loaded_tokens` / `unused_tokens`
+  + report-level `token_provenance` / `tokenizer`. See ADR-0016 D-5.
+
 ### Added
 
 - **M1.6.5 MCP server waste analysis** (Phase 1 — counts-only;

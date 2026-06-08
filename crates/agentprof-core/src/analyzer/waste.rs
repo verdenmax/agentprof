@@ -1,14 +1,16 @@
 //! `compute_waste` and `aggregate_waste` — per-session and cross-session
 //! MCP-server waste analysis.
 //!
-//! `compute_waste` turns one (`AnalysisReport`, `wire_loaded`, `config_loaded`)
-//! triple into a `WasteReport`; `aggregate_waste` (added in T1.4) rolls many
-//! `WasteReport`s up into an `AggregateWasteReport` (used by the `mcp-waste`
-//! subcommand).
+//! `compute_waste` turns one (`AnalysisReport`, [`WasteComputeContext`])
+//! pair into a [`WasteReport`] (the context carries `wire_loaded`,
+//! optional `config_loaded`, optional sidecar, heuristic constant, and
+//! tokenizer choice); `aggregate_waste` rolls many `WasteReport`s up
+//! into an [`AggregateWasteReport`] (used by the `mcp-waste` subcommand).
 //!
 //! See `docs/superpowers/specs/2026-06-08-m1.6.5-mcp-waste-design.md` §6
 //! for the algorithm and `docs/internals/adr-0015-mcp-waste-architecture.md`
-//! for design decisions.
+//! (M1.6.5) + `docs/internals/adr-0016-mcp-tool-token-cost-architecture.md`
+//! (M1.6.6) for design decisions.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -18,8 +20,8 @@ use crate::adapter::SessionRef;
 use crate::analyzer::AnalysisReport;
 use crate::model::{
     AggregateWasteReport, LoadedSource, McpServerCrossWaste, McpServerWaste,
-    McpToolUsageAcrossSessions, McpToolWaste, TokenSource, TokenizerKind, ToolSource,
-    WasteDataSource, WasteReport,
+    McpToolUsageAcrossSessions, McpToolWaste, TokenProvenance, TokenSource, TokenizerKind,
+    ToolSource, WasteDataSource, WasteReport,
 };
 
 /// Default heuristic token cost per MCP tool when no sidecar is provided.
@@ -245,16 +247,22 @@ pub fn compute_token_cost_for_tool(
     (heuristic, TokenSource::Heuristic)
 }
 
-/// Compute per-session MCP-server waste from an analysis report and the
-/// "loaded" sets contributed by wire + (optional) mcp.json baseline.
+/// Compute per-session MCP-server waste from an analysis report and a
+/// [`WasteComputeContext`] carrying the wire / config / sidecar inputs.
 ///
-/// `wire_loaded`: tools observed in `<tools_changed_notice>` blocks.
-/// `config_loaded`: server → tool-list map from mcp.json (`None` if
-/// mcp.json was absent or unparseable).
+/// The context's `wire_loaded` set comes from `<tools_changed_notice>`
+/// blocks; `config_loaded` (optional) is the `mcp.json`-derived
+/// server → tool-list map; `sidecar` (optional) provides agent-visible
+/// JSON for exact token counting; `tokenizer` selects the `tiktoken-rs`
+/// encoding; `heuristic_tokens_per_tool` is the fallback when no sidecar
+/// match exists.
 ///
-/// Returns a fully-populated `WasteReport` with `server_waste` sorted by
-/// `unused_count` descending (ties by `server` ascending), and tools
-/// within each server sorted alphabetically by `short_name`.
+/// Returns a fully-populated [`WasteReport`] with `server_waste` sorted
+/// by `unused_count` descending (ties by `server` ascending), tools
+/// within each server sorted alphabetically by `short_name`, per-server
+/// `loaded_tokens` / `unused_tokens` populated, and `token_provenance`
+/// derived from the sidecar hit/miss distribution
+/// (all-hit → `SidecarExact`, all-miss → `Heuristic`, mix → `Mixed`).
 ///
 /// # Examples
 ///
@@ -262,6 +270,7 @@ pub fn compute_token_cost_for_tool(
 /// use std::collections::BTreeSet;
 /// use agentprof_core::adapter::AgentKind;
 /// use agentprof_core::analyzer::{AnalysisReport, compute_waste};
+/// use agentprof_core::analyzer::waste::WasteComputeContext;
 /// use agentprof_core::model::SessionMeta;
 /// use chrono::{TimeZone, Utc};
 ///
@@ -273,23 +282,25 @@ pub fn compute_token_cost_for_tool(
 /// );
 /// let report = AnalysisReport::new(meta);
 /// let wire = BTreeSet::new();
-/// let r = compute_waste(&report, &wire, None);
+/// let ctx = WasteComputeContext::new(&wire);
+/// let r = compute_waste(&report, &ctx);
 /// assert_eq!(r.total_loaded_tool_count, 0);
+/// assert_eq!(r.total_loaded_tokens, 0);
 /// ```
 #[must_use]
+#[allow(clippy::too_many_lines)] // 7-step pipeline reads better as one fn; see ADR-0016 D-5
 #[tracing::instrument(
     name = "analyzer.waste",
     skip_all,
     fields(
-        wire_size = wire_loaded.len(),
-        has_config = config_loaded.is_some(),
+        wire_size = ctx.wire_loaded.len(),
+        has_config = ctx.config_loaded.is_some(),
+        has_sidecar = ctx.sidecar.is_some(),
+        heuristic = ctx.heuristic_tokens_per_tool,
+        tokenizer = ?ctx.tokenizer,
     )
 )]
-pub fn compute_waste(
-    report: &AnalysisReport,
-    wire_loaded: &BTreeSet<String>,
-    config_loaded: Option<&BTreeMap<String, Vec<String>>>,
-) -> WasteReport {
+pub fn compute_waste(report: &AnalysisReport, ctx: &WasteComputeContext) -> WasteReport {
     // Step 1: extract `called` map from report.tool_rank, MCP-only.
     let mut called: BTreeMap<String, BTreeMap<String, usize>> = BTreeMap::new();
     for row in &report.tool_rank {
@@ -307,12 +318,12 @@ pub fn compute_waste(
     //   Initialize from wire (Wire), then merge config (Wire→Both / new→Config),
     //   then merge called (any new → InferredFromCall).
     let mut loaded: BTreeMap<(String, String), LoadedSource> = BTreeMap::new();
-    for tool_name in wire_loaded {
+    for tool_name in ctx.wire_loaded {
         if let Some((server, short)) = split_full_name(tool_name) {
             loaded.insert((server, short), LoadedSource::Wire);
         }
     }
-    if let Some(cfg) = config_loaded {
+    if let Some(cfg) = ctx.config_loaded {
         for (server, tools) in cfg {
             for short in tools {
                 let key = (server.clone(), short.clone());
@@ -335,24 +346,53 @@ pub fn compute_waste(
         }
     }
 
-    // Step 3: group by server.
+    // Step 3: build the tokenizer once and compute per-tool token cost.
+    //
+    // `cl100k_base()` / `o200k_base()` load embedded constants and only
+    // fail on memory exhaustion in practice; on the unlikely error we
+    // fall back to heuristic-only mode (no sidecar lookups), which keeps
+    // `compute_waste` infallible while still producing meaningful counts.
+    let bpe = match ctx.tokenizer {
+        TokenizerKind::O200kBase => tiktoken_rs::o200k_base().ok(),
+        TokenizerKind::Cl100kBase => tiktoken_rs::cl100k_base().ok(),
+    };
+
     let mut by_server: BTreeMap<String, Vec<McpToolWaste>> = BTreeMap::new();
+    let mut sidecar_hits: usize = 0;
+    let mut sidecar_misses: usize = 0;
+
     for ((server, short), src) in &loaded {
+        let full_name = format!("mcp__{server}__{short}");
         let call_count = called
             .get(server)
             .and_then(|m| m.get(short))
             .copied()
             .unwrap_or(0);
+        let (description_tokens, token_source) = bpe.as_ref().map_or(
+            (ctx.heuristic_tokens_per_tool, TokenSource::Heuristic),
+            |b| {
+                compute_token_cost_for_tool(
+                    &full_name,
+                    ctx.sidecar,
+                    ctx.heuristic_tokens_per_tool,
+                    b,
+                )
+            },
+        );
+        match token_source {
+            TokenSource::SidecarExact => sidecar_hits += 1,
+            TokenSource::Heuristic => sidecar_misses += 1,
+        }
         by_server
             .entry(server.clone())
             .or_default()
             .push(McpToolWaste {
-                tool_name: format!("mcp__{server}__{short}"),
+                tool_name: full_name,
                 short_name: short.clone(),
                 call_count,
                 loaded_source: *src,
-                description_tokens: 0,
-                token_source: TokenSource::Heuristic,
+                description_tokens,
+                token_source,
             });
     }
 
@@ -364,6 +404,12 @@ pub fn compute_waste(
             let loaded_count = tools.len();
             let called_count = tools.iter().filter(|t| t.call_count > 0).count();
             let unused_count = loaded_count - called_count;
+            let loaded_tokens: u64 = tools.iter().map(|t| t.description_tokens).sum();
+            let unused_tokens: u64 = tools
+                .iter()
+                .filter(|t| t.call_count == 0)
+                .map(|t| t.description_tokens)
+                .sum();
             McpServerWaste {
                 server,
                 tools,
@@ -371,8 +417,8 @@ pub fn compute_waste(
                 called_count,
                 unused_count,
                 is_fully_unused: called_count == 0,
-                unused_tokens: 0,
-                loaded_tokens: 0,
+                unused_tokens,
+                loaded_tokens,
             }
         })
         .collect();
@@ -393,22 +439,35 @@ pub fn compute_waste(
     // `Both`/`Config` in that case broke snapshot hermeticity for hosts
     // that happened to have a real mcp.json installed. See M1.6.5 review
     // M-1 + M-2 (2026-06-08).
-    let config_contributed = config_loaded.is_some_and(|c| !c.is_empty());
-    let data_source = match (wire_loaded.is_empty(), config_contributed) {
+    let config_contributed = ctx.config_loaded.is_some_and(|c| !c.is_empty());
+    let data_source = match (ctx.wire_loaded.is_empty(), config_contributed) {
         (true, true) => WasteDataSource::Config,
         (false, true) => WasteDataSource::Both,
         (false, false) => WasteDataSource::Wire,
         (true, false) => WasteDataSource::None,
     };
+
+    // Step 7 (M1.6.6): derive TokenProvenance from sidecar hit/miss distribution.
+    let token_provenance = match (sidecar_hits, sidecar_misses) {
+        (0, _) => TokenProvenance::Heuristic,
+        (_, 0) => TokenProvenance::SidecarExact,
+        (_, _) => TokenProvenance::Mixed,
+    };
+
     let total_loaded_tool_count = server_waste.iter().map(|s| s.loaded_count).sum();
     let total_unused_tool_count = server_waste.iter().map(|s| s.unused_count).sum();
+    let total_loaded_tokens = server_waste.iter().map(|s| s.loaded_tokens).sum();
+    let total_unused_tokens = server_waste.iter().map(|s| s.unused_tokens).sum();
 
     WasteReport {
         server_waste,
         data_source,
         total_loaded_tool_count,
         total_unused_tool_count,
-        ..Default::default()
+        total_loaded_tokens,
+        total_unused_tokens,
+        token_provenance,
+        tokenizer: ctx.tokenizer,
     }
 }
 
@@ -565,6 +624,10 @@ mod tests {
         ))
     }
 
+    fn ctx(wire: &BTreeSet<String>) -> WasteComputeContext<'_> {
+        WasteComputeContext::new(wire)
+    }
+
     fn mcp_row(server: &str, tool: &str, calls: usize) -> ToolRankRow {
         ToolRankRow {
             name: format!("mcp__{server}__{tool}"),
@@ -603,7 +666,7 @@ mod tests {
 
     #[test]
     fn empty_inputs_produce_empty_report_with_none_source() {
-        let r = compute_waste(&empty_report(), &BTreeSet::new(), None);
+        let r = compute_waste(&empty_report(), &ctx(&BTreeSet::new()));
         assert!(r.server_waste.is_empty());
         assert!(matches!(r.data_source, WasteDataSource::None));
         assert_eq!(r.total_loaded_tool_count, 0);
@@ -616,7 +679,7 @@ mod tests {
             .into_iter()
             .map(String::from)
             .collect();
-        let r = compute_waste(&empty_report(), &wire, None);
+        let r = compute_waste(&empty_report(), &ctx(&wire));
         assert!(matches!(r.data_source, WasteDataSource::Wire));
         assert_eq!(r.server_waste.len(), 1);
         assert_eq!(r.server_waste[0].server, "github");
@@ -633,7 +696,7 @@ mod tests {
     fn called_only_no_baseline_yields_inferred_from_call_source() {
         let mut report = empty_report();
         report.tool_rank.push(mcp_row("github", "search", 3));
-        let r = compute_waste(&report, &BTreeSet::new(), None);
+        let r = compute_waste(&report, &ctx(&BTreeSet::new()));
         assert_eq!(r.server_waste.len(), 1);
         assert!(matches!(
             r.server_waste[0].tools[0].loaded_source,
@@ -653,7 +716,7 @@ mod tests {
             [("github".to_string(), vec!["search".to_string()])]
                 .into_iter()
                 .collect();
-        let r = compute_waste(&empty_report(), &wire, Some(&cfg));
+        let r = compute_waste(&empty_report(), &ctx(&wire).with_config(&cfg));
         assert!(matches!(r.data_source, WasteDataSource::Both));
         assert_eq!(r.server_waste[0].tools[0].loaded_source, LoadedSource::Both);
     }
@@ -666,7 +729,7 @@ mod tests {
         )]
         .into_iter()
         .collect();
-        let r = compute_waste(&empty_report(), &BTreeSet::new(), Some(&cfg));
+        let r = compute_waste(&empty_report(), &ctx(&BTreeSet::new()).with_config(&cfg));
         assert!(matches!(r.data_source, WasteDataSource::Config));
         assert_eq!(r.server_waste[0].tools.len(), 2);
         for t in &r.server_waste[0].tools {
@@ -682,7 +745,7 @@ mod tests {
             .collect();
         let mut report = empty_report();
         report.tool_rank.push(mcp_row("github", "search", 5));
-        let r = compute_waste(&report, &wire, None);
+        let r = compute_waste(&report, &ctx(&wire));
         assert_eq!(r.server_waste[0].called_count, 1);
         assert_eq!(r.server_waste[0].unused_count, 1);
         assert!(!r.server_waste[0].is_fully_unused);
@@ -701,7 +764,7 @@ mod tests {
         .into_iter()
         .map(String::from)
         .collect();
-        let r = compute_waste(&empty_report(), &wire, None);
+        let r = compute_waste(&empty_report(), &ctx(&wire));
         assert_eq!(r.server_waste[0].server, "a");
         assert_eq!(r.server_waste[1].server, "c");
         assert_eq!(r.server_waste[2].server, "b");
@@ -712,7 +775,7 @@ mod tests {
         let mut report = empty_report();
         report.tool_rank.push(builtin_row("bash", 10));
         report.tool_rank.push(mcp_row("github", "search", 1));
-        let r = compute_waste(&report, &BTreeSet::new(), None);
+        let r = compute_waste(&report, &ctx(&BTreeSet::new()));
         assert_eq!(r.server_waste.len(), 1, "only MCP servers in report");
         assert_eq!(r.server_waste[0].server, "github");
     }
@@ -723,7 +786,7 @@ mod tests {
             .into_iter()
             .map(String::from)
             .collect();
-        let r = compute_waste(&empty_report(), &wire, None);
+        let r = compute_waste(&empty_report(), &ctx(&wire));
         assert_eq!(r.total_loaded_tool_count, 3);
         assert_eq!(r.total_unused_tool_count, 3);
     }
@@ -738,7 +801,7 @@ mod tests {
         .into_iter()
         .map(String::from)
         .collect();
-        let r = compute_waste(&empty_report(), &wire, None);
+        let r = compute_waste(&empty_report(), &ctx(&wire));
         let shorts: Vec<&str> = r.server_waste[0]
             .tools
             .iter()
@@ -759,7 +822,7 @@ mod tests {
             .map(String::from)
             .collect();
         let cfg: BTreeMap<String, Vec<String>> = BTreeMap::new();
-        let r = compute_waste(&empty_report(), &wire, Some(&cfg));
+        let r = compute_waste(&empty_report(), &ctx(&wire).with_config(&cfg));
         assert!(
             matches!(r.data_source, WasteDataSource::Wire),
             "empty config map must NOT promote Wire to Both; got {:?}",
@@ -771,7 +834,7 @@ mod tests {
     fn empty_config_map_with_no_wire_yields_none_not_config() {
         let wire: BTreeSet<String> = BTreeSet::new();
         let cfg: BTreeMap<String, Vec<String>> = BTreeMap::new();
-        let r = compute_waste(&empty_report(), &wire, Some(&cfg));
+        let r = compute_waste(&empty_report(), &ctx(&wire).with_config(&cfg));
         assert!(
             matches!(r.data_source, WasteDataSource::None),
             "empty config + empty wire must yield None; got {:?}",

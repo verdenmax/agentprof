@@ -166,6 +166,7 @@ fn expand_tilde(p: &std::path::Path) -> PathBuf {
 /// - [`ExitKind::DataError`] — session discovery failed, no sessions
 ///   matched `--since`, or every discovered session failed to parse.
 /// - [`ExitKind::OutputError`] — writing to `--output` failed.
+#[allow(clippy::too_many_lines)] // single linear pipeline: discover → load → compute → render
 pub fn run(
     args: McpWasteArgs,
     _cfg: &LogConfig,
@@ -237,7 +238,20 @@ pub fn run(
             let episodes = derive_episodes(&raw.events, &raw.meta);
             let report = analyze(&episodes, &raw.meta, &raw.parse_warnings);
             let wire = extract_loaded_set_from_session(&raw.events);
-            Ok(compute_waste(&report, &wire, cfg_map.as_ref()))
+            // M1.6.6 T1.4: assemble the WasteComputeContext (tokenizer
+            // inferred from the session's first observed model; sidecar
+            // wiring lands in M1.6.6 T3.1).
+            let model_hint: Option<String> = report
+                .model_metrics
+                .as_ref()
+                .and_then(|m| m.keys().next().cloned());
+            let tokenizer = agentprof_core::analyzer::waste::infer_tokenizer(model_hint.as_deref());
+            let mut waste_ctx = agentprof_core::analyzer::waste::WasteComputeContext::new(&wire)
+                .with_tokenizer(tokenizer);
+            if let Some(c) = cfg_map.as_ref() {
+                waste_ctx = waste_ctx.with_config(c);
+            }
+            Ok(compute_waste(&report, &waste_ctx))
         })();
         match result {
             Ok(waste) => per_session.push((sref.clone(), waste)),

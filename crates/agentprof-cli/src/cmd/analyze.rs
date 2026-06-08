@@ -225,11 +225,21 @@ pub fn run(
                 .filter_map(|(name, info)| info.tools.as_ref().map(|t| (name.clone(), t.clone())))
                 .collect::<std::collections::BTreeMap<_, _>>()
         });
-        Some(agentprof_core::analyzer::compute_waste(
-            &report,
-            &wire_loaded,
-            config_loaded.as_ref(),
-        ))
+        // Build the WasteComputeContext (M1.6.6 T1.4): infer the tokenizer
+        // from the first model key seen in `model_metrics` (the best signal
+        // we have until M1.6.7 adds an explicit `meta.model`). Sidecar /
+        // `--tool-descriptions` wiring lands in M1.6.6 T3.1.
+        let model_hint: Option<String> = report
+            .model_metrics
+            .as_ref()
+            .and_then(|m| m.keys().next().cloned());
+        let tokenizer = agentprof_core::analyzer::waste::infer_tokenizer(model_hint.as_deref());
+        let mut waste_ctx = agentprof_core::analyzer::waste::WasteComputeContext::new(&wire_loaded)
+            .with_tokenizer(tokenizer);
+        if let Some(c) = config_loaded.as_ref() {
+            waste_ctx = waste_ctx.with_config(c);
+        }
+        Some(agentprof_core::analyzer::compute_waste(&report, &waste_ctx))
     } else {
         None
     };
