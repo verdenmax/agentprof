@@ -469,11 +469,7 @@ mod tests {
         let r = one_server("github", 3, 1);
         let banner = banner_lines(&r);
         assert_eq!(banner.len(), 2, "M1.6.6 banner has 2 lines");
-        let second: String = banner[1]
-            .spans
-            .iter()
-            .map(|s| s.content.as_ref())
-            .collect();
+        let second: String = banner[1].spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(second.contains("Tokenizer:"));
         assert!(second.contains("Token source:"));
     }
@@ -485,11 +481,7 @@ mod tests {
         // banner line 1 must therefore prefix token counts with `≈`.
         let r = one_server("github", 3, 1);
         let banner = banner_lines(&r);
-        let first: String = banner[0]
-            .spans
-            .iter()
-            .map(|s| s.content.as_ref())
-            .collect();
+        let first: String = banner[0].spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(
             first.contains('≈'),
             "heuristic provenance should render ≈ prefix; got: {first}"
