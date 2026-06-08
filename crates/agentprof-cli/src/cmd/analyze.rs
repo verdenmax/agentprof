@@ -52,6 +52,18 @@ pub struct AnalyzeCmd {
     /// `--export json` always includes every section regardless of this flag.
     #[arg(long, value_enum, value_delimiter = ',', default_values_t = AnalysisSection::all_vec())]
     pub section: Vec<AnalysisSection>,
+
+    /// Heuristic token cost per MCP tool when no sidecar is provided.
+    /// Default 200 (≈ description + small inputSchema). M1.6.6.
+    #[arg(long, default_value_t = agentprof_core::analyzer::waste::DEFAULT_HEURISTIC_TOKENS)]
+    pub tokens_per_tool: u64,
+
+    /// Optional sidecar path with per-tool descriptions for exact token counts.
+    /// Path → file: global JSON `{"<server>": [<ToolEntry>, ...]}`.
+    /// Path → dir: per-server `<server>.json` files (MCP `tools/list` shape).
+    /// Absent → heuristic-only mode. M1.6.6.
+    #[arg(long, value_name = "PATH")]
+    pub tool_descriptions: Option<PathBuf>,
 }
 
 /// How the CLI selects which session to analyze.
@@ -225,19 +237,36 @@ pub fn run(
                 .filter_map(|(name, info)| info.tools.as_ref().map(|t| (name.clone(), t.clone())))
                 .collect::<std::collections::BTreeMap<_, _>>()
         });
-        // Build the WasteComputeContext (M1.6.6 T1.4): infer the tokenizer
-        // from the first model key seen in `model_metrics` (the best signal
-        // we have until M1.6.7 adds an explicit `meta.model`). Sidecar /
-        // `--tool-descriptions` wiring lands in M1.6.6 T3.1.
+        // Build the WasteComputeContext (M1.6.6 T1.4 + T3.1): infer the
+        // tokenizer from the first model key seen in `model_metrics` (the
+        // best signal until M1.6.7 adds an explicit `meta.model`), load
+        // the optional `--tool-descriptions` sidecar per ADR-0016 D-2,
+        // and layer the `--tokens-per-tool` heuristic override.
         let model_hint: Option<String> = report
             .model_metrics
             .as_ref()
             .and_then(|m| m.keys().next().cloned());
         let tokenizer = agentprof_core::analyzer::waste::infer_tokenizer(model_hint.as_deref());
+
+        let sidecar = if let Some(path) = cmd.tool_descriptions.as_deref() {
+            Some(
+                agentprof_adapters::copilot::tool_sidecar::load_sidecar(path).map_err(|e| {
+                    ExitKind::UserError
+                        .into_anyhow(format!("sidecar load failed for {}: {e}", path.display()))
+                })?,
+            )
+        } else {
+            None
+        };
+
         let mut waste_ctx = agentprof_core::analyzer::waste::WasteComputeContext::new(&wire_loaded)
-            .with_tokenizer(tokenizer);
+            .with_tokenizer(tokenizer)
+            .with_heuristic(cmd.tokens_per_tool);
         if let Some(c) = config_loaded.as_ref() {
             waste_ctx = waste_ctx.with_config(c);
+        }
+        if let Some(s) = sidecar.as_ref() {
+            waste_ctx = waste_ctx.with_sidecar(s);
         }
         Some(agentprof_core::analyzer::compute_waste(&report, &waste_ctx))
     } else {
