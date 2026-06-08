@@ -1,0 +1,26 @@
+---
+source: crates/agentprof-cli/tests/mcp_waste.rs
+expression: redacted
+---
+# MCP Waste Report (22 sessions, generated [DATE])
+
+## Summary
+
+- 22 sessions analyzed
+- 2 MCP servers in scope
+- 1 tools NEVER called across ANY session
+- ≈124 wasted tokens (heuristic / sidecar / mixed — see `--export json` for per-session provenance)
+- Largest waste: `github` server, ≈124 tokens across 4 sessions
+
+## "Always unused" — 1 tools (top 1)
+
+| Tool | Server | Sessions loaded | Tokens (per session) |
+|------|--------|----------------:|---------------------:|
+| mcp__github__create_issue | github | 1 | ≈52 |
+
+## Per-server cross-session
+
+| Server | Sessions loaded | Sessions w/0 calls | Calls (sum) | Wasted tokens |
+|--------|----------------:|-------------------:|------------:|--------------:|
+| github | 4 | 1 | 3 | ≈124 |
+| filesystem | 2 | 0 | 2 | ≈0 |

@@ -130,6 +130,45 @@ fn mcp_waste_no_sessions_exits_data_error() {
 }
 
 #[test]
+fn mcp_waste_md_with_sidecar_shows_exact_tokens() {
+    let sidecar = fixture_root()
+        .parent()
+        .unwrap()
+        .join("mcp-tool-sidecar/global.json");
+    let out = Command::cargo_bin("agentprof")
+        .unwrap()
+        .args(["mcp-waste", "--root"])
+        .arg(fixture_root())
+        .args(["--since", "all", "--tool-descriptions"])
+        .arg(sidecar)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let s = String::from_utf8(out).unwrap();
+    let redacted = redact_generated_date(&s);
+    insta::assert_snapshot!("mcp_waste_md_with_sidecar", redacted);
+}
+
+#[test]
+fn mcp_waste_md_with_tokens_per_tool_override_shows_500_per_tool() {
+    let out = Command::cargo_bin("agentprof")
+        .unwrap()
+        .args(["mcp-waste", "--root"])
+        .arg(fixture_root())
+        .args(["--since", "all", "--tokens-per-tool", "500"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let s = String::from_utf8(out).unwrap();
+    let redacted = redact_generated_date(&s);
+    insta::assert_snapshot!("mcp_waste_md_heuristic_500", redacted);
+}
+
+#[test]
 fn mcp_waste_top_flag_limits_table_rows() {
     let out = Command::cargo_bin("agentprof")
         .unwrap()
