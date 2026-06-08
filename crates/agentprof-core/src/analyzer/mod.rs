@@ -32,7 +32,7 @@ pub use aggregate::{AggregateKey, AggregateReport, AnyAggregateReport};
 pub use hook_rank::{hook_rank, HookRankRow};
 pub use tool_rank::{tool_rank, ToolRankRow};
 pub use turn_summary::{turn_summary, TurnSummaryRow};
-pub use waste::compute_waste;
+pub use waste::{aggregate_waste, compute_waste};
 
 use serde::{Deserialize, Serialize};
 

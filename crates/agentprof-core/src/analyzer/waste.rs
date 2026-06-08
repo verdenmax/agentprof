@@ -12,14 +12,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-// `SessionRef`, `AggregateWasteReport`, `McpServerCrossWaste`, and
-// `McpToolUsageAcrossSessions` are pre-imported for T1.4's appended
-// `aggregate_waste` (cross-session reducer); the `allow(unused_imports)`
-// keeps the import block stable across the two commits.
-#[allow(unused_imports)]
 use crate::adapter::SessionRef;
 use crate::analyzer::AnalysisReport;
-#[allow(unused_imports)]
 use crate::model::{
     AggregateWasteReport, LoadedSource, McpServerCrossWaste, McpServerWaste,
     McpToolUsageAcrossSessions, McpToolWaste, ToolSource, WasteDataSource, WasteReport,
@@ -198,6 +192,117 @@ fn short_name(full: &str) -> Option<&str> {
         return None;
     }
     Some(short)
+}
+
+/// Roll up per-session `WasteReport`s into an `AggregateWasteReport`
+/// (used by the `mcp-waste` subcommand for cross-session summaries).
+///
+/// Walks each `(SessionRef, WasteReport)` pair and accumulates per-server
+/// (`sessions_loaded`, `sessions_with_zero_calls`) and per-tool
+/// (`sessions_loaded`, `sessions_called`, `total_call_count`) counters,
+/// then derives `never_called_tools` — fully-qualified tools loaded in
+/// ≥ 1 session but never called in any (the strongest "remove from
+/// `mcp.json`" candidates).
+///
+/// Servers are sorted by `sessions_with_zero_calls` descending (ties by
+/// server name ascending); tools within each server are sorted
+/// alphabetically by `tool_name`; `never_called_tools` is sorted and
+/// de-duplicated.
+///
+/// # Examples
+///
+/// ```
+/// use agentprof_core::analyzer::aggregate_waste;
+///
+/// let r = aggregate_waste(&[]);
+/// assert_eq!(r.sessions, 0);
+/// assert!(r.per_server.is_empty());
+/// assert!(r.never_called_tools.is_empty());
+/// ```
+#[must_use]
+#[tracing::instrument(
+    name = "analyzer.waste_aggregate",
+    skip_all,
+    fields(sessions = per_session.len())
+)]
+pub fn aggregate_waste(per_session: &[(SessionRef, WasteReport)]) -> AggregateWasteReport {
+    let mut acc: BTreeMap<String, ServerAcc> = BTreeMap::new();
+
+    for (_sref, wreport) in per_session {
+        for sw in &wreport.server_waste {
+            let server_acc = acc.entry(sw.server.clone()).or_default();
+            server_acc.sessions_loaded += 1;
+            if sw.is_fully_unused {
+                server_acc.sessions_with_zero_calls += 1;
+            }
+            for t in &sw.tools {
+                let tool_acc = server_acc.tools.entry(t.tool_name.clone()).or_default();
+                tool_acc.sessions_loaded += 1;
+                if t.call_count > 0 {
+                    tool_acc.sessions_called += 1;
+                }
+                tool_acc.total_call_count += t.call_count;
+            }
+        }
+    }
+
+    let mut never_called_tools: Vec<String> = Vec::new();
+    let mut per_server: Vec<McpServerCrossWaste> = acc
+        .into_iter()
+        .map(|(server, sacc)| {
+            let mut tool_usage: Vec<McpToolUsageAcrossSessions> = sacc
+                .tools
+                .into_iter()
+                .map(|(tool_name, tacc)| {
+                    if tacc.sessions_called == 0 && tacc.sessions_loaded > 0 {
+                        never_called_tools.push(tool_name.clone());
+                    }
+                    McpToolUsageAcrossSessions {
+                        tool_name,
+                        sessions_loaded: tacc.sessions_loaded,
+                        sessions_called: tacc.sessions_called,
+                        total_call_count: tacc.total_call_count,
+                    }
+                })
+                .collect();
+            tool_usage.sort_by(|a, b| a.tool_name.cmp(&b.tool_name));
+            McpServerCrossWaste {
+                server,
+                sessions_loaded: sacc.sessions_loaded,
+                sessions_with_zero_calls: sacc.sessions_with_zero_calls,
+                tool_usage,
+            }
+        })
+        .collect();
+
+    per_server.sort_by(|a, b| {
+        b.sessions_with_zero_calls
+            .cmp(&a.sessions_with_zero_calls)
+            .then_with(|| a.server.cmp(&b.server))
+    });
+
+    never_called_tools.sort();
+    never_called_tools.dedup();
+
+    AggregateWasteReport {
+        sessions: per_session.len(),
+        per_server,
+        never_called_tools,
+    }
+}
+
+#[derive(Default)]
+struct ServerAcc {
+    sessions_loaded: usize,
+    sessions_with_zero_calls: usize,
+    tools: BTreeMap<String, ToolAcc>,
+}
+
+#[derive(Default)]
+struct ToolAcc {
+    sessions_loaded: usize,
+    sessions_called: usize,
+    total_call_count: usize,
 }
 
 #[cfg(test)]
@@ -398,5 +503,115 @@ mod tests {
             .map(|t| t.short_name.as_str())
             .collect();
         assert_eq!(shorts, vec!["alpha", "mango", "zebra"]);
+    }
+
+    fn session_ref(id: &str) -> SessionRef {
+        SessionRef::new(
+            id.to_string(),
+            AgentKind::Copilot,
+            std::path::PathBuf::from(format!("./fixtures/{id}.jsonl")),
+            std::time::SystemTime::UNIX_EPOCH,
+            0,
+            false,
+        )
+    }
+
+    fn waste(server: &str, tools: &[(&str, usize, LoadedSource)]) -> WasteReport {
+        let tool_waste: Vec<McpToolWaste> = tools
+            .iter()
+            .map(|(short, calls, src)| McpToolWaste {
+                tool_name: format!("mcp__{server}__{short}"),
+                short_name: (*short).to_string(),
+                call_count: *calls,
+                loaded_source: *src,
+            })
+            .collect();
+        let loaded_count = tool_waste.len();
+        let called_count = tool_waste.iter().filter(|t| t.call_count > 0).count();
+        WasteReport {
+            server_waste: vec![McpServerWaste {
+                server: server.into(),
+                tools: tool_waste,
+                loaded_count,
+                called_count,
+                unused_count: loaded_count - called_count,
+                is_fully_unused: called_count == 0,
+            }],
+            data_source: WasteDataSource::Wire,
+            total_loaded_tool_count: loaded_count,
+            total_unused_tool_count: loaded_count - called_count,
+        }
+    }
+
+    #[test]
+    fn aggregate_empty_input_yields_empty_output() {
+        let r = aggregate_waste(&[]);
+        assert_eq!(r.sessions, 0);
+        assert!(r.per_server.is_empty());
+        assert!(r.never_called_tools.is_empty());
+    }
+
+    #[test]
+    fn aggregate_single_session_passes_through() {
+        let w = waste(
+            "github",
+            &[
+                ("search", 3, LoadedSource::Wire),
+                ("create", 0, LoadedSource::Wire),
+            ],
+        );
+        let r = aggregate_waste(&[(session_ref("s1"), w)]);
+        assert_eq!(r.sessions, 1);
+        assert_eq!(r.per_server.len(), 1);
+        assert_eq!(r.per_server[0].sessions_loaded, 1);
+        assert_eq!(r.per_server[0].sessions_with_zero_calls, 0);
+        assert_eq!(r.per_server[0].tool_usage.len(), 2);
+    }
+
+    #[test]
+    fn aggregate_counts_zero_call_sessions() {
+        let s1 = waste("github", &[("search", 0, LoadedSource::Wire)]);
+        let s2 = waste("github", &[("search", 0, LoadedSource::Wire)]);
+        let s3 = waste("github", &[("search", 5, LoadedSource::Wire)]);
+        let r = aggregate_waste(&[
+            (session_ref("s1"), s1),
+            (session_ref("s2"), s2),
+            (session_ref("s3"), s3),
+        ]);
+        assert_eq!(r.per_server[0].sessions_with_zero_calls, 2);
+        assert_eq!(r.per_server[0].tool_usage[0].sessions_called, 1);
+        assert_eq!(r.per_server[0].tool_usage[0].total_call_count, 5);
+    }
+
+    #[test]
+    fn aggregate_lists_never_called_tools() {
+        let s1 = waste(
+            "github",
+            &[
+                ("create", 0, LoadedSource::Wire),
+                ("search", 3, LoadedSource::Wire),
+            ],
+        );
+        let s2 = waste(
+            "github",
+            &[
+                ("create", 0, LoadedSource::Wire),
+                ("search", 1, LoadedSource::Wire),
+            ],
+        );
+        let r = aggregate_waste(&[(session_ref("s1"), s1), (session_ref("s2"), s2)]);
+        assert_eq!(
+            r.never_called_tools,
+            vec!["mcp__github__create".to_string()]
+        );
+    }
+
+    #[test]
+    fn aggregate_merges_multi_server() {
+        let s1 = waste("a", &[("t1", 0, LoadedSource::Wire)]);
+        let s2 = waste("b", &[("t1", 0, LoadedSource::Wire)]);
+        let r = aggregate_waste(&[(session_ref("s1"), s1), (session_ref("s2"), s2)]);
+        assert_eq!(r.per_server.len(), 2);
+        assert_eq!(r.sessions, 2);
     }
 }
