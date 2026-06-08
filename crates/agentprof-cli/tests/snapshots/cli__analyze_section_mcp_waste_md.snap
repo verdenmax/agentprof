@@ -1,0 +1,39 @@
+---
+source: crates/agentprof-cli/tests/cli.rs
+expression: md
+---
+# agentprof analyze — 00000000-0000-0000-0000-000000000099
+
+## Session
+- Agent: Copilot (v1.0.54)
+- Started: 2026-06-08 10:00:00 UTC
+- CWD: /tmp/agentprof-fixture/with-mcp-waste
+- Live: no
+- Turns: 1
+- Tools tracked: 1
+- Hooks tracked: 0
+- Derive warnings: 0
+- Parse warnings: 0
+
+## MCP Server Waste
+
+Data source: wire notices
+Loaded: 3 tools across 2 MCP servers
+Unused: 2 tools — 1 server with 0 calls
+
+### Per-server
+
+| Server | Loaded | Called | Unused | Fully unused? |
+|--------|-------:|-------:|-------:|---------------|
+| github | 2 | 0 | 2 | **yes** |
+| filesystem | 1 | 1 | 0 | no |
+
+### Per-tool (top 20 unused, alphabetical)
+
+| Tool | Server | Calls | Source |
+|------|--------|------:|--------|
+| mcp__github__create_issue | github | 0 | Wire |
+| mcp__github__search_issues | github | 0 | Wire |
+
+## Warnings
+(none)

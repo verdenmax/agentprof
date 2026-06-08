@@ -519,3 +519,33 @@ fn analyze_html_snapshot_with_ask_user_mid_session() {
     let html = normalize_html_for_snapshot(run_export("with-ask-user-mid-session", "html"));
     insta::assert_snapshot!("analyze_html__with_ask_user_mid_session", html);
 }
+
+/// M1.6.5 T3.2: `analyze --section mcp-waste --export md` on the
+/// with-mcp-waste fixture renders the "## MCP Server Waste" section with
+/// per-server + top-20-unused tables. Pins the spec §7.1 markdown shape.
+///
+/// Uses the Path selector instead of `--root` + `--session <uuid>` because
+/// `CopilotAdapter::discover_sessions` keys `SessionRef` ids on the *directory
+/// name*, not the inner wire-format `sessionId` — see the long comment on
+/// `cross_turn_path()` above for the same precedent.
+#[test]
+fn analyze_section_mcp_waste_md_uses_with_mcp_waste_fixture() {
+    let out = Command::cargo_bin("agentprof")
+        .unwrap()
+        .args([
+            "analyze",
+            "--export",
+            "md",
+            "--section",
+            "mcp-waste",
+            "--session",
+        ])
+        .arg(fixtures_root().join("with-mcp-waste"))
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let md = String::from_utf8(out).unwrap();
+    insta::assert_snapshot!("analyze_section_mcp_waste_md", md);
+}

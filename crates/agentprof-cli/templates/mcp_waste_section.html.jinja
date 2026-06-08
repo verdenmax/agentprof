@@ -1,0 +1,25 @@
+{# Reused by both `analyze --section mcp-waste --export html` and the
+   future mcp-waste subcommand single-session HTML emission. #}
+<section id="mcp-waste">
+  <h2>MCP Server Waste</h2>
+  <p>
+    <strong>Data source:</strong> {{ data_source }}<br>
+    <strong>Loaded:</strong> {{ total_loaded }} tools across {{ server_count }} MCP servers<br>
+    <strong>Unused:</strong> {{ total_unused }} tools — {{ fully_unused_count }} server(s) with 0 calls
+  </p>
+  <h3>Per-server</h3>
+  <table>
+    <thead><tr><th>Server</th><th class="num">Loaded</th><th class="num">Called</th><th class="num">Unused</th><th>Fully unused?</th></tr></thead>
+    <tbody>
+      {% for sw in server_waste %}
+      <tr>
+        <td>{{ sw.server }}</td>
+        <td class="num">{{ sw.loaded_count }}</td>
+        <td class="num">{{ sw.called_count }}</td>
+        <td class="num">{{ sw.unused_count }}</td>
+        <td>{% if sw.is_fully_unused %}<strong>yes</strong>{% else %}no{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>

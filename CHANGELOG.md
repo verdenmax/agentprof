@@ -15,6 +15,17 @@ prefix used in commit messages).
 
 ### Added
 
+- **`cli`: `analyze --section mcp-waste` md / json / html renderers (M1.6.5 T3.2)**
+  surface the per-session `WasteReport` (computed via
+  `agentprof_core::analyzer::compute_waste`). Markdown emits a
+  per-server table plus a top-20 unused-tools table per spec §7.1; JSON
+  adds an optional `mcp_waste` top-level field via a new
+  `AnalyzeJsonOutput` wrapper (auto-skipped when the section isn't
+  requested, so existing JSON consumers see byte-identical output);
+  HTML renders a new askama sub-template (`mcp_waste_section.html.jinja`)
+  reusable by the upcoming `mcp-waste` subcommand. New snapshot test
+  `analyze_section_mcp_waste_md` pins the markdown shape against the
+  `with-mcp-waste` Copilot fixture.
 - `CHANGELOG.md` pre-seeded `### Added` / `### Changed` / `### Fixed`
   stubs under `[Unreleased]` per [Keep-a-Changelog 1.1](https://keepachangelog.com/en/1.1.0/)
   template convention — gives contributors a clear template (closes M-1

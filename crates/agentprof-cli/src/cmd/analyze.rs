@@ -121,18 +121,19 @@ pub enum AnalysisSection {
     /// Per-hook ranking table.
     HookRank,
     /// MCP server waste — loaded-but-uncalled tools and fully-unused
-    /// servers (M1.6.5). Scaffolded in T3.1: opt-in via
-    /// `--section mcp-waste`; renderer wiring (md / json / html) lands
-    /// in T3.2, at which point this variant may join [`Self::all_vec`].
+    /// servers (M1.6.5). Opt-in only via `--section mcp-waste`; md /
+    /// json / html renderers wired in T3.2. Intentionally excluded
+    /// from [`Self::all_vec`] so the default `analyze` output stays
+    /// byte-identical to the pre-M1.6.5 baseline.
     McpWaste,
 }
 
 impl AnalysisSection {
     /// All defined sections (default for `--section`).
     ///
-    /// Note: [`Self::McpWaste`] is intentionally excluded until T3.2
-    /// ships its renderers, keeping default `analyze` output
-    /// byte-identical to the pre-M1.6.5 baseline.
+    /// Note: [`Self::McpWaste`] is intentionally excluded so default
+    /// `analyze` output stays byte-identical to the pre-M1.6.5
+    /// baseline; users opt in via `--section mcp-waste`.
     #[must_use]
     pub fn all_vec() -> Vec<Self> {
         vec![Self::TurnSummary, Self::ToolRank, Self::HookRank]
@@ -202,13 +203,12 @@ pub fn run(
     let episodes = derive_episodes(&raw.events, &raw.meta);
     let report = analyze(&episodes, &raw.meta, &raw.parse_warnings);
 
-    // M1.6.5 T3.1 scaffold — compute MCP waste when opted in via
-    // `--section mcp-waste`. Renderer wiring (md / json / html) lands
-    // in T3.2; binding the `#[must_use]` `WasteReport` here keeps the
-    // adapter + core dispatch path live end-to-end without altering
-    // user-visible output. The branch is reachable (clap accepts the
-    // new variant) so clippy doesn't flag it as dead.
-    if cmd.section.contains(&AnalysisSection::McpWaste) {
+    // M1.6.5 T3.2 — compute MCP waste when opted in via
+    // `--section mcp-waste`. The `WasteReport` is then threaded into
+    // `render_report` so md / json / html renderers can surface it.
+    // Skipped entirely when the section isn't requested so the default
+    // analyze path remains byte-identical to the pre-M1.6.5 baseline.
+    let waste = if cmd.section.contains(&AnalysisSection::McpWaste) {
         let wire_loaded = agentprof_adapters::copilot::extract_loaded_set_from_session(&raw.events);
         let mcp_config_path = resolve_mcp_config_path(None)?;
         let parsed_cfg = agentprof_adapters::copilot::load_mcp_config(&mcp_config_path);
@@ -218,11 +218,14 @@ pub fn run(
                 .filter_map(|(name, info)| info.tools.as_ref().map(|t| (name.clone(), t.clone())))
                 .collect::<std::collections::BTreeMap<_, _>>()
         });
-        let _waste_for_t3_2 =
-            agentprof_core::analyzer::compute_waste(&report, &wire_loaded, config_loaded.as_ref());
-        // T3.2 will thread `_waste_for_t3_2` into `render_report` and
-        // emit it from the md / json / html renderers.
-    }
+        Some(agentprof_core::analyzer::compute_waste(
+            &report,
+            &wire_loaded,
+            config_loaded.as_ref(),
+        ))
+    } else {
+        None
+    };
 
     if cmd.export == ExportFormat::Tui {
         // Polish #4: warn (don't error) if user passed flags that the TUI
@@ -251,7 +254,7 @@ pub fn run(
         );
     }
 
-    let rendered = render_report(&report, &episodes, &raw.meta, &cmd)?;
+    let rendered = render_report(&report, &episodes, &raw.meta, &cmd, waste.as_ref())?;
     write_output(&rendered, cmd.output.as_deref())?;
     Ok(())
 }
@@ -451,14 +454,15 @@ fn render_report(
     episodes: &Episodes,
     meta: &SessionMeta,
     cmd: &AnalyzeCmd,
+    mcp_waste: Option<&agentprof_core::model::WasteReport>,
 ) -> Result<String> {
     match cmd.export {
-        ExportFormat::Md => Ok(format::md::render(report, &cmd.section)),
+        ExportFormat::Md => Ok(format::md::render(report, &cmd.section, mcp_waste)),
         ExportFormat::Json => {
             // serde_json::to_string_pretty omits the trailing newline;
             // append one so the shell prompt doesn't stick to `}` on
             // stdout and so file output has a POSIX-compliant final line.
-            let mut s = format::json::render(report)
+            let mut s = format::json::render(report, mcp_waste)
                 .map_err(|e| ExitKind::OutputError.into_anyhow(format!("json render: {e}")))?;
             s.push('\n');
             Ok(s)
@@ -480,6 +484,7 @@ fn render_report(
             episodes,
             meta,
             &cmd.section,
+            mcp_waste,
             env!("CARGO_PKG_VERSION"),
         )),
     }

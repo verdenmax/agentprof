@@ -17,7 +17,13 @@ Subcommand wiring (current):
 - `--root <DIR>` (override default `~/.copilot/session-state/`)
 - `--export md|json|tui|speedscope|html` (default `md`)
 - `--output <FILE>` (default stdout)
-- `--section turn-summary,tool-rank,hook-rank` (md only; Session header + Warnings always included)
+- `--section turn-summary,tool-rank,hook-rank[,mcp-waste]` (md / json / html;
+  Session header + Warnings always included. `mcp-waste` is **opt-in only**
+  — never included in the default set so the baseline analyze output stays
+  byte-identical. When requested, it adds a "MCP Server Waste" section
+  (md), a top-level `mcp_waste` field (json), or a dedicated `<section
+  id="mcp-waste">` (html) populated via
+  `agentprof_core::analyzer::compute_waste`.)
 
 Markdown structure (after all M1.4 iterations):
 

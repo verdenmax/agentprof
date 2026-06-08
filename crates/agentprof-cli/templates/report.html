@@ -93,6 +93,10 @@ Started: {{ started_at_utc }} UTC
 </section>
 {% endif %}
 
+{%- if show_mcp_waste %}
+{{ mcp_waste_html|safe }}
+{% endif %}
+
 {% if !warnings.is_empty() %}
 <section id="warnings">
 <h2>Warnings</h2>

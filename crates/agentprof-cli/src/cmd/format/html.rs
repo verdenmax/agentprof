@@ -11,7 +11,7 @@ use chrono::Utc;
 use agentprof_core::analyzer::AnalysisReport;
 use agentprof_core::episode::Episodes;
 use agentprof_core::export::svg_flamegraph::SvgFlamegraph;
-use agentprof_core::model::SessionMeta;
+use agentprof_core::model::{SessionMeta, WasteDataSource, WasteReport};
 
 use crate::cmd::analyze::AnalysisSection;
 
@@ -21,12 +21,15 @@ const EMBEDDED_CSS: &str = include_str!("../../../templates/styles.css");
 ///
 /// `sections` controls which mid-report tables (and the flamegraph) are
 /// emitted; the session header and warnings tail are always included.
+/// `mcp_waste` is rendered when [`AnalysisSection::McpWaste`] is in
+/// `sections` AND `Some(_)` is provided (caller passes `None` when the
+/// section was not requested).
 ///
 /// # Examples
 ///
 /// ```ignore
 /// // agentprof-cli is bin-only; this doctest is illustrative only.
-/// let html = format::html::render(&report, &episodes, &meta, &sections, "0.1.0");
+/// let html = format::html::render(&report, &episodes, &meta, &sections, None, "0.1.0");
 /// assert!(html.contains("<html"));
 /// ```
 #[must_use]
@@ -35,6 +38,7 @@ pub fn render(
     episodes: &Episodes,
     meta: &SessionMeta,
     sections: &[AnalysisSection],
+    mcp_waste: Option<&WasteReport>,
     agentprof_version: &str,
 ) -> String {
     let svg = SvgFlamegraph::from_episodes(episodes, meta).into_svg_string();
@@ -102,6 +106,9 @@ pub fn render(
     let session_short_id: String = meta.id.chars().take(8).collect();
     let duration_human = format_duration_short(report);
 
+    let mcp_waste_html = render_mcp_waste_section(sections, mcp_waste);
+    let show_mcp_waste = !mcp_waste_html.is_empty();
+
     let template = ReportTemplate {
         session_short_id,
         agent: meta.agent.to_string(),
@@ -118,11 +125,13 @@ pub fn render(
         show_turns: sections.contains(&AnalysisSection::TurnSummary),
         show_tools: sections.contains(&AnalysisSection::ToolRank),
         show_hooks: sections.contains(&AnalysisSection::HookRank),
+        show_mcp_waste,
         svg_flamegraph: svg,
         turn_rows,
         tool_rows,
         hook_rows,
         warnings,
+        mcp_waste_html,
         embedded_css: EMBEDDED_CSS.to_string(),
         exporter: format!("agentprof v{agentprof_version}"),
         generated_at: Utc::now().to_rfc3339(),
@@ -131,6 +140,58 @@ pub fn render(
     template.render().unwrap_or_else(|e| {
         format!(
             "<html><body><h1>HTML render error</h1><pre>{}</pre></body></html>",
+            html_escape(&e.to_string())
+        )
+    })
+}
+
+/// Render the optional MCP-waste section to HTML.
+///
+/// Returns an empty string when [`AnalysisSection::McpWaste`] is not in
+/// `sections` or `mcp_waste` is `None`. The sub-template lives in
+/// `templates/mcp_waste_section.html.jinja` so the future `mcp-waste`
+/// subcommand can reuse it without dragging session-level context in.
+fn render_mcp_waste_section(
+    sections: &[AnalysisSection],
+    mcp_waste: Option<&WasteReport>,
+) -> String {
+    let Some(w) = mcp_waste else {
+        return String::new();
+    };
+    if !sections.contains(&AnalysisSection::McpWaste) {
+        return String::new();
+    }
+    let fully_unused_count = w.server_waste.iter().filter(|s| s.is_fully_unused).count();
+    let data_source = match w.data_source {
+        WasteDataSource::None => "neither wire notices nor mcp.json found",
+        WasteDataSource::Wire => "wire notices",
+        WasteDataSource::Config => "~/.copilot/mcp.json",
+        WasteDataSource::Both => "wire notices + ~/.copilot/mcp.json",
+        _ => "unknown",
+    }
+    .to_string();
+    let server_waste: Vec<McpServerRow> = w
+        .server_waste
+        .iter()
+        .map(|sw| McpServerRow {
+            server: sw.server.clone(),
+            loaded_count: sw.loaded_count,
+            called_count: sw.called_count,
+            unused_count: sw.unused_count,
+            is_fully_unused: sw.is_fully_unused,
+        })
+        .collect();
+    let sub = McpWasteSectionTemplate {
+        data_source,
+        total_loaded: w.total_loaded_tool_count,
+        server_count: w.server_waste.len(),
+        total_unused: w.total_unused_tool_count,
+        fully_unused_count,
+        server_waste,
+    };
+    sub.render().unwrap_or_else(|e| {
+        format!(
+            "<section id=\"mcp-waste\"><h2>MCP Server Waste</h2><pre>{}</pre></section>",
             html_escape(&e.to_string())
         )
     })
@@ -172,14 +233,41 @@ struct ReportTemplate {
     show_turns: bool,
     show_tools: bool,
     show_hooks: bool,
+    show_mcp_waste: bool,
     svg_flamegraph: String,
     turn_rows: Vec<TurnRow>,
     tool_rows: Vec<ToolRow>,
     hook_rows: Vec<HookRow>,
     warnings: Vec<String>,
+    mcp_waste_html: String,
     embedded_css: String,
     exporter: String,
     generated_at: String,
+}
+
+/// Askama sub-template for the optional MCP-waste section.
+///
+/// Lives in `templates/mcp_waste_section.html.jinja` so it can be reused
+/// by the future `mcp-waste` subcommand (single-session HTML output).
+/// Rendered out-of-band and injected into the main report template as
+/// pre-escaped HTML via `{{ mcp_waste_html|safe }}`.
+#[derive(Template)]
+#[template(path = "mcp_waste_section.html.jinja", escape = "html")]
+struct McpWasteSectionTemplate {
+    data_source: String,
+    total_loaded: usize,
+    server_count: usize,
+    total_unused: usize,
+    fully_unused_count: usize,
+    server_waste: Vec<McpServerRow>,
+}
+
+struct McpServerRow {
+    server: String,
+    loaded_count: usize,
+    called_count: usize,
+    unused_count: usize,
+    is_fully_unused: bool,
 }
 
 struct TurnRow {

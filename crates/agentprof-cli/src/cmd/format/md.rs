@@ -13,13 +13,16 @@ use chrono::Duration;
 use agentprof_core::analyzer::AnalysisReport;
 use agentprof_core::episode::{DeriveWarning, Mode, TurnStatus};
 use agentprof_core::error::ParseWarning;
+use agentprof_core::model::{McpToolWaste, WasteDataSource, WasteReport};
 
 use crate::cmd::analyze::AnalysisSection;
 
 /// Render `report` to markdown.
 ///
 /// `sections` controls which mid-report tables are emitted; the Session
-/// header and Warnings tail are always included.
+/// header and Warnings tail are always included. `mcp_waste` is only
+/// emitted when [`AnalysisSection::McpWaste`] is requested AND a report
+/// was computed (caller passes `None` when the section was not requested).
 ///
 /// # Examples
 ///
@@ -37,11 +40,15 @@ use crate::cmd::analyze::AnalysisSection;
 /// let report = AnalysisReport::new(SessionMeta::new(
 ///     "s".into(), AgentKind::Copilot, Utc::now(), false,
 /// ));
-/// let md = render(&report, &AnalysisSection::all_vec());
+/// let md = render(&report, &AnalysisSection::all_vec(), None);
 /// assert!(md.starts_with("# agentprof analyze"));
 /// ```
 #[must_use]
-pub fn render(report: &AnalysisReport, sections: &[AnalysisSection]) -> String {
+pub fn render(
+    report: &AnalysisReport,
+    sections: &[AnalysisSection],
+    mcp_waste: Option<&WasteReport>,
+) -> String {
     let mut out = String::with_capacity(8 * 1024);
 
     write_header(&mut out, report);
@@ -54,6 +61,11 @@ pub fn render(report: &AnalysisReport, sections: &[AnalysisSection]) -> String {
     }
     if sections.contains(&AnalysisSection::HookRank) {
         write_hook_rank(&mut out, report);
+    }
+    if sections.contains(&AnalysisSection::McpWaste) {
+        if let Some(w) = mcp_waste {
+            write_mcp_waste(&mut out, w);
+        }
     }
 
     write_warnings(&mut out, report);
@@ -229,6 +241,80 @@ fn write_hook_rank(out: &mut String, report: &AnalysisReport) {
     let _ = writeln!(out);
 }
 
+fn write_mcp_waste(out: &mut String, report: &WasteReport) {
+    let _ = writeln!(out, "## MCP Server Waste");
+    let _ = writeln!(out);
+    let _ = writeln!(
+        out,
+        "Data source: {}",
+        match report.data_source {
+            WasteDataSource::None => "neither wire notices nor mcp.json found",
+            WasteDataSource::Wire => "wire notices",
+            WasteDataSource::Config => "~/.copilot/mcp.json",
+            WasteDataSource::Both => "wire notices + ~/.copilot/mcp.json",
+            _ => "unknown",
+        }
+    );
+    let _ = writeln!(
+        out,
+        "Loaded: {} tools across {} MCP servers",
+        report.total_loaded_tool_count,
+        report.server_waste.len(),
+    );
+    let fully = report
+        .server_waste
+        .iter()
+        .filter(|s| s.is_fully_unused)
+        .count();
+    let _ = writeln!(
+        out,
+        "Unused: {} tools — {fully} server{} with 0 calls",
+        report.total_unused_tool_count,
+        if fully == 1 { "" } else { "s" },
+    );
+    let _ = writeln!(out);
+
+    let _ = writeln!(out, "### Per-server");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "| Server | Loaded | Called | Unused | Fully unused? |");
+    let _ = writeln!(out, "|--------|-------:|-------:|-------:|---------------|");
+    for sw in &report.server_waste {
+        let _ = writeln!(
+            out,
+            "| {} | {} | {} | {} | {} |",
+            md_cell_escape(&sw.server),
+            sw.loaded_count,
+            sw.called_count,
+            sw.unused_count,
+            if sw.is_fully_unused { "**yes**" } else { "no" },
+        );
+    }
+    let _ = writeln!(out);
+
+    let _ = writeln!(out, "### Per-tool (top 20 unused, alphabetical)");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "| Tool | Server | Calls | Source |");
+    let _ = writeln!(out, "|------|--------|------:|--------|");
+    let mut all_tools: Vec<(&String, &McpToolWaste)> = report
+        .server_waste
+        .iter()
+        .flat_map(|s| s.tools.iter().map(move |t| (&s.server, t)))
+        .filter(|(_, t)| t.call_count == 0)
+        .collect();
+    all_tools.sort_by(|a, b| a.1.tool_name.cmp(&b.1.tool_name));
+    for (server, t) in all_tools.iter().take(20) {
+        let _ = writeln!(
+            out,
+            "| {} | {} | {} | {:?} |",
+            md_cell_escape(&t.tool_name),
+            md_cell_escape(server),
+            t.call_count,
+            t.loaded_source,
+        );
+    }
+    let _ = writeln!(out);
+}
+
 fn write_warnings(out: &mut String, report: &AnalysisReport) {
     let _ = writeln!(out, "## Warnings");
     if report.warnings.is_empty() && report.parse_warnings.is_empty() {
@@ -398,7 +484,7 @@ mod tests {
     #[test]
     fn empty_report_no_sections_emits_only_header_and_warnings() {
         let report = empty_report();
-        let md = render(&report, &[]);
+        let md = render(&report, &[], None);
         assert!(md.contains("# agentprof analyze — test-session"));
         assert!(md.contains("## Session"));
         assert!(md.contains("## Warnings"));
@@ -411,7 +497,7 @@ mod tests {
     #[test]
     fn empty_report_all_sections_emits_all_tables() {
         let report = empty_report();
-        let md = render(&report, &AnalysisSection::all_vec());
+        let md = render(&report, &AnalysisSection::all_vec(), None);
         assert!(md.contains("## Turn Summary"));
         assert!(md.contains("## Tool Rank"));
         assert!(md.contains("## Hook Rank"));
