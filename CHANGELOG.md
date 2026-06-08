@@ -15,58 +15,42 @@ prefix used in commit messages).
 
 ### Changed
 
-- **BREAKING:** `agentprof_core::analyzer::compute_waste` signature now
-  takes `(&AnalysisReport, &WasteComputeContext)` instead of the flat
-  `(&AnalysisReport, &BTreeSet<String>, Option<&BTreeMap<…>>)` triple
-  (M1.6.6 T1.4). The new `WasteComputeContext` is `#[non_exhaustive]`
-  and exposes a builder (`new` / `with_config` / `with_sidecar` /
-  `with_heuristic` / `with_tokenizer`), so future M1.6.7+ inputs become
-  non-breaking additions. The body now also computes per-tool
-  `description_tokens` + per-server `loaded_tokens` / `unused_tokens`
-  + report-level `token_provenance` / `tokenizer`. See ADR-0016 D-5.
+- **BREAKING (agentprof-core, pre-1.0):** `analyzer::waste::compute_waste`
+  signature changed from `(report, wire_loaded, config_loaded)` to
+  `(report, &WasteComputeContext)` (M1.6.6 T1.4). The builder-pattern
+  context struct + `#[non_exhaustive]` locks the shape — future field
+  additions become non-breaking via `with_*` methods. No published
+  external consumers exist.
 
 ### Added
 
-- **M1.6.6 T5.1** — `tui::views::mcp_waste` banner expands to **2 lines**:
-  line 1 carries `Loaded` / `Unused` token totals (with `≈` prefix when
-  `TokenProvenance::Heuristic` / `Mixed`); line 2 is `Tokenizer: <kind>
-  Token source: <provenance>`. Both the server-summary and per-tool
-  tables gain a `Tokens` column (8 cells, `format_int_short` —
-  `1.6K` style for `>= 1000`) with per-row `≈` prefix for
-  `TokenSource::Heuristic`. Outer layout reserves
-  `Constraint::Length(4)` for the banner block. 9 view tests now cover
-  the view (7 from M1.6.5 + 2 new: 2-line + ≈-prefix).
+- **M1.6.6 MCP tool token-cost view** (extends M1.6.5; Phase 2 of the
+  original "View C" brainstorm). Surfaces "how many *tokens* of my
+  context budget were wasted on tool descriptions the agent never
+  called?" Two data sources via fallback chain:
+  - Default: heuristic constant (200 tokens/tool; `--tokens-per-tool N`)
+  - Optional: `--tool-descriptions <PATH>` (auto-detects file ↔ dir;
+    dir variant accepts raw MCP `tools/list` RPC responses)
+  Tokenizer auto-inferred from `session.meta.model` (`gpt-5*`/`gpt-4o*`
+  → `o200k_base`; else `cl100k_base`).
 
-- **M1.6.6 T4.1** — `agentprof mcp-waste` extended with the same
-  `--tokens-per-tool <N>` (default 200) and `--tool-descriptions <PATH>`
-  flags as `analyze` / `aggregate`; sidecar is loaded once outside the
-  per-session loop. Renderers (md / json / html) now surface a
-  Summary `≈X wasted tokens` line plus a `Largest waste: <server>,
-  ≈X tokens across N sessions` line, the "Always unused" table gains
-  a `Server` + `Tokens (per session)` column, and the per-server
-  cross-session table gains a `Wasted tokens` column. JSON output
-  exposes the new `total_unused_tokens` fields (`AggregateWasteReport`
-  + `McpServerCrossWaste`) populated by `core::analyzer::aggregate_waste`.
+  New core types: `TokenProvenance` (Heuristic|SidecarExact|Mixed),
+  `TokenSource` (Heuristic|SidecarExact), `TokenizerKind`
+  (Cl100kBase|O200kBase). All `WasteReport` / `McpServerWaste` /
+  `McpToolWaste` / `AggregateWasteReport` / `McpServerCrossWaste`
+  structs gain `*_tokens: u64` fields; all `#[serde(default)]` for
+  pre-M1.6.6 JSON snapshot compat.
 
-- **M1.6.6 T3.3** — `agentprof aggregate --by mcp-server` extended with a
-  `Wasted tokens` column (sum of per-session `McpServerWaste.unused_tokens`)
-  across all 4 renderers (md / csv / html / TUI). `aggregate` gained
-  `--tokens-per-tool <N>` (default 200) and `--tool-descriptions <PATH>`
-  flags (same shape as `analyze`); sidecar is loaded once outside the
-  per-session loop. `McpServerBucket` gained `wasted_tokens: u64`
-  (`#[serde(default)]`, backward-compat). Values are rendered with a
-  leading `≈` in md/html/tui (v0.1.x always treats aggregate sums as
-  heuristic); CSV header is `wasted_tokens (approx)`.
+  New `agentprof-adapters::copilot::tool_sidecar` module
+  (`load_sidecar`, `Sidecar`, `ToolEntry`).
 
-- **M1.6.6 T3.2** — `analyze --section mcp-waste` renderers (md + html)
-  now emit token-cost columns: per-server `Unused tokens` and per-tool
-  `Tokens`, with `≈` prefix on heuristic-derived numbers. Banner is
-  reshaped to `Loaded: X tools / Y servers, ≈Z tokens (heuristic|sidecar-exact|mixed,
-  <tokenizer>)`. Footer explains `≈` and points to `--tool-descriptions`
-  for exact counts. Snapshot `cli__analyze_section_mcp_waste_md` updated.
-- **M1.6.6 T3.1** — `analyze` gained `--tokens-per-tool <N>` (default 200)
-  and `--tool-descriptions <PATH>` flags, wired into the new
-  `WasteComputeContext` builder.
+  All 3 CLI subcommands (`analyze --section mcp-waste`, `aggregate
+  --by mcp-server`, `mcp-waste`) and the TUI view (key `5`) gain
+  token-cost columns / lines / banner. `tiktoken-rs = "0.6"` workspace
+  dep (declared since M1.6.5 but unused) becomes first activated.
+
+  ([Design spec](docs/superpowers/specs/2026-06-08-m1.6.6-token-cost-design.md),
+  [ADR-0016](docs/internals/adr-0016-mcp-token-cost-architecture.md))
 
 - **M1.6.5 MCP server waste analysis** (Phase 1 — counts-only;
   token-cost view planned for M1.6.6). Quantify "MCP context bloat" —
