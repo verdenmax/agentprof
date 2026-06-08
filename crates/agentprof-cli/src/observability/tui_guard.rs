@@ -138,7 +138,34 @@ pub fn enter_tui_log_guard(cfg: &LogConfig, tracing_handle: &TracingHandle) -> T
 }
 
 fn resolve_xdg_log_path() -> Option<PathBuf> {
+    resolve_xdg_log_path_with_env(std::env::var_os("XDG_STATE_HOME"))
+}
+
+/// Inner resolver split from [`resolve_xdg_log_path`] so unit tests can
+/// inject `$XDG_STATE_HOME` without mutating the process env (which is
+/// `unsafe` in the 2024 edition and racy across parallel tests).
+///
+/// Resolution order (cross-platform XDG-spec compliant):
+///
+/// 1. `$XDG_STATE_HOME` if set & non-empty → use directly.
+///    `directories::BaseDirs::state_dir()` returns `None` on macOS by
+///    design (Apple has no XDG state spec), which silently broke any
+///    `XDG_STATE_HOME=...` override on Apple platforms — notably hermetic
+///    test isolation in `cli_tracing::watch_run_writes_log_events_to_file`.
+///    Reading the env var ourselves keeps behavior consistent everywhere.
+/// 2. `BaseDirs::state_dir()` → on Linux this returns `$HOME/.local/state`
+///    or the XDG override (same as #1 on Linux; harmless duplication).
+/// 3. `BaseDirs::cache_dir()` last-resort fallback (macOS/Windows where
+///    `state_dir()` returned `None`).
+fn resolve_xdg_log_path_with_env(xdg_state_home: Option<std::ffi::OsString>) -> Option<PathBuf> {
     use directories::BaseDirs;
+
+    if let Some(s) = xdg_state_home {
+        if !s.is_empty() {
+            return Some(PathBuf::from(s).join("agentprof").join("agentprof.log"));
+        }
+    }
+
     let base = BaseDirs::new()?;
     let state_dir = base.state_dir().map_or_else(
         || base.cache_dir().to_path_buf(),
@@ -189,5 +216,39 @@ mod tests {
         let handle = TracingHandle::empty_for_test();
         let _g = enter_tui_log_guard(&cfg, &handle);
         // Just verifying no panic.
+    }
+
+    #[test]
+    fn xdg_state_home_env_var_is_honored_on_all_platforms() {
+        // Regression guard for the macOS-only bug where
+        // `directories::BaseDirs::state_dir()` returns `None` on macOS
+        // (Apple has no XDG state spec), so the previous implementation
+        // silently fell through to `cache_dir()` and ignored
+        // `$XDG_STATE_HOME`. The `cli_tracing` integration test caught
+        // this on macOS aarch64 CI in the v0.1.0 release run; this unit
+        // test pins the fix at the function boundary on every platform.
+        let xdg = std::ffi::OsString::from("/tmp/some-xdg-state");
+        let p = resolve_xdg_log_path_with_env(Some(xdg)).expect("path");
+        assert_eq!(
+            p,
+            std::path::PathBuf::from("/tmp/some-xdg-state/agentprof/agentprof.log"),
+            "non-empty XDG_STATE_HOME must take precedence over BaseDirs fallback",
+        );
+    }
+
+    #[test]
+    fn empty_xdg_state_home_falls_through_to_base_dirs() {
+        // Empty env value should not be treated as "set" — fall through
+        // to BaseDirs path (or None if test env has no $HOME). We only
+        // assert the empty-string case doesn't yield `/agentprof/...`
+        // (with no parent), which would be a clear regression.
+        let p = resolve_xdg_log_path_with_env(Some(std::ffi::OsString::new()));
+        if let Some(path) = p {
+            assert!(
+                !path.starts_with("/agentprof"),
+                "empty XDG_STATE_HOME must not be honored verbatim; got {}",
+                path.display()
+            );
+        }
     }
 }

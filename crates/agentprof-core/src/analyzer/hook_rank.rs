@@ -136,7 +136,7 @@ pub fn hook_rank(episodes: &Episodes) -> Vec<HookRankRow> {
             }
         })
         .collect();
-    rows.sort_by(|a, b| b.total_duration.cmp(&a.total_duration));
+    rows.sort_by_key(|b| std::cmp::Reverse(b.total_duration));
     rows
 }
 

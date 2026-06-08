@@ -81,7 +81,7 @@ pub fn group_by_mode(rows: &[TurnSummaryRow]) -> Vec<ModeBucket> {
         entry.total_tool_calls += row.tool_call_count;
     }
     let mut v: Vec<ModeBucket> = map.into_values().collect();
-    v.sort_by(|a, b| b.turns.cmp(&a.turns));
+    v.sort_by_key(|b| std::cmp::Reverse(b.turns));
     v
 }
 
@@ -367,10 +367,10 @@ fn render_tool_buckets(
     use crate::watch::AggSortKey as S;
     let mut buckets: Vec<&_> = r.buckets.iter().collect();
     match sort {
-        S::Calls => buckets.sort_by(|a, b| b.call_count.cmp(&a.call_count)),
-        S::TotalDuration => buckets.sort_by(|a, b| b.total_duration.cmp(&a.total_duration)),
-        S::Sessions => buckets.sort_by(|a, b| b.session_count.cmp(&a.session_count)),
-        S::Percentile50 => buckets.sort_by(|a, b| b.p50_duration.cmp(&a.p50_duration)),
+        S::Calls => buckets.sort_by_key(|b| std::cmp::Reverse(b.call_count)),
+        S::TotalDuration => buckets.sort_by_key(|b| std::cmp::Reverse(b.total_duration)),
+        S::Sessions => buckets.sort_by_key(|b| std::cmp::Reverse(b.session_count)),
+        S::Percentile50 => buckets.sort_by_key(|b| std::cmp::Reverse(b.p50_duration)),
     }
     let header = Row::new(vec![
         Cell::from("Tool"),
@@ -446,9 +446,9 @@ fn render_mcp_buckets(
     use crate::watch::AggSortKey as S;
     let mut buckets: Vec<&_> = r.buckets.iter().collect();
     match sort {
-        S::Calls => buckets.sort_by(|a, b| b.call_count.cmp(&a.call_count)),
-        S::Sessions => buckets.sort_by(|a, b| b.session_count.cmp(&a.session_count)),
-        _ => buckets.sort_by(|a, b| b.total_duration.cmp(&a.total_duration)),
+        S::Calls => buckets.sort_by_key(|b| std::cmp::Reverse(b.call_count)),
+        S::Sessions => buckets.sort_by_key(|b| std::cmp::Reverse(b.session_count)),
+        _ => buckets.sort_by_key(|b| std::cmp::Reverse(b.total_duration)),
     }
     let header = Row::new(vec![
         Cell::from("Server"),
@@ -566,8 +566,8 @@ fn render_model_buckets(
     use crate::watch::AggSortKey as S;
     let mut buckets: Vec<&_> = r.buckets.iter().collect();
     match sort {
-        S::Sessions => buckets.sort_by(|a, b| b.session_count.cmp(&a.session_count)),
-        _ => buckets.sort_by(|a, b| b.total_duration.cmp(&a.total_duration)),
+        S::Sessions => buckets.sort_by_key(|b| std::cmp::Reverse(b.session_count)),
+        _ => buckets.sort_by_key(|b| std::cmp::Reverse(b.total_duration)),
     }
     let header = Row::new(vec![
         Cell::from("Model"),

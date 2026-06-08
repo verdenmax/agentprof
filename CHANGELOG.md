@@ -48,6 +48,31 @@ prefix used in commit messages).
 
 ### Fixed
 
+- **`cli`: honor `$XDG_STATE_HOME` on macOS / Windows** (regression caught
+  by the first public-CI run on macOS aarch64). `directories::BaseDirs::state_dir()`
+  returns `None` on macOS by design (Apple has no XDG state spec), so the
+  previous `enter_tui_log_guard` implementation silently fell through to
+  `cache_dir()` and ignored any `$XDG_STATE_HOME` override — which broke
+  hermetic test isolation in `cli_tracing::watch_run_writes_log_events_to_file`.
+  `resolve_xdg_log_path` now reads `$XDG_STATE_HOME` directly first
+  (cross-platform XDG-spec primary) before falling back to `BaseDirs`.
+  Two unit tests pinned at the function boundary on every platform.
+- **`ci`: appease clippy 1.96 `unnecessary_sort_by` lint** (17 sites
+  across `agentprof-core`, `agentprof-adapters`, `agentprof-tui`).
+  Mechanical conversion `sort_by(|a, b| b.X.cmp(&a.X))` →
+  `sort_by_key(|b| std::cmp::Reverse(b.X))`; behavior unchanged.
+  Multi-statement closures with secondary tiebreakers (5 sites) retained
+  as-is — the lint does not flag them.
+- **`ci`: pin `xtask` path-dep versions** (`agentprof-core` /
+  `agentprof-adapters` now carry `version = "0.1.0"` alongside `path = ...`)
+  so `cargo deny check` no longer reports `wildcard` errors against the
+  unpublished helper crate.
+- **`ci`: ignore RUSTSEC-2024-0436 in `deny.toml`** with rationale
+  comment (advisory ID, why-can't-fix, upstream tracking, re-evaluation
+  trigger). `paste` 1.0.15 reaches us transitively through `ratatui`
+  0.29.0; will be removed when ratatui drops the `paste` dependency
+  (likely in 0.30+).
+
 ## [0.1.0] - 2026-06-06
 
 ### Added

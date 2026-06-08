@@ -6,6 +6,25 @@ all-features = true
 [advisories]
 db-urls = ["https://github.com/RustSec/advisory-db"]
 yanked = "deny"
+# Ignored advisories — each entry MUST cite (a) the advisory ID,
+# (b) why we cannot fix it ourselves, (c) the upstream tracking link,
+# (d) the re-evaluation trigger.
+ignore = [
+    # RUSTSEC-2024-0436: `paste` 1.0.15 is no longer maintained per
+    # dtolnay/paste README (crate archived 2024). Reaches us
+    # transitively via `ratatui` 0.29.0 → `paste` 1.0.15.
+    #
+    # - (a) advisory: https://rustsec.org/advisories/RUSTSEC-2024-0436
+    # - (b) cannot fix: ratatui 0.29.x still depends on paste; replacing
+    #       ratatui is a major TUI rewrite (ADR-0007 picks ratatui).
+    # - (c) upstream: https://github.com/ratatui/ratatui (tracking issue
+    #       opened for paste replacement; switch likely uses `pastey`
+    #       or `with_builtin_macros`).
+    # - (d) re-evaluate: when ratatui ships a release that drops the
+    #       paste dependency (any ratatui 0.30+ candidate; remove this
+    #       ignore when our Cargo.lock no longer lists paste 1.0.x).
+    "RUSTSEC-2024-0436",
+]
 
 [licenses]
 confidence-threshold = 0.93

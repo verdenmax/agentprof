@@ -49,8 +49,8 @@ use crate::views::format::human_short;
 pub fn sort_rows(rows: &[ToolRankRow], key: SortKey) -> Vec<ToolRankRow> {
     let mut v: Vec<ToolRankRow> = rows.to_vec();
     match key {
-        SortKey::TotalDur => v.sort_by(|a, b| b.total_duration.cmp(&a.total_duration)),
-        SortKey::Calls => v.sort_by(|a, b| b.call_count.cmp(&a.call_count)),
+        SortKey::TotalDur => v.sort_by_key(|b| std::cmp::Reverse(b.total_duration)),
+        SortKey::Calls => v.sort_by_key(|b| std::cmp::Reverse(b.call_count)),
         SortKey::SuccessRate => v.sort_by(|a, b| {
             let ra = success_ratio(a);
             let rb = success_ratio(b);
@@ -58,7 +58,7 @@ pub fn sort_rows(rows: &[ToolRankRow], key: SortKey) -> Vec<ToolRankRow> {
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then_with(|| b.call_count.cmp(&a.call_count))
         }),
-        SortKey::P50 => v.sort_by(|a, b| b.p50_duration.cmp(&a.p50_duration)),
+        SortKey::P50 => v.sort_by_key(|b| std::cmp::Reverse(b.p50_duration)),
     }
     v
 }

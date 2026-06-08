@@ -91,7 +91,7 @@ fn render_with_data(
 ) {
     // Sort by input_tokens desc (D-11).
     let mut rows: Vec<(&String, &ModelUsage)> = metrics.iter().collect();
-    rows.sort_by(|a, b| b.1.input_tokens.cmp(&a.1.input_tokens));
+    rows.sort_by_key(|b| std::cmp::Reverse(b.1.input_tokens));
 
     // Defensive: clamp `selected` to actual row count. WatchRunner (T10)
     // may reload a report with fewer models than the prior render, leaving
