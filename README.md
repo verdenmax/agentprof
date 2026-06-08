@@ -167,7 +167,16 @@ full CLI documentation.
 - `agentprof aggregate` (M1.6.2 + M1.6.3 tui) — cross-session aggregation reports (`--by tool|mcp-server|day|model`, `--export md|json|csv|html|tui`). See [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) `## agentprof aggregate`.
 - `agentprof watch` (M1.6.3) — live-refresh single-session TUI (kernel-event-driven via `notify-debouncer-mini`; default 250 ms debounce). See [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) `## agentprof watch` and [ADR-0009](docs/internals/adr-0009-watch-runner-and-notify.md).
 - `agentprof watch aggregate --by KEY` (M1.6.3) — live-refresh cross-session aggregate TUI; accepts every `aggregate` flag (except `--export` / `--output`, which are rejected because the output is always TUI).
-- `agentprof mcp-waste` (🚧 M1.6.5 T4.1 scaffold) — cross-session report of MCP tools loaded but never called. CLI surface registered today; the `run()` body returns a not-yet-implemented error and is filled in by T4.2. See [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) `## agentprof mcp-waste`.
+- `agentprof mcp-waste` (M1.6.5) — cross-session report of MCP tools loaded into the context window but never called (md / json / html). Pairs with `analyze --section mcp-waste` (single session) and the `[5] McpWaste` TUI view. See [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) `## agentprof mcp-waste` and [ADR-0015](docs/internals/adr-0015-mcp-waste-architecture.md).
+
+### MCP server waste analysis (M1.6.5+)
+
+Quantify "MCP context bloat" — which MCP tools / servers the agent had access to but never called:
+
+- `agentprof analyze --section mcp-waste` — single-session "MCP Server Waste" section (md / json / html; opt-in via `--section`).
+- `agentprof aggregate --by mcp-server` — cross-session leaderboard, now with `Unused tools` + `Sessions w/0 calls` columns.
+- `agentprof mcp-waste` — dedicated cross-session report (md / json / html); top servers with their always-unused tool sets.
+- TUI: press `5` inside `analyze --export tui` to open the split-pane MCP Waste view (server list on the left, per-tool detail on the right; `u` toggles unused-only).
 
 ---
 

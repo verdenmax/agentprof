@@ -174,7 +174,7 @@ agentprof aggregate --by tool --since all --export json | jq '.data.buckets | le
 | `--by` | Columns |
 |---|---|
 | `tool` | Tool, Source, Calls, Success, Fail, Total, p50, p95, Sessions |
-| `mcp-server` | Server, Tools, Calls, Failures, Total, Sessions |
+| `mcp-server` | Server, Tools, Calls, Failures, Total, Sessions, **Unused tools**, **Sessions w/0 calls** (last two M1.6.5 — populated by `aggregate_waste`-style per-session reduction inside `aggregate_by_mcp_server`; bold in md only) |
 | `day` | Date (UTC), Sessions, Wall, Tool time, Out tokens, Utilization% (⚠ on low rows) |
 | `model` | Model, Sessions, Turns, Out tokens, Total wall |
 
@@ -262,7 +262,7 @@ for the full architecture (`WatchRunner` + `WatchData` + `Event::Refresh`
 + watcher-thread-in-cli decision) and `crates/agentprof-tui/README.md`
 `## WatchRunner (M1.6.3)` for the runner contract.
 
-## `agentprof mcp-waste` (🚧 M1.6.5 T4.1 scaffold)
+## `agentprof mcp-waste` (M1.6.5)
 
 Cross-session report of MCP tools loaded into the context window but
 never called. Reads `mcp.json` for the declared toolset and walks
@@ -270,8 +270,8 @@ adapter session-state to count actual invocations; tools with zero
 calls across the time window are surfaced as waste.
 
 ```sh
-agentprof mcp-waste                                     # 7d window, md to stdout (T4.2)
-agentprof mcp-waste --since 30d --top 50 --export json  # CI-friendly (T4.2)
+agentprof mcp-waste                                     # 7d window, md to stdout
+agentprof mcp-waste --since 30d --top 50 --export json  # CI-friendly
 agentprof mcp-waste --mcp-config ./mcp.json --export html --output waste.html
 ```
 
@@ -281,21 +281,24 @@ agentprof mcp-waste --mcp-config ./mcp.json --export html --output waste.html
 | `--since` | `7d` | Time-window filter (`<N>d/h/m/s` or `all`) |
 | `--top` | `20` | Cap on the "Always unused" table |
 | `--mcp-config` | `~/.copilot/mcp.json` | Override mcp config path (`~/` expanded) |
-| `--export` | `md` | `md` / `json` / `html` (**no `tui`** — spec §7.3 / §10) |
+| `--export` | `md` | `md` / `json` / `html` (**no `tui`** — spec §7.3 / §10; use the `[5] McpWaste` view inside `agentprof analyze --export tui` instead) |
 | `--output` | stdout | Output file |
 
-### Status
-
-- **T4.1 (this PR)**: clap surface + `resolve_mcp_config_path` helper
-  shared with `analyze --section mcp-waste`. `run()` returns a
-  not-yet-implemented `anyhow::Error`; invoking the subcommand exits
-  with `UserError` (1) and a clear message until T4.2 lands.
-- **T4.2 (next PR)**: adapter walk → waste analyzer → renderer dispatch
-  pipeline.
+Pipeline: `cmd::mcp_waste::run()` → load every session in the window via
+the adapter → per-session `agentprof_core::analyzer::compute_waste` →
+cross-session reduce via `aggregate_waste` → renderer dispatch
+(`md` / `json` / `html`). Failed sessions are surfaced as a stderr
+summary; the command still emits a report for the successful subset
+and exits `0`. The shared `resolve_mcp_config_path` helper is also
+consumed by `analyze --section mcp-waste` so the two surfaces agree
+on `~/` expansion and default path.
 
 See spec
 [`docs/superpowers/specs/2026-06-08-m1.6.5-mcp-waste-design.md`](../../docs/superpowers/specs/2026-06-08-m1.6.5-mcp-waste-design.md)
-§7.3 for the full user-facing contract.
+§7.3 for the full user-facing contract and
+[ADR-0015](../../docs/internals/adr-0015-mcp-waste-architecture.md)
+for the architecture (data-source provenance, sort order, the
+"shipped without `tui` export" decision).
 
 ## Public interface
 
@@ -313,7 +316,7 @@ agentprof aggregate  [--agent copilot] [--root ...] [--by tool|mcp-server|day|mo
 agentprof watch      [--agent copilot] [--session ...] [--root ...] [--debounce-ms 250]
                      [aggregate --by ... [...all aggregate flags]]          # ✓ shipped (M1.6.3)
 agentprof mcp-waste  [--root ...] [--since 7d] [--top 20] [--mcp-config ...]
-                     [--export md|json|html] [--output ...]                 # 🚧 M1.6.5 T4.1 scaffold (run() 未实现，T4.2 填充)
+                     [--export md|json|html] [--output ...]                 # ✓ shipped (M1.6.5)
 agentprof ingest-otlp [--listen 0.0.0.0:4317]   # feature: otlp            # planned (Phase 2)
 agentprof config     [show | edit | path]                                  # planned (Phase 2)
 ```
@@ -333,7 +336,7 @@ See [`docs/architecture.md`](../../docs/architecture.md) §8 for the canonical s
 | `cmd::aggregate` | The `aggregate` subcommand: cross-session group-by (4 keys × 4 export formats + `tui` since M1.6.3); exposes `pub fn compute_aggregate(&CopilotAdapter, &AggregateCmd) -> Result<(AnyAggregateReport, usize)>` so both `--export tui` and `watch aggregate` reload can share the load + compute pipeline (the second tuple element = total refs scanned, used by the empty-window warning). | ✓ shipped (M1.6.2 + M1.6.3 tui) |
 | `cmd::format::aggregate_md` / `aggregate_csv` / `aggregate_html` | Per-format renderers for `AnyAggregateReport` | ✓ shipped (M1.6.2) |
 | `cmd::watch` | The `watch` subcommand: single-session + `watch aggregate` cross-session live-refresh TUI. Owns the `notify-debouncer-mini` thread and drives `agentprof_tui::watch::WatchRunner` via an mpsc channel + reload closure. | ✓ shipped (M1.6.3) |
-| `cmd::mcp_waste` | The `mcp-waste` subcommand: cross-session report of MCP tools loaded but never called. Also owns the shared `resolve_mcp_config_path` helper consumed by `analyze --section mcp-waste`. | 🚧 M1.6.5 T4.1 scaffold (run() 未实现) |
+| `cmd::mcp_waste` | The `mcp-waste` subcommand: cross-session report of MCP tools loaded but never called. Per-session `compute_waste` + cross-session `aggregate_waste` + md/json/html renderers. Also owns the shared `resolve_mcp_config_path` helper consumed by `analyze --section mcp-waste`. | ✓ shipped (M1.6.5) |
 | `exit` | `ExitKind` enum + `classify_error` downcast | ✓ shipped (M1.4) |
 | `cmd::{ingest_otlp, config}` | One module per planned subcommand | planned (Phase 2) |
 | `config` | TOML loader / writer for `~/.config/agentprof/config.toml` | planned (M1.5+) |
