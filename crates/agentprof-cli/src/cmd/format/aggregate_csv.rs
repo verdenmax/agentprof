@@ -75,6 +75,9 @@ fn write_mcp<W: std::io::Write>(
     w: &mut csv::Writer<W>,
     r: &AggregateReport<McpServerBucket>,
 ) -> Result<()> {
+    // M1.6.6 §7.5: CSV header carries the `(approx)` qualifier
+    // (instead of an inline `≈` per row) because the values are
+    // typically heuristic in cross-session aggregates.
     w.write_record([
         "server",
         "tool_count",
@@ -84,6 +87,7 @@ fn write_mcp<W: std::io::Write>(
         "session_count",
         "unused_tool_count",
         "fully_unused_session_count",
+        "wasted_tokens (approx)",
     ])
     .context("write mcp header")?;
     for b in &r.buckets {
@@ -96,6 +100,7 @@ fn write_mcp<W: std::io::Write>(
             &b.session_count.to_string(),
             &b.unused_tool_count.to_string(),
             &b.fully_unused_session_count.to_string(),
+            &b.wasted_tokens.to_string(),
         ])
         .context("write mcp row")?;
     }

@@ -27,6 +27,16 @@ prefix used in commit messages).
 
 ### Added
 
+- **M1.6.6 T3.3** — `agentprof aggregate --by mcp-server` extended with a
+  `Wasted tokens` column (sum of per-session `McpServerWaste.unused_tokens`)
+  across all 4 renderers (md / csv / html / TUI). `aggregate` gained
+  `--tokens-per-tool <N>` (default 200) and `--tool-descriptions <PATH>`
+  flags (same shape as `analyze`); sidecar is loaded once outside the
+  per-session loop. `McpServerBucket` gained `wasted_tokens: u64`
+  (`#[serde(default)]`, backward-compat). Values are rendered with a
+  leading `≈` in md/html/tui (v0.1.x always treats aggregate sums as
+  heuristic); CSV header is `wasted_tokens (approx)`.
+
 - **M1.6.6 T3.2** — `analyze --section mcp-waste` renderers (md + html)
   now emit token-cost columns: per-server `Unused tokens` and per-tool
   `Tokens`, with `≈` prefix on heuristic-derived numbers. Banner is

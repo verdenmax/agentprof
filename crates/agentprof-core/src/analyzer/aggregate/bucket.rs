@@ -108,6 +108,7 @@ impl ToolBucket {
 /// assert_eq!(b.tool_count, 0);
 /// assert_eq!(b.unused_tool_count, 0);
 /// assert_eq!(b.fully_unused_session_count, 0);
+/// assert_eq!(b.wasted_tokens, 0);
 /// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -139,15 +140,25 @@ pub struct McpServerBucket {
     /// deserializable.
     #[serde(default)]
     pub fully_unused_session_count: usize,
+    /// M1.6.6 — sum of per-session `McpServerWaste.unused_tokens`
+    /// across every contributing session, in tokens (`u64`). This is
+    /// the headline "context cost of carrying tools you never call"
+    /// at the per-server granularity. Values are typically heuristic
+    /// (`tokens_per_tool × unused_count`) — surface a `≈` qualifier
+    /// in renderers per spec §7.5. `#[serde(default)]` keeps
+    /// pre-M1.6.6 cached JSON deserializable.
+    #[serde(default)]
+    pub wasted_tokens: u64,
 }
 
 impl McpServerBucket {
     /// Construct a [`McpServerBucket`].
     ///
     /// The two M1.6.5 waste fields (`unused_tool_count`,
-    /// `fully_unused_session_count`) are initialised to `0`; the
-    /// aggregator constructs via struct literal when waste data is
-    /// available (see [`crate::analyzer::aggregate::group_by_mcp::aggregate_by_mcp_server`]).
+    /// `fully_unused_session_count`) and the M1.6.6 `wasted_tokens`
+    /// field are initialised to `0`; the aggregator constructs via
+    /// struct literal when waste data is available (see
+    /// [`crate::analyzer::aggregate::group_by_mcp::aggregate_by_mcp_server`]).
     ///
     /// # Examples
     ///
@@ -174,6 +185,7 @@ impl McpServerBucket {
             session_count,
             unused_tool_count: 0,
             fully_unused_session_count: 0,
+            wasted_tokens: 0,
         }
     }
 }

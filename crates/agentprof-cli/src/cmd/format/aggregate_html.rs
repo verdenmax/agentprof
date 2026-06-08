@@ -161,11 +161,15 @@ fn render_mcp(r: &AggregateReport<McpServerBucket>) -> String {
     s.push_str("<section id=\"buckets\"><table><thead><tr>");
     s.push_str("<th>Server</th><th class=\"num\">Tools</th><th class=\"num\">Calls</th>");
     s.push_str("<th class=\"num\">Failures</th><th class=\"num\">Total</th><th class=\"num\">Sessions</th>");
-    s.push_str("<th class=\"num\">Unused tools</th><th class=\"num\">Sessions w/0 calls</th></tr></thead><tbody>");
+    s.push_str("<th class=\"num\">Unused tools</th><th class=\"num\">Sessions w/0 calls</th>");
+    // M1.6.6 §7.5: `Wasted tokens` rightmost; always `≈` in aggregate
+    // (per-session sidecar provenance not currently threaded through
+    // `McpServerBucket`).
+    s.push_str("<th class=\"num\">Wasted tokens</th></tr></thead><tbody>");
     for b in &r.buckets {
         let _ = write!(
             s,
-            "<tr><td>{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td></tr>",
+            "<tr><td>{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">≈{}</td></tr>",
             html_escape(&b.server),
             b.tool_count,
             b.call_count,
@@ -174,9 +178,12 @@ fn render_mcp(r: &AggregateReport<McpServerBucket>) -> String {
             b.session_count,
             b.unused_tool_count,
             b.fully_unused_session_count,
+            b.wasted_tokens,
         );
     }
-    s.push_str("</tbody></table></section>");
+    s.push_str("</tbody></table>");
+    s.push_str("<p class=\"note\">≈ = heuristic per-tool cost may have contributed. Pass <code>--tool-descriptions &lt;PATH&gt;</code> to every analyzed session for exact counts.</p>");
+    s.push_str("</section>");
     s
 }
 

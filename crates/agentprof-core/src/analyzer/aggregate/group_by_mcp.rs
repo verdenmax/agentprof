@@ -75,6 +75,7 @@ pub fn aggregate_by_mcp_server(
                     sessions: BTreeSet::new(),
                     unused_tool_count: 0,
                     fully_unused_session_count: 0,
+                    wasted_tokens: 0,
                 });
                 entry.tool_names.insert(row.name.clone());
                 entry.call_count += row.call_count;
@@ -88,6 +89,8 @@ pub fn aggregate_by_mcp_server(
     // M1.6.5: merge waste data per session. Servers that appear only
     // in waste (loaded but never called) get a bucket too — they're
     // exactly the "fully unused" case spec §7.2 wants to surface.
+    // M1.6.6: also sum `unused_tokens` into the bucket's
+    // `wasted_tokens` field (spec §7.5).
     for w in waste_per_report {
         for sw in &w.server_waste {
             let entry = acc.entry(sw.server.clone()).or_insert_with(|| TempMcpAcc {
@@ -99,11 +102,13 @@ pub fn aggregate_by_mcp_server(
                 sessions: BTreeSet::new(),
                 unused_tool_count: 0,
                 fully_unused_session_count: 0,
+                wasted_tokens: 0,
             });
             entry.unused_tool_count += sw.unused_count;
             if sw.is_fully_unused {
                 entry.fully_unused_session_count += 1;
             }
+            entry.wasted_tokens = entry.wasted_tokens.saturating_add(sw.unused_tokens);
         }
     }
 
@@ -118,6 +123,7 @@ pub fn aggregate_by_mcp_server(
             session_count: t.sessions.len(),
             unused_tool_count: t.unused_tool_count,
             fully_unused_session_count: t.fully_unused_session_count,
+            wasted_tokens: t.wasted_tokens,
         })
         .collect();
     buckets.sort_by(|a, b| {
@@ -147,4 +153,5 @@ struct TempMcpAcc {
     sessions: BTreeSet<usize>,
     unused_tool_count: usize,
     fully_unused_session_count: usize,
+    wasted_tokens: u64,
 }

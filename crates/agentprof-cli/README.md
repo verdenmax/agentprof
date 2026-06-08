@@ -168,13 +168,15 @@ agentprof aggregate --by tool --since all --export json | jq '.data.buckets | le
 | `--export` | `md` | `md` / `json` / `csv` / `html` / `tui` (✅ M1.6.3 activates `tui` — static cross-session aggregate TUI; for live-refresh use `agentprof watch aggregate ...` instead) |
 | `--output` | stdout | Write to file instead of stdout (ignored with `--export tui`) |
 | `--low-utilization-threshold` | `20.0` | Day bucket warn threshold; rows below are flagged |
+| `--tokens-per-tool` | `200` | M1.6.6 — heuristic token cost per MCP tool when no sidecar covers a tool. Only consulted by `--by mcp-server`. |
+| `--tool-descriptions` | _(none)_ | M1.6.6 — sidecar path (file or dir) with per-tool descriptions for exact token counts. See `analyze --tool-descriptions` for the on-disk schema. Only consulted by `--by mcp-server`. |
 
 **Per-key output**:
 
 | `--by` | Columns |
 |---|---|
 | `tool` | Tool, Source, Calls, Success, Fail, Total, p50, p95, Sessions |
-| `mcp-server` | Server, Tools, Calls, Failures, Total, Sessions, **Unused tools**, **Sessions w/0 calls** (last two M1.6.5 — populated by `aggregate_waste`-style per-session reduction inside `aggregate_by_mcp_server`; bold in md only) |
+| `mcp-server` | Server, Tools, Calls, Failures, Total, Sessions, **Unused tools**, **Sessions w/0 calls**, **Wasted tokens** (last three M1.6.5/M1.6.6 — populated by `aggregate_waste`-style per-session reduction inside `aggregate_by_mcp_server`; `Wasted tokens` is rendered with a leading `≈` in md/html/tui because the v0.1.x aggregate path always treats cross-session sums as heuristic; CSV header is `wasted_tokens (approx)`) |
 | `day` | Date (UTC), Sessions, Wall, Tool time, Out tokens, Utilization% (⚠ on low rows) |
 | `model` | Model, Sessions, Turns, Out tokens, Total wall |
 

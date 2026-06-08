@@ -126,13 +126,18 @@ fn render_mcp(out: &mut String, r: &AggregateReport<McpServerBucket>) {
     }
     let _ = writeln!(
         out,
-        "| Server | Tools | Calls | Failures | Total | Sessions | **Unused tools** | **Sessions w/0 calls** |"
+        "| Server | Tools | Calls | Failures | Total | Sessions | **Unused tools** | **Sessions w/0 calls** | **Wasted tokens** |"
     );
-    let _ = writeln!(out, "|---|---:|---:|---:|---:|---:|---:|---:|");
+    let _ = writeln!(out, "|---|---:|---:|---:|---:|---:|---:|---:|---:|");
     for b in &r.buckets {
+        // M1.6.6 §7.5: `wasted_tokens` in `--by mcp-server` is summed
+        // from per-session `McpServerWaste.unused_tokens`. For v0.1.x
+        // we always render `≈` since the typical case is heuristic;
+        // per-session provenance is not currently threaded through
+        // [`McpServerBucket`].
         let _ = writeln!(
             out,
-            "| {} | {} | {} | {} | {} | {} | {} | {} |",
+            "| {} | {} | {} | {} | {} | {} | {} | {} | ≈{} |",
             md_escape(&b.server),
             b.tool_count,
             b.call_count,
@@ -141,8 +146,13 @@ fn render_mcp(out: &mut String, r: &AggregateReport<McpServerBucket>) {
             b.session_count,
             b.unused_tool_count,
             b.fully_unused_session_count,
+            b.wasted_tokens,
         );
     }
+    let _ = writeln!(
+        out,
+        "\n> ≈ = heuristic per-tool cost may have contributed. Pass `--tool-descriptions <PATH>` to every analyzed session for exact counts."
+    );
 }
 
 fn render_day(out: &mut String, r: &AggregateReport<DayBucket>) {

@@ -457,6 +457,7 @@ fn render_mcp_buckets(
         Cell::from("Sess"),
         Cell::from("Unused"),
         Cell::from("0-call"),
+        Cell::from("Wasted"),
     ])
     .style(Style::default().add_modifier(Modifier::BOLD));
     let rows: Vec<Row<'_>> = buckets
@@ -475,6 +476,10 @@ fn render_mcp_buckets(
                 Cell::from(format!("{}", b.session_count)),
                 Cell::from(format!("{}", b.unused_tool_count)),
                 Cell::from(format!("{}", b.fully_unused_session_count)),
+                // M1.6.6 §7.5: always `≈` in aggregate (typical case
+                // is heuristic; per-session provenance not threaded
+                // through [`McpServerBucket`]).
+                Cell::from(format!("≈{}", b.wasted_tokens)),
             ])
             .style(style)
         })
@@ -488,6 +493,7 @@ fn render_mcp_buckets(
             Constraint::Length(8),
             Constraint::Length(8),
             Constraint::Length(8),
+            Constraint::Length(10),
         ],
     )
     .header(header)

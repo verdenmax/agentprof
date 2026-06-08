@@ -64,6 +64,20 @@ pub struct AggregateCmd {
     /// low-utilization. Range 0.0 to 100.0. Default 20.
     #[arg(long, default_value_t = 20.0)]
     pub low_utilization_threshold: f32,
+
+    /// Heuristic token cost per MCP tool when no sidecar is provided.
+    /// Default 200 (≈ description + small inputSchema). M1.6.6.
+    /// Only consulted by `--by mcp-server`; ignored otherwise.
+    #[arg(long, default_value_t = agentprof_core::analyzer::waste::DEFAULT_HEURISTIC_TOKENS)]
+    pub tokens_per_tool: u64,
+
+    /// Optional sidecar path with per-tool descriptions for exact
+    /// token counts. Path → file: global JSON `{"<server>": [<ToolEntry>, ...]}`.
+    /// Path → dir: per-server `<server>.json` files (MCP `tools/list` shape).
+    /// Absent → heuristic-only mode. M1.6.6.
+    /// Only consulted by `--by mcp-server`; ignored otherwise.
+    #[arg(long, value_name = "PATH")]
+    pub tool_descriptions: Option<PathBuf>,
 }
 
 /// Output format for `aggregate`.
@@ -358,14 +372,30 @@ pub fn compute_aggregate(
                     })
                     .collect::<std::collections::BTreeMap<_, _>>()
             });
+            // M1.6.6 T3.3: load the optional `--tool-descriptions`
+            // sidecar ONCE (outside the per-session loop) — sidecar
+            // parsing is the only non-trivial per-invocation cost
+            // here and applies uniformly to every session.
+            let sidecar = if let Some(path) = cmd.tool_descriptions.as_deref() {
+                Some(
+                    agentprof_adapters::copilot::tool_sidecar::load_sidecar(path).map_err(|e| {
+                        ExitKind::UserError
+                            .into_anyhow(format!("sidecar load failed for {}: {e}", path.display()))
+                    })?,
+                )
+            } else {
+                None
+            };
             let waste_per_report: Vec<agentprof_core::model::WasteReport> = reports
                 .iter()
                 .zip(events_vec.iter())
                 .map(|(r, events)| {
                     let wire = agentprof_adapters::copilot::extract_loaded_set_from_session(events);
-                    // M1.6.6 T1.4: build a WasteComputeContext per session.
-                    // Tokenizer inferred from the first model in `model_metrics`
-                    // (best signal until an explicit `meta.model` lands).
+                    // M1.6.6 T1.4 + T3.3: build a WasteComputeContext
+                    // per session. Tokenizer inferred from the first
+                    // model key in `model_metrics` (best signal until
+                    // an explicit `meta.model` lands). Sidecar +
+                    // heuristic overrides are layered uniformly.
                     let model_hint: Option<String> = r
                         .model_metrics
                         .as_ref()
@@ -374,9 +404,13 @@ pub fn compute_aggregate(
                         agentprof_core::analyzer::waste::infer_tokenizer(model_hint.as_deref());
                     let mut waste_ctx =
                         agentprof_core::analyzer::waste::WasteComputeContext::new(&wire)
-                            .with_tokenizer(tokenizer);
+                            .with_tokenizer(tokenizer)
+                            .with_heuristic(cmd.tokens_per_tool);
                     if let Some(c) = config_loaded.as_ref() {
                         waste_ctx = waste_ctx.with_config(c);
+                    }
+                    if let Some(s) = sidecar.as_ref() {
+                        waste_ctx = waste_ctx.with_sidecar(s);
                     }
                     agentprof_core::analyzer::compute_waste(r, &waste_ctx)
                 })
@@ -583,6 +617,8 @@ mod tests {
             export: AggExportFormat::Md,
             output: None,
             low_utilization_threshold: 20.0,
+            tokens_per_tool: agentprof_core::analyzer::waste::DEFAULT_HEURISTIC_TOKENS,
+            tool_descriptions: None,
         };
         let adapter = CopilotAdapter;
         let (any, refs_total) = compute_aggregate(&adapter, &cmd)
