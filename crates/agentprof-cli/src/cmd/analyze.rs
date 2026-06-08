@@ -19,6 +19,7 @@ use agentprof_core::episode::{derive_episodes, Episodes};
 use agentprof_core::model::SessionMeta;
 
 use crate::cmd::format;
+use crate::cmd::mcp_waste::resolve_mcp_config_path;
 
 /// Arguments for `agentprof analyze`.
 #[derive(Args, Debug, Clone)]
@@ -289,29 +290,9 @@ fn run_tui(
     res.map_err(|e| ExitKind::OutputError.into_anyhow(format!("tui runtime: {e}")))
 }
 
-/// Resolve the path to the user's `mcp.json`.
-///
-/// Returns `override_path` when set, else `$HOME/.copilot/mcp.json`.
-/// Fails with [`ExitKind::UserError`] when neither is available
-/// (e.g. minimal CI containers without `HOME`).
-///
-/// Introduced for M1.6.5 T3.1 scaffold; T4.1 (`cmd::mcp_waste`) will
-/// re-export / relocate this helper when the dedicated `mcp-waste`
-/// subcommand lands. Keep `pub(crate)` so the move is non-breaking.
-pub fn resolve_mcp_config_path(override_path: Option<&Path>) -> Result<PathBuf> {
-    if let Some(p) = override_path {
-        return Ok(p.to_path_buf());
-    }
-    std::env::var_os("HOME")
-        .map(|home| PathBuf::from(home).join(".copilot").join("mcp.json"))
-        .ok_or_else(|| {
-            ExitKind::UserError.into_anyhow(
-                "could not determine mcp.json path (HOME unset); \
-                 pass an explicit path or set HOME"
-                    .to_string(),
-            )
-        })
-}
+// `resolve_mcp_config_path` was moved to `crate::cmd::mcp_waste` in
+// M1.6.5 T4.1 so the dedicated `agentprof mcp-waste` subcommand and
+// `analyze --section mcp-waste` share a single implementation.
 
 #[allow(clippy::trivially_copy_pass_by_ref)] // CopilotAdapter is a unit struct today but the Adapter trait API takes &self.
 pub fn resolve_session(

@@ -407,6 +407,18 @@ watch   [--agent copilot]                     # ✅ M1.6.3: copilot only
       - notify init 失败时退出 DataError (2) 并提示用 `--export md` 走 headless 一次性输出（无 polling fallback，D-15）。
     见 [ADR-0009](internals/adr-0009-watch-runner-and-notify.md)。
 
+mcp-waste [--root <dir>]                       # 🚧 M1.6.5 T4.1 — scaffold only (run() 未实现，T4.2 填充)
+          [--since 7d]                         # 时间窗口：<N>d/h/m/s 或 all（默认 7d）
+          [--top 20]                           # "Always unused" 表格 Top-N（默认 20）
+          [--mcp-config <path>]                # 覆盖 ~/.copilot/mcp.json
+          [--export md|json|html]              # 输出格式（**不含 tui**，spec §7.3 / §10）
+          [--output <file>]                    # 默认 stdout
+    跨 session 的 MCP 服务器浪费报告（"加载了但从未被调用"）：
+      - 与 `analyze --section mcp-waste` 共享 `resolve_mcp_config_path` 实现。
+      - T4.1 scaffold 阶段 `run()` 返回 not-yet-implemented；T4.2 填充
+        adapter walk → waste analyzer → renderer dispatch 管线。
+      - 见 spec `docs/superpowers/specs/2026-06-08-m1.6.5-mcp-waste-design.md` §7.3。
+
 ingest-otlp [--listen 0.0.0.0:4317]            # 🚧 规划中 — Phase 2
     启动 OTLP receiver，订阅 Claude Code telemetry（feature: otlp）。
 

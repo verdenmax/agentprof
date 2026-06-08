@@ -55,6 +55,8 @@ enum SubCmd {
     Aggregate(cmd::aggregate::AggregateCmd),
     /// Live-refresh TUI: monitor session file(s) and redraw on change (M1.6.3).
     Watch(cmd::watch::WatchCmd),
+    /// Cross-session MCP server waste analysis (M1.6.5).
+    McpWaste(cmd::mcp_waste::McpWasteArgs),
 }
 
 fn main() -> ExitCode {
@@ -86,6 +88,7 @@ fn run(
         SubCmd::List(c) => cmd::list::run(c, cfg, tracing_handle),
         SubCmd::Aggregate(c) => cmd::aggregate::run(c, cfg, tracing_handle),
         SubCmd::Watch(c) => cmd::watch::run(c, cfg, tracing_handle),
+        SubCmd::McpWaste(c) => cmd::mcp_waste::run(c, cfg, tracing_handle),
     }
 }
 

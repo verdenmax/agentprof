@@ -346,7 +346,7 @@ pub fn compute_aggregate(
             // once (same path for every session) — load failures
             // degrade to `None` so cli stays usable on hosts without
             // a Copilot mcp config.
-            let mcp_config_path = crate::cmd::analyze::resolve_mcp_config_path(None).ok();
+            let mcp_config_path = crate::cmd::mcp_waste::resolve_mcp_config_path(None).ok();
             let parsed_cfg = mcp_config_path
                 .as_deref()
                 .and_then(agentprof_adapters::copilot::load_mcp_config);

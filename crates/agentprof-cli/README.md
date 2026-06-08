@@ -262,6 +262,41 @@ for the full architecture (`WatchRunner` + `WatchData` + `Event::Refresh`
 + watcher-thread-in-cli decision) and `crates/agentprof-tui/README.md`
 `## WatchRunner (M1.6.3)` for the runner contract.
 
+## `agentprof mcp-waste` (🚧 M1.6.5 T4.1 scaffold)
+
+Cross-session report of MCP tools loaded into the context window but
+never called. Reads `mcp.json` for the declared toolset and walks
+adapter session-state to count actual invocations; tools with zero
+calls across the time window are surfaced as waste.
+
+```sh
+agentprof mcp-waste                                     # 7d window, md to stdout (T4.2)
+agentprof mcp-waste --since 30d --top 50 --export json  # CI-friendly (T4.2)
+agentprof mcp-waste --mcp-config ./mcp.json --export html --output waste.html
+```
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--root` | adapter default | Adapter session-state root override |
+| `--since` | `7d` | Time-window filter (`<N>d/h/m/s` or `all`) |
+| `--top` | `20` | Cap on the "Always unused" table |
+| `--mcp-config` | `~/.copilot/mcp.json` | Override mcp config path (`~/` expanded) |
+| `--export` | `md` | `md` / `json` / `html` (**no `tui`** — spec §7.3 / §10) |
+| `--output` | stdout | Output file |
+
+### Status
+
+- **T4.1 (this PR)**: clap surface + `resolve_mcp_config_path` helper
+  shared with `analyze --section mcp-waste`. `run()` returns a
+  not-yet-implemented `anyhow::Error`; invoking the subcommand exits
+  with `UserError` (1) and a clear message until T4.2 lands.
+- **T4.2 (next PR)**: adapter walk → waste analyzer → renderer dispatch
+  pipeline.
+
+See spec
+[`docs/superpowers/specs/2026-06-08-m1.6.5-mcp-waste-design.md`](../../docs/superpowers/specs/2026-06-08-m1.6.5-mcp-waste-design.md)
+§7.3 for the full user-facing contract.
+
 ## Public interface
 
 This crate produces a binary, not a library. The user-facing protocol is the CLI itself:
@@ -277,6 +312,8 @@ agentprof aggregate  [--agent copilot] [--root ...] [--by tool|mcp-server|day|mo
                      [--low-utilization-threshold 20]                       # ✓ shipped (M1.6.2 + M1.6.3 tui)
 agentprof watch      [--agent copilot] [--session ...] [--root ...] [--debounce-ms 250]
                      [aggregate --by ... [...all aggregate flags]]          # ✓ shipped (M1.6.3)
+agentprof mcp-waste  [--root ...] [--since 7d] [--top 20] [--mcp-config ...]
+                     [--export md|json|html] [--output ...]                 # 🚧 M1.6.5 T4.1 scaffold (run() 未实现，T4.2 填充)
 agentprof ingest-otlp [--listen 0.0.0.0:4317]   # feature: otlp            # planned (Phase 2)
 agentprof config     [show | edit | path]                                  # planned (Phase 2)
 ```
@@ -296,6 +333,7 @@ See [`docs/architecture.md`](../../docs/architecture.md) §8 for the canonical s
 | `cmd::aggregate` | The `aggregate` subcommand: cross-session group-by (4 keys × 4 export formats + `tui` since M1.6.3); exposes `pub fn compute_aggregate(&CopilotAdapter, &AggregateCmd) -> Result<(AnyAggregateReport, usize)>` so both `--export tui` and `watch aggregate` reload can share the load + compute pipeline (the second tuple element = total refs scanned, used by the empty-window warning). | ✓ shipped (M1.6.2 + M1.6.3 tui) |
 | `cmd::format::aggregate_md` / `aggregate_csv` / `aggregate_html` | Per-format renderers for `AnyAggregateReport` | ✓ shipped (M1.6.2) |
 | `cmd::watch` | The `watch` subcommand: single-session + `watch aggregate` cross-session live-refresh TUI. Owns the `notify-debouncer-mini` thread and drives `agentprof_tui::watch::WatchRunner` via an mpsc channel + reload closure. | ✓ shipped (M1.6.3) |
+| `cmd::mcp_waste` | The `mcp-waste` subcommand: cross-session report of MCP tools loaded but never called. Also owns the shared `resolve_mcp_config_path` helper consumed by `analyze --section mcp-waste`. | 🚧 M1.6.5 T4.1 scaffold (run() 未实现) |
 | `exit` | `ExitKind` enum + `classify_error` downcast | ✓ shipped (M1.4) |
 | `cmd::{ingest_otlp, config}` | One module per planned subcommand | planned (Phase 2) |
 | `config` | TOML loader / writer for `~/.config/agentprof/config.toml` | planned (M1.5+) |

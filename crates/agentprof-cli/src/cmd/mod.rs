@@ -22,6 +22,7 @@ pub mod analyze;
 pub mod exit;
 pub mod format;
 pub mod list;
+pub mod mcp_waste;
 pub mod since;
 pub mod watch;
 

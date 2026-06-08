@@ -15,6 +15,19 @@ prefix used in commit messages).
 
 ### Added
 
+- **`cli`: scaffold `mcp-waste` subcommand (M1.6.5 T4.1)**
+  Registers the `agentprof mcp-waste` subcommand with its full clap
+  surface (`--root` / `--since` / `--top` / `--mcp-config` / `--export
+  md|json|html` / `--output`). The `McpWasteExport` enum deliberately
+  omits `tui` per spec §7.3 / §10. Also relocates the
+  `resolve_mcp_config_path` helper from `cmd::analyze` to
+  `cmd::mcp_waste` (the new natural owner) and switches its home-dir
+  lookup from raw `$HOME` to `directories::BaseDirs` so `~/`-prefixed
+  overrides expand consistently across the two callers
+  (`analyze --section mcp-waste` and `aggregate --by mcp-server`).
+  `run()` returns a not-yet-implemented `anyhow::Error` until T4.2
+  fills in the adapter-walk → waste-analyzer → renderer-dispatch
+  pipeline.
 - **`core,cli`: extend `McpServerBucket` with M1.6.5 waste fields (T3.3)**
   `agentprof_core::analyzer::aggregate::McpServerBucket` gains two
   `#[serde(default)]` fields — `unused_tool_count` and

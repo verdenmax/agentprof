@@ -167,6 +167,7 @@ full CLI documentation.
 - `agentprof aggregate` (M1.6.2 + M1.6.3 tui) — cross-session aggregation reports (`--by tool|mcp-server|day|model`, `--export md|json|csv|html|tui`). See [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) `## agentprof aggregate`.
 - `agentprof watch` (M1.6.3) — live-refresh single-session TUI (kernel-event-driven via `notify-debouncer-mini`; default 250 ms debounce). See [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) `## agentprof watch` and [ADR-0009](docs/internals/adr-0009-watch-runner-and-notify.md).
 - `agentprof watch aggregate --by KEY` (M1.6.3) — live-refresh cross-session aggregate TUI; accepts every `aggregate` flag (except `--export` / `--output`, which are rejected because the output is always TUI).
+- `agentprof mcp-waste` (🚧 M1.6.5 T4.1 scaffold) — cross-session report of MCP tools loaded but never called. CLI surface registered today; the `run()` body returns a not-yet-implemented error and is filled in by T4.2. See [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) `## agentprof mcp-waste`.
 
 ---
 
