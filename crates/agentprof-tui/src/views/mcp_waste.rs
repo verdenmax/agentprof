@@ -4,10 +4,175 @@
 //! See `docs/superpowers/specs/2026-06-08-m1.6.5-mcp-waste-design.md` §7.4
 //! and `docs/internals/adr-0015-mcp-waste-architecture.md` D-4.
 //!
-//! M1.6.5 T5.1 ships state types only; the split-pane `render` function
-//! and key handling land in T5.2 / T5.3.
+//! M1.6.5 T5.1 ships state types; T5.2 adds the split-pane [`render`]
+//! function (banner + 40/60 horizontal split). Key handling +
+//! `AppRunner` registration land in T5.3.
 
-use ratatui::widgets::TableState;
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::style::{Modifier, Style};
+use ratatui::widgets::{Block, Borders, Cell, Row, Table, TableState};
+
+use agentprof_core::model::WasteReport;
+
+/// Render the MCP Waste view into `area`. Split-pane: left = servers
+/// summary table; right = tools for the cursor-selected server.
+///
+/// Top banner shows the data-source provenance and loaded/unused totals;
+/// the body splits 40% / 60% horizontally between the server summary
+/// (left) and the tools of the cursor-selected server (right). The
+/// server cursor is highlighted with `REVERSED` style; the tools pane
+/// auto-updates for the selected server and respects the
+/// `unused_only` filter on [`McpWasteState`].
+///
+/// # Examples
+///
+/// ```ignore
+/// // Render is exercised end-to-end via TUI integration tests; this
+/// // signature documentation is sufficient for callers.
+/// use agentprof_core::model::WasteReport;
+/// use agentprof_tui::views::mcp_waste::{render, McpWasteState};
+/// let report = WasteReport::default();
+/// let mut state = McpWasteState::new();
+/// // render(frame, area, &report, &mut state);
+/// let _ = (&report, &mut state);
+/// ```
+pub fn render(f: &mut ratatui::Frame, area: Rect, report: &WasteReport, state: &mut McpWasteState) {
+    // Top banner (data source + totals).
+    let outer = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(3), Constraint::Min(0)])
+        .split(area);
+
+    let banner = banner_lines(report);
+    let banner_p = ratatui::widgets::Paragraph::new(banner)
+        .block(Block::default().borders(Borders::ALL).title(" MCP Waste "));
+    f.render_widget(banner_p, outer[0]);
+
+    // Body split: 40% left server table / 60% right tool table.
+    let body = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
+        .split(outer[1]);
+
+    render_server_table(f, body[0], report, state);
+    render_tool_table(f, body[1], report, state);
+}
+
+fn banner_lines(r: &WasteReport) -> Vec<ratatui::text::Line<'static>> {
+    use ratatui::text::{Line, Span};
+    let ds = match r.data_source {
+        agentprof_core::model::WasteDataSource::None => "no data".to_string(),
+        agentprof_core::model::WasteDataSource::Wire => "wire notices".to_string(),
+        agentprof_core::model::WasteDataSource::Config => "mcp.json".to_string(),
+        agentprof_core::model::WasteDataSource::Both => "wire + mcp.json".to_string(),
+        // `WasteDataSource` is `#[non_exhaustive]`; future variants render as "unknown".
+        _ => "unknown".to_string(),
+    };
+    let fully = r.server_waste.iter().filter(|s| s.is_fully_unused).count();
+    vec![Line::from(vec![Span::raw(format!(
+        "Source: {ds}   Loaded: {}   Unused: {}   Fully-unused servers: {fully}",
+        r.total_loaded_tool_count, r.total_unused_tool_count
+    ))])]
+}
+
+fn render_server_table(
+    f: &mut ratatui::Frame,
+    area: Rect,
+    report: &WasteReport,
+    state: &mut McpWasteState,
+) {
+    let rows: Vec<Row> = report
+        .server_waste
+        .iter()
+        .map(|sw| {
+            Row::new(vec![
+                Cell::from(sw.server.clone()),
+                Cell::from(format!("{}/{}", sw.loaded_count, sw.unused_count)),
+                Cell::from(if sw.is_fully_unused { "!" } else { "" }),
+            ])
+        })
+        .collect();
+
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(24),
+            Constraint::Length(8),
+            Constraint::Length(2),
+        ],
+    )
+    .header(
+        Row::new(vec!["Server", "L/U", "F"]).style(Style::default().add_modifier(Modifier::BOLD)),
+    )
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(format!(" Servers ({}) ", report.server_waste.len())),
+    )
+    .row_highlight_style(Style::default().add_modifier(Modifier::REVERSED));
+
+    f.render_stateful_widget(table, area, &mut state.server_cursor);
+}
+
+// `state: &mut` kept for symmetry with `render_server_table` and for the
+// future filter-cursor state introduced in T5.3.
+#[allow(clippy::needless_pass_by_ref_mut)]
+fn render_tool_table(
+    f: &mut ratatui::Frame,
+    area: Rect,
+    report: &WasteReport,
+    state: &mut McpWasteState,
+) {
+    let selected = state.server_cursor.selected().unwrap_or(0);
+    let title = report.server_waste.get(selected).map_or_else(
+        || " (no server) ".to_string(),
+        |sw| format!(" Tools in {} ", sw.server),
+    );
+
+    let rows: Vec<Row> = report
+        .server_waste
+        .get(selected)
+        .map(|sw| {
+            sw.tools
+                .iter()
+                .filter(|t| !state.unused_only || t.call_count == 0)
+                .map(|t| {
+                    Row::new(vec![
+                        Cell::from(t.tool_name.clone()),
+                        Cell::from(t.call_count.to_string()),
+                        Cell::from(format!("{:?}", t.loaded_source)),
+                    ])
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let footer = if state.unused_only {
+        " (alphabetical; unused-only filter: ON — press u to toggle) "
+    } else {
+        " (alphabetical; unused-only filter: off — press u to toggle) "
+    };
+
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Min(30),
+            Constraint::Length(6),
+            Constraint::Length(18),
+        ],
+    )
+    .header(
+        Row::new(vec!["Tool", "Calls", "Source"])
+            .style(Style::default().add_modifier(Modifier::BOLD)),
+    )
+    .block(Block::default().borders(Borders::ALL).title(title));
+
+    f.render_widget(table, area);
+    // Footer line rendered below the table border via a separate paragraph
+    // would require splitting `area`; for simplicity, the footer is logged
+    // in the bottom-bar status (see T5.4).
+    let _ = footer;
+}
 
 /// Per-view scrolling + focus state for the MCP Waste view, persisted on
 /// [`crate::app::state::AppState`].
