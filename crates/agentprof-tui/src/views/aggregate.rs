@@ -455,6 +455,8 @@ fn render_mcp_buckets(
         Cell::from("Calls"),
         Cell::from("Total"),
         Cell::from("Sess"),
+        Cell::from("Unused"),
+        Cell::from("0-call"),
     ])
     .style(Style::default().add_modifier(Modifier::BOLD));
     let rows: Vec<Row<'_>> = buckets
@@ -471,6 +473,8 @@ fn render_mcp_buckets(
                 Cell::from(format!("{}", b.call_count)),
                 Cell::from(human_short(b.total_duration)),
                 Cell::from(format!("{}", b.session_count)),
+                Cell::from(format!("{}", b.unused_tool_count)),
+                Cell::from(format!("{}", b.fully_unused_session_count)),
             ])
             .style(style)
         })
@@ -481,6 +485,8 @@ fn render_mcp_buckets(
             Constraint::Length(30),
             Constraint::Length(10),
             Constraint::Length(12),
+            Constraint::Length(8),
+            Constraint::Length(8),
             Constraint::Length(8),
         ],
     )
