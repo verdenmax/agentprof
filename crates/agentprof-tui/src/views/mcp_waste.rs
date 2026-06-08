@@ -296,22 +296,70 @@ impl McpWasteState {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+    use agentprof_core::model::WasteReport;
+
+    fn empty_report() -> WasteReport {
+        WasteReport::default()
+    }
+
+    // Constructed via serde because the model structs are `#[non_exhaustive]`
+    // (T2 design): outside crates can't use struct-literal syntax. JSON shape
+    // matches the doctest in `agentprof_core::model::waste`.
+    fn one_server(server: &str, tool_count: usize, called: usize) -> WasteReport {
+        let unused = tool_count - called;
+        let tools: Vec<serde_json::Value> = (0..tool_count)
+            .map(|i| {
+                serde_json::json!({
+                    "tool_name": format!("mcp__{server}__t{i}"),
+                    "short_name": format!("t{i}"),
+                    "call_count": usize::from(i < called),
+                    "loaded_source": "Wire",
+                })
+            })
+            .collect();
+        let value = serde_json::json!({
+            "server_waste": [{
+                "server": server,
+                "tools": tools,
+                "loaded_count": tool_count,
+                "called_count": called,
+                "unused_count": unused,
+                "is_fully_unused": called == 0,
+            }],
+            "data_source": "Wire",
+            "total_loaded_tool_count": tool_count,
+            "total_unused_tool_count": unused,
+        });
+        serde_json::from_value(value).expect("valid WasteReport JSON")
+    }
 
     #[test]
-    fn new_starts_at_row_zero_filter_off() {
+    fn state_new_starts_cursor_at_zero_and_filter_off() {
         let s = McpWasteState::new();
         assert_eq!(s.server_cursor.selected(), Some(0));
         assert!(!s.unused_only);
     }
 
     #[test]
-    fn cursor_down_clamps_to_last_row() {
+    fn toggle_unused_only_flips() {
         let mut s = McpWasteState::new();
-        for _ in 0..10 {
-            s.cursor_down(3);
-        }
+        s.toggle_unused_only();
+        assert!(s.unused_only);
+        s.toggle_unused_only();
+        assert!(!s.unused_only);
+    }
+
+    #[test]
+    fn cursor_down_respects_bound() {
+        let mut s = McpWasteState::new();
+        s.cursor_down(3);
+        assert_eq!(s.server_cursor.selected(), Some(1));
+        s.cursor_down(3);
+        s.cursor_down(3);
+        s.cursor_down(3);
         assert_eq!(s.server_cursor.selected(), Some(2));
     }
 
@@ -323,19 +371,28 @@ mod tests {
     }
 
     #[test]
-    fn cursor_up_saturates_at_zero() {
+    fn cursor_up_respects_zero_bound() {
         let mut s = McpWasteState::new();
-        s.cursor_up();
         s.cursor_up();
         assert_eq!(s.server_cursor.selected(), Some(0));
     }
 
     #[test]
-    fn toggle_unused_only_flips() {
-        let mut s = McpWasteState::new();
-        s.toggle_unused_only();
-        assert!(s.unused_only);
-        s.toggle_unused_only();
-        assert!(!s.unused_only);
+    fn banner_lines_renders_for_empty_report() {
+        let r = empty_report();
+        let lines = banner_lines(&r);
+        assert!(!lines.is_empty());
+    }
+
+    #[test]
+    fn banner_lines_renders_with_data() {
+        let r = one_server("github", 3, 1);
+        let lines = banner_lines(&r);
+        let joined: String = lines
+            .iter()
+            .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+            .collect();
+        assert!(joined.contains("Loaded: 3"));
+        assert!(joined.contains("Unused: 2"));
     }
 }
