@@ -1095,6 +1095,35 @@ mod tests {
         assert!(ep.tools.contains_key("tool-evt"));
         assert!(ep.hooks.contains_key("hook-evt"));
         assert!(ep.skills.contains_key("skill-evt"));
+
+        // P3 backlog `skill-call-count-fixture` coverage:
+        // assert that the SkillInvoked at at(4) — emitted BETWEEN the
+        // TurnStart at at(1) and TurnEnd at at(7) — got attributed to
+        // the open turn, populating `turn.skill_calls`.
+        //
+        // The committed integration fixtures (`with-skill-invoked`,
+        // `two-skills-one-turn`, `tool-and-skill-same-turn`) all
+        // emit `skill.invoked` BEFORE `assistant.turn_start` because
+        // that mirrors observed Copilot CLI 1.0.x wire behavior. Their
+        // snapshots therefore correctly record `skill_call_count == 0`
+        // for every turn — that path is well-covered. The IN-TURN path
+        // (open_turn_idx is Some at skill-event time) was previously
+        // only exercised implicitly here without an explicit assertion;
+        // this check pins it.
+        assert_eq!(
+            ep.turns.len(),
+            1,
+            "fixture has exactly one turn (TurnStart..TurnEnd)"
+        );
+        assert_eq!(
+            ep.turns[0].skill_calls.len(),
+            1,
+            "in-turn skill must be attributed to open turn's `skill_calls`"
+        );
+        assert_eq!(
+            ep.turns[0].skill_calls[0].name, "skill-evt",
+            "the skill_calls entry must point back to the SkillEpisode key (fallback id when payload_name is None)"
+        );
     }
 
     /// Richer test stub that lets each test customize the payload methods.

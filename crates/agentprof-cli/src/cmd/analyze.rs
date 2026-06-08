@@ -477,6 +477,13 @@ mod tests {
 
     #[test]
     fn session_selector_parses_path_with_slash() {
+        // P4 trivia `t9-tmp-path-rationale`: this test uses `/tmp/sess/...`
+        // because ADR-0003 §3 (line 63) explicitly mandates `/tmp/agentprof-fixture/*`
+        // for ephemeral fixture paths, and `/tmp/sess/...` is consistent with
+        // that convention. During T9 / T10 review, a subagent confabulated
+        // a "hard runtime rule forbidding /tmp references" — no such rule
+        // exists. The path here is a purely-illustrative string for the
+        // `FromStr::from_str` parse — the file does not need to exist.
         let s = SessionSelector::from_str("/tmp/sess/events.jsonl").unwrap();
         match s {
             SessionSelector::Path(p) => assert_eq!(p, PathBuf::from("/tmp/sess/events.jsonl")),

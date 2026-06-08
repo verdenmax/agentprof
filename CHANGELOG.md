@@ -22,6 +22,21 @@ prefix used in commit messages).
 
 ### Changed
 
+- **`tests`: pin in-turn skill rollup contract + document `/tmp/sess` test path rationale**
+  (closes P3 backlog `skill-call-count-fixture` + P4 backlog `t9-tmp-path-rationale`).
+  The committed Copilot integration fixtures (`with-skill-invoked`,
+  `two-skills-one-turn`, `tool-and-skill-same-turn`) all emit
+  `skill.invoked` **before** `assistant.turn_start` because that
+  mirrors observed Copilot CLI 1.0.x wire behavior; their snapshots
+  correctly record `skill_call_count == 0`. The IN-TURN path
+  (`open_turn_idx == Some` at skill-event time) was exercised
+  implicitly by `payload_name_missing_warning_fires_when_adapter_returns_none`
+  but never asserted; new assertions in that test pin
+  `turn.skill_calls.len() == 1` and the back-reference name. Separately,
+  `session_selector_parses_path_with_slash` gains a comment debunking
+  a confabulated "no `/tmp` references" review rule (ADR-0003 §3
+  explicitly mandates `/tmp/agentprof-fixture/*` for ephemeral fixture
+  paths).
 - **`core`: `Span::new` now clamps non-monotonic input to zero-duration**
   (P2 backlog `negative-duration-span`). Previously, an adapter that
   saw a `tool.execution_complete` whose `timestamp` predated its
