@@ -11,6 +11,7 @@ mod event;
 pub mod mcp_config;
 pub mod parser;
 pub mod paths;
+pub mod tool_sidecar;
 pub mod tools_changed;
 
 pub use adapter::CopilotAdapter;
@@ -25,4 +26,5 @@ pub use event::{
     ToolUserRequestedData, TurnRefData, UserMessageData, WithEnvelope,
 };
 pub use mcp_config::{load_mcp_config, ParsedMcpConfig, ServerInfo};
+pub use tool_sidecar::{load_sidecar, Sidecar, SidecarError, ToolEntry};
 pub use tools_changed::extract_loaded_set_from_session;

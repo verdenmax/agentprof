@@ -22,6 +22,7 @@ for the M1.2 design.
 - [`copilot::paths::discover_sessions`] — walk session-state directory，按 mtime 倒序
 - [`registry::adapter_for`] — `AgentKind → Option<Adapter>` resolver
 - [`registry::supported_agents`] — static list of supported agents
+- [`copilot::tool_sidecar::load_sidecar`] / [`copilot::tool_sidecar::Sidecar`] — optional MCP tool-description sidecar for M1.6.6 token-cost; implements `agentprof_core::analyzer::waste::SidecarLookup` (ADR-0016 D-2)
 
 ## Modules
 
@@ -33,6 +34,7 @@ for the M1.2 design.
 | `copilot::adapter` | `impl Adapter for CopilotAdapter` |
 | `copilot::tools_changed` | parse `<tools_changed_notice>` blocks in `user.message.transformedContent` → ever-loaded MCP tool set (M1.6.5 T2.1; ADR-0015 D-1/D-2) |
 | `copilot::mcp_config` | best-effort `~/.copilot/mcp.json` loader → `ParsedMcpConfig` (recognizes VSCode `mcpServers` + self-describing `servers` schemas; degrades to empty on unknown; M1.6.5 T2.2; ADR-0015 spec §6.2) |
+| `copilot::tool_sidecar` | optional MCP `tools/list` sidecar loader → `Sidecar` impl of `agentprof_core::analyzer::waste::SidecarLookup`; auto-detects file (global JSON) vs dir (per-server `*.json`, both `{"tools":[…]}` and bare-array shapes); per-file parse failures are skipped with `tracing::warn!` (M1.6.6 T2.1; ADR-0016 D-2) |
 | `registry` | `AgentKind` → adapter resolver |
 
 ## Supported agents
