@@ -12,13 +12,238 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use tiktoken_rs::CoreBPE;
+
 use crate::adapter::SessionRef;
 use crate::analyzer::AnalysisReport;
 use crate::model::{
     AggregateWasteReport, LoadedSource, McpServerCrossWaste, McpServerWaste,
-    McpToolUsageAcrossSessions, McpToolWaste, TokenSource, ToolSource, WasteDataSource,
-    WasteReport,
+    McpToolUsageAcrossSessions, McpToolWaste, TokenSource, TokenizerKind, ToolSource,
+    WasteDataSource, WasteReport,
 };
+
+/// Default heuristic token cost per MCP tool when no sidecar is provided.
+///
+/// Chosen to approximate "short description + small input schema" for a
+/// typical MCP tool entry. See ADR-0016 D-3 for the rationale and the
+/// follow-up calibration plan.
+pub const DEFAULT_HEURISTIC_TOKENS: u64 = 200;
+
+/// Lookup interface for a *tool sidecar* — a per-agent registry mapping a
+/// fully-qualified MCP tool name (e.g. `mcp__github__search`) to the JSON
+/// blob that the agent actually sees in its context window.
+///
+/// `agentprof-core` is a dependency-graph leaf (it cannot depend on
+/// `agentprof-adapters`), so the concrete `Sidecar` type lives in
+/// `agentprof-adapters::copilot::tool_sidecar` and implements this trait.
+/// `WasteComputeContext::with_sidecar` and [`compute_token_cost_for_tool`]
+/// take `&dyn SidecarLookup` to stay adapter-agnostic.
+///
+/// # Examples
+///
+/// ```
+/// use agentprof_core::analyzer::waste::{SidecarLookup, SidecarToolEntry};
+///
+/// struct StubEntry(&'static str);
+/// impl SidecarToolEntry for StubEntry {
+///     fn to_json_string(&self) -> String { self.0.into() }
+/// }
+///
+/// struct StubSidecar;
+/// impl SidecarLookup for StubSidecar {
+///     fn lookup(&self, _: &str) -> Option<&dyn SidecarToolEntry> { None }
+/// }
+///
+/// let s = StubSidecar;
+/// assert!(s.lookup("anything").is_none());
+/// ```
+pub trait SidecarLookup {
+    /// Return the sidecar entry for `full_name` (e.g. `mcp__github__search`),
+    /// or `None` if the tool is not in the sidecar.
+    fn lookup(&self, full_name: &str) -> Option<&dyn SidecarToolEntry>;
+}
+
+/// One entry in a [`SidecarLookup`] — yields the agent-visible JSON for a
+/// single MCP tool. Token cost is computed by encoding this string.
+///
+/// # Examples
+///
+/// ```
+/// use agentprof_core::analyzer::waste::SidecarToolEntry;
+///
+/// struct E;
+/// impl SidecarToolEntry for E {
+///     fn to_json_string(&self) -> String { r#"{"name":"x"}"#.into() }
+/// }
+/// assert_eq!(E.to_json_string(), r#"{"name":"x"}"#);
+/// ```
+pub trait SidecarToolEntry {
+    /// Serialize the entry to the JSON string the agent observes in its
+    /// context window. Empty string is acceptable on serialization failure
+    /// (caller will simply attribute 0 tokens to that tool).
+    fn to_json_string(&self) -> String;
+}
+
+/// Builder-pattern context for [`compute_waste`] (T1.4 will switch the
+/// signature to take `&WasteComputeContext`).
+///
+/// Adding fields here is non-breaking (struct is `#[non_exhaustive]`);
+/// adding new `with_*` methods is purely additive. See ADR-0016 D-5 for
+/// the choice of this shape over flat positional parameters.
+///
+/// # Examples
+///
+/// ```
+/// use std::collections::BTreeSet;
+/// use agentprof_core::analyzer::waste::{WasteComputeContext, DEFAULT_HEURISTIC_TOKENS};
+/// use agentprof_core::model::TokenizerKind;
+///
+/// let wire = BTreeSet::new();
+/// let ctx = WasteComputeContext::new(&wire)
+///     .with_heuristic(150)
+///     .with_tokenizer(TokenizerKind::O200kBase);
+/// assert_eq!(ctx.heuristic_tokens_per_tool, 150);
+/// assert_eq!(ctx.tokenizer, TokenizerKind::O200kBase);
+/// ```
+#[non_exhaustive]
+pub struct WasteComputeContext<'a> {
+    /// Tools observed in `<tools_changed_notice>` blocks.
+    pub wire_loaded: &'a BTreeSet<String>,
+    /// Server → tool-list map from `mcp.json` (`None` if absent/unparseable).
+    pub config_loaded: Option<&'a BTreeMap<String, Vec<String>>>,
+    /// Sidecar for exact token counts; `None` falls back to heuristic only.
+    pub sidecar: Option<&'a dyn SidecarLookup>,
+    /// Token cost assumed for tools without a sidecar match.
+    pub heuristic_tokens_per_tool: u64,
+    /// Which `tiktoken-rs` encoding to use for sidecar JSON.
+    pub tokenizer: TokenizerKind,
+}
+
+impl<'a> WasteComputeContext<'a> {
+    /// Minimal constructor.
+    ///
+    /// Defaults: no config, no sidecar, heuristic = [`DEFAULT_HEURISTIC_TOKENS`],
+    /// tokenizer = [`TokenizerKind::Cl100kBase`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::BTreeSet;
+    /// use agentprof_core::analyzer::waste::WasteComputeContext;
+    /// let wire = BTreeSet::new();
+    /// let ctx = WasteComputeContext::new(&wire);
+    /// assert!(ctx.config_loaded.is_none());
+    /// ```
+    #[must_use]
+    pub fn new(wire_loaded: &'a BTreeSet<String>) -> Self {
+        Self {
+            wire_loaded,
+            config_loaded: None,
+            sidecar: None,
+            heuristic_tokens_per_tool: DEFAULT_HEURISTIC_TOKENS,
+            tokenizer: TokenizerKind::Cl100kBase,
+        }
+    }
+
+    /// Attach an optional `mcp.json`-derived config map (M1.6.5 source).
+    #[must_use]
+    pub const fn with_config(mut self, config_loaded: &'a BTreeMap<String, Vec<String>>) -> Self {
+        self.config_loaded = Some(config_loaded);
+        self
+    }
+
+    /// Attach an optional sidecar — when present, sidecar-matching tools
+    /// switch to exact-token mode via [`compute_token_cost_for_tool`].
+    #[must_use]
+    pub fn with_sidecar(mut self, sidecar: &'a dyn SidecarLookup) -> Self {
+        self.sidecar = Some(sidecar);
+        self
+    }
+
+    /// Override the heuristic token-per-tool constant (default
+    /// [`DEFAULT_HEURISTIC_TOKENS`]).
+    #[must_use]
+    pub const fn with_heuristic(mut self, heuristic_tokens_per_tool: u64) -> Self {
+        self.heuristic_tokens_per_tool = heuristic_tokens_per_tool;
+        self
+    }
+
+    /// Override the tokenizer (otherwise pair with [`infer_tokenizer`] at
+    /// the call site).
+    #[must_use]
+    pub const fn with_tokenizer(mut self, tokenizer: TokenizerKind) -> Self {
+        self.tokenizer = tokenizer;
+        self
+    }
+}
+
+/// Map a session's `model` string to a [`TokenizerKind`].
+///
+/// `gpt-5*` / `gpt-4o*` → [`TokenizerKind::O200kBase`]; everything else
+/// (including `None`, unknown model names, and Claude models) →
+/// [`TokenizerKind::Cl100kBase`] — the safer default and a reasonable
+/// approximation for Anthropic's tokenizer.
+///
+/// # Examples
+///
+/// ```
+/// use agentprof_core::analyzer::waste::infer_tokenizer;
+/// use agentprof_core::model::TokenizerKind;
+/// assert_eq!(infer_tokenizer(Some("gpt-5-mini")), TokenizerKind::O200kBase);
+/// assert_eq!(infer_tokenizer(Some("gpt-4-turbo")), TokenizerKind::Cl100kBase);
+/// assert_eq!(infer_tokenizer(None), TokenizerKind::Cl100kBase);
+/// ```
+#[must_use]
+#[tracing::instrument(
+    name = "analyzer.infer_tokenizer",
+    level = "debug",
+    skip_all,
+    fields(model = ?model)
+)]
+pub fn infer_tokenizer(model: Option<&str>) -> TokenizerKind {
+    match model {
+        Some(m) if m.starts_with("gpt-5") || m.starts_with("gpt-4o") => TokenizerKind::O200kBase,
+        _ => TokenizerKind::Cl100kBase,
+    }
+}
+
+/// Compute the token cost of a single MCP tool entry.
+///
+/// If `sidecar` is `Some` and contains `tool_name`, returns
+/// `(encoded_len, TokenSource::SidecarExact)` — the entry's JSON is
+/// encoded with `tokenizer`. Otherwise returns
+/// `(heuristic, TokenSource::Heuristic)`.
+///
+/// # Examples
+///
+/// ```
+/// use agentprof_core::analyzer::waste::{compute_token_cost_for_tool, DEFAULT_HEURISTIC_TOKENS};
+/// use agentprof_core::model::TokenSource;
+///
+/// let bpe = tiktoken_rs::cl100k_base().unwrap();
+/// let (n, src) = compute_token_cost_for_tool(
+///     "mcp__github__search",
+///     None,
+///     DEFAULT_HEURISTIC_TOKENS,
+///     &bpe,
+/// );
+/// assert_eq!(n, DEFAULT_HEURISTIC_TOKENS);
+/// assert_eq!(src, TokenSource::Heuristic);
+/// ```
+#[must_use]
+pub fn compute_token_cost_for_tool(
+    tool_name: &str,
+    sidecar: Option<&dyn SidecarLookup>,
+    heuristic: u64,
+    tokenizer: &CoreBPE,
+) -> (u64, TokenSource) {
+    if let Some(entry) = sidecar.and_then(|s| s.lookup(tool_name)) {
+        let json = entry.to_json_string();
+        let n = tokenizer.encode_ordinary(&json).len() as u64;
+        return (n, TokenSource::SidecarExact);
+    }
+    (heuristic, TokenSource::Heuristic)
+}
 
 /// Compute per-session MCP-server waste from an analysis report and the
 /// "loaded" sets contributed by wire + (optional) mcp.json baseline.
@@ -667,5 +892,81 @@ mod tests {
         let r = aggregate_waste(&[(session_ref("s1"), s1), (session_ref("s2"), s2)]);
         assert_eq!(r.per_server.len(), 2);
         assert_eq!(r.sessions, 2);
+    }
+
+    // -- T1.3: infer_tokenizer + WasteComputeContext + compute_token_cost_for_tool --
+
+    #[test]
+    fn infer_tokenizer_gpt_5_returns_o200k() {
+        assert_eq!(infer_tokenizer(Some("gpt-5")), TokenizerKind::O200kBase);
+        assert_eq!(
+            infer_tokenizer(Some("gpt-5-mini")),
+            TokenizerKind::O200kBase
+        );
+        assert_eq!(
+            infer_tokenizer(Some("gpt-5-turbo")),
+            TokenizerKind::O200kBase
+        );
+    }
+
+    #[test]
+    fn infer_tokenizer_gpt_4o_returns_o200k() {
+        assert_eq!(infer_tokenizer(Some("gpt-4o")), TokenizerKind::O200kBase);
+        assert_eq!(
+            infer_tokenizer(Some("gpt-4o-mini")),
+            TokenizerKind::O200kBase
+        );
+    }
+
+    #[test]
+    fn infer_tokenizer_gpt_4_returns_cl100k() {
+        assert_eq!(infer_tokenizer(Some("gpt-4")), TokenizerKind::Cl100kBase);
+        assert_eq!(
+            infer_tokenizer(Some("gpt-4-turbo")),
+            TokenizerKind::Cl100kBase
+        );
+    }
+
+    #[test]
+    fn infer_tokenizer_unknown_or_none_returns_cl100k() {
+        assert_eq!(infer_tokenizer(None), TokenizerKind::Cl100kBase);
+        assert_eq!(
+            infer_tokenizer(Some("claude-3-5-sonnet")),
+            TokenizerKind::Cl100kBase
+        );
+        assert_eq!(infer_tokenizer(Some("")), TokenizerKind::Cl100kBase);
+    }
+
+    #[test]
+    fn waste_compute_context_builder_defaults() {
+        let wire = BTreeSet::new();
+        let ctx = WasteComputeContext::new(&wire);
+        assert_eq!(ctx.heuristic_tokens_per_tool, DEFAULT_HEURISTIC_TOKENS);
+        assert_eq!(ctx.tokenizer, TokenizerKind::Cl100kBase);
+        assert!(ctx.config_loaded.is_none());
+        assert!(ctx.sidecar.is_none());
+    }
+
+    #[test]
+    fn waste_compute_context_builder_chain_overrides() {
+        let wire = BTreeSet::new();
+        let ctx = WasteComputeContext::new(&wire)
+            .with_heuristic(123)
+            .with_tokenizer(TokenizerKind::O200kBase);
+        assert_eq!(ctx.heuristic_tokens_per_tool, 123);
+        assert_eq!(ctx.tokenizer, TokenizerKind::O200kBase);
+    }
+
+    #[test]
+    fn compute_token_cost_for_tool_heuristic_when_no_sidecar() {
+        let bpe = tiktoken_rs::cl100k_base().unwrap();
+        let (n, src) = compute_token_cost_for_tool(
+            "mcp__github__search",
+            None,
+            DEFAULT_HEURISTIC_TOKENS,
+            &bpe,
+        );
+        assert_eq!(n, DEFAULT_HEURISTIC_TOKENS);
+        assert_eq!(src, TokenSource::Heuristic);
     }
 }
