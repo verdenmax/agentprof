@@ -686,3 +686,24 @@ fn event_parent_id_none_when_null() {
     assert_eq!(evt2.parent_id(), None);
     assert_eq!(evt2.kind(), EventKind::Unknown);
 }
+
+#[test]
+fn with_mcp_waste_fixture_extracts_expected_loaded_set() {
+    use agentprof_adapters::copilot::{
+        tools_changed::extract_loaded_set_from_session, CopilotAdapter,
+    };
+    use agentprof_core::adapter::Adapter;
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/copilot");
+    let adapter = CopilotAdapter;
+    let sessions = adapter.discover_sessions(&root).expect("discover");
+    let sref = sessions
+        .iter()
+        .find(|s| s.path.parent().unwrap().file_name().unwrap() == "with-mcp-waste")
+        .expect("with-mcp-waste fixture present");
+    let raw = adapter.load_session(sref).expect("load");
+    let loaded = extract_loaded_set_from_session(&raw.events);
+    assert_eq!(loaded.len(), 3, "3 MCP tools advertised in fixture");
+    assert!(loaded.contains("mcp__github__search_issues"));
+    assert!(loaded.contains("mcp__github__create_issue"));
+    assert!(loaded.contains("mcp__filesystem__read_file"));
+}
