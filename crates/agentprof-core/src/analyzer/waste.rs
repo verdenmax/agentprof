@@ -1032,4 +1032,53 @@ mod tests {
         assert_eq!(n, DEFAULT_HEURISTIC_TOKENS);
         assert_eq!(src, TokenSource::Heuristic);
     }
+
+    struct FakeSidecar(BTreeMap<String, FakeEntry>);
+    struct FakeEntry {
+        name: String,
+        description: String,
+    }
+    impl crate::analyzer::waste::SidecarLookup for FakeSidecar {
+        fn lookup(&self, full_name: &str) -> Option<&dyn crate::analyzer::waste::SidecarToolEntry> {
+            self.0
+                .get(full_name)
+                .map(|e| e as &dyn crate::analyzer::waste::SidecarToolEntry)
+        }
+    }
+    impl crate::analyzer::waste::SidecarToolEntry for FakeEntry {
+        fn to_json_string(&self) -> String {
+            format!(
+                "{{\"name\":\"{}\",\"description\":\"{}\"}}",
+                self.name, self.description
+            )
+        }
+    }
+
+    #[test]
+    fn compute_token_cost_for_tool_sidecar_hit_uses_exact_count() {
+        let mut entries = BTreeMap::new();
+        entries.insert(
+            "mcp__github__search".into(),
+            FakeEntry {
+                name: "search".into(),
+                description: "Find issues".into(),
+            },
+        );
+        let sidecar = FakeSidecar(entries);
+
+        let bpe = tiktoken_rs::cl100k_base().unwrap();
+        let (n, src) = compute_token_cost_for_tool(
+            "mcp__github__search",
+            Some(&sidecar as &dyn crate::analyzer::waste::SidecarLookup),
+            DEFAULT_HEURISTIC_TOKENS,
+            &bpe,
+        );
+        // The fake JSON `{"name":"search","description":"Find issues"}` is
+        // ~14-18 tokens in cl100k_base — well below the 200 heuristic.
+        assert!(
+            n > 0 && n < DEFAULT_HEURISTIC_TOKENS,
+            "exact count {n} should be smaller than heuristic 200"
+        );
+        assert_eq!(src, crate::model::TokenSource::SidecarExact);
+    }
 }
