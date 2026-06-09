@@ -15,7 +15,9 @@
 use std::path::PathBuf;
 
 use agentprof_core::adapter::AgentKind;
-use agentprof_core::analyzer::{tool_rank::USER_BLOCKING_TOOLS, AnalysisReport, ToolRankRow};
+use agentprof_core::analyzer::{
+    tool_rank::USER_BLOCKING_TOOLS, AnalysisReport, ModelUsage, ToolRankRow,
+};
 use agentprof_core::model::{SessionMeta, ToolSource};
 use agentprof_storage::{upsert::upsert_report, Db};
 use chrono::{Duration, TimeZone, Utc};
@@ -173,4 +175,82 @@ fn upsert_tolerates_missing_raw_path() {
         )
         .unwrap();
     assert_eq!(mtime, 0);
+}
+
+#[test]
+fn upsert_then_query_preserves_model_token_totals() {
+    // Round-trip: build an AnalysisReport whose model_metrics carry
+    // two distinct models with all four token categories populated,
+    // upsert, then read back the four sessions.total_*_tokens columns
+    // via raw SQL (NOT through query::load_session, which would
+    // re-deserialize the JSON blob and bypass the column writes).
+    //
+    // Locks the contract that upsert.rs::upsert_report writes the
+    // session-level rollup AnalysisReport::total_*_tokens() returns —
+    // the same values the markdown / TUI renderers display — into
+    // the indexed columns used by `db stats` and `list` aggregation.
+    let mut db = Db::open_in_memory().unwrap();
+    let raw = NamedTempFile::new().unwrap();
+
+    let mut report = minimal_report("token-roundtrip");
+    let mut metrics = std::collections::BTreeMap::new();
+    let mut u1 = ModelUsage::new();
+    u1.input_tokens = 12_345;
+    u1.output_tokens = 678;
+    u1.cache_read_tokens = 9_000;
+    u1.cache_write_tokens = 100;
+    metrics.insert("claude-haiku-4.5".into(), u1);
+    let mut u2 = ModelUsage::new();
+    u2.input_tokens = 54_321;
+    u2.output_tokens = 222;
+    u2.cache_read_tokens = 1_000;
+    u2.cache_write_tokens = 33;
+    metrics.insert("gpt-5-mini".into(), u2);
+    report.model_metrics = Some(metrics);
+
+    // Pre-compute the expected totals via the same accessors upsert
+    // uses, so we're locking write↔read symmetry, not a hard-coded
+    // arithmetic constant.
+    let expected_input = report.total_input_tokens().unwrap();
+    let expected_output = report.total_output_tokens().unwrap();
+    let expected_cache_read = report.total_cache_read().unwrap();
+    let expected_cache_write = report.total_cache_creation().unwrap();
+    assert_eq!(expected_input, 12_345 + 54_321);
+    assert_eq!(expected_output, 678 + 222);
+    assert_eq!(expected_cache_read, 9_000 + 1_000);
+    assert_eq!(expected_cache_write, 100 + 33);
+
+    upsert_report(&mut db, &report, raw.path(), 1_700_000_000).unwrap();
+
+    let (got_input, got_output, got_cache_read, got_cache_write): (
+        Option<i64>,
+        Option<i64>,
+        Option<i64>,
+        Option<i64>,
+    ) = db
+        .conn_for_test()
+        .query_row(
+            "SELECT total_input_tokens, total_output_tokens, total_cache_read, total_cache_creation \
+             FROM sessions WHERE id = 'token-roundtrip'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .unwrap();
+
+    assert_eq!(got_input, Some(expected_input), "total_input_tokens column");
+    assert_eq!(
+        got_output,
+        Some(expected_output),
+        "total_output_tokens column"
+    );
+    assert_eq!(
+        got_cache_read,
+        Some(expected_cache_read),
+        "total_cache_read column"
+    );
+    assert_eq!(
+        got_cache_write,
+        Some(expected_cache_write),
+        "total_cache_creation column"
+    );
 }
