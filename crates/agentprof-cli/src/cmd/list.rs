@@ -224,7 +224,7 @@ pub fn run(
 /// ```text
 /// agentprof: warn: session <id>: N fields differ (<a>, <b>, …); using adapter; will re-upsert
 /// ```
-fn drain_and_emit_warnings(
+pub fn drain_and_emit_warnings(
     handle: &agentprof_cli::data_source_factory::WarningsHandle,
     quiet: bool,
 ) {

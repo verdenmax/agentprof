@@ -153,10 +153,16 @@ pub fn run(
     cmd: AggregateCmd,
     cfg: &crate::cmd::LogConfig,
     tracing_handle: &crate::cmd::TracingHandle,
+    no_cache: bool,
+    storage_path: Option<PathBuf>,
+    quiet: bool,
 ) -> Result<()> {
-    // Resolve adapter (M1.6.3 = copilot only).
-    let adapter = match cmd.agent {
-        AgentKind::Copilot => CopilotAdapter,
+    // Resolve adapter early so we can validate `AgentKind` once.
+    // The actual session loading now goes through `build_data_source`
+    // (M2.1.1 T5.1) so aggregate gets the same SQLite-cache
+    // acceleration `list` / `mcp-waste` / `analyze` got in M2.1.
+    let agent_name = match cmd.agent {
+        AgentKind::Copilot => "copilot",
         other => {
             return Err(ExitKind::UserError.into_anyhow(format!(
                 "{other:?} adapter not yet implemented (M1.6.3 supports copilot only)"
@@ -174,7 +180,8 @@ pub fn run(
         check_tty_for_tui()?;
     }
 
-    let (any_report, refs_total) = compute_aggregate(&adapter, &cmd)?;
+    let (any_report, refs_total) =
+        compute_aggregate_via_ds(&cmd, agent_name, no_cache, storage_path, quiet)?;
 
     // Empty-root warning lives in `run()` (not `compute_aggregate`) so
     // `watch aggregate`'s reload tick does NOT spam stderr — which during
@@ -336,143 +343,15 @@ pub fn compute_aggregate(
         }
     }
 
-    if reports.is_empty() && failure_count > 0 {
-        return Err(ExitKind::DataError
-            .into_anyhow(format!("all {failure_count} session(s) failed to parse")));
-    }
-
     let refs_total = refs.len();
-
-    // Dispatch on --by.
-    let mut any_report = match cmd.by.to_key() {
-        AggregateKey::Tool => AnyAggregateReport::Tool(aggregate_by_tool(&reports, &episodes_vec)),
-        AggregateKey::McpServer => {
-            // Compute per-session WasteReport. `mcp.json` is loaded
-            // once (same path for every session) — load failures
-            // degrade to `None` so cli stays usable on hosts without
-            // a Copilot mcp config.
-            let mcp_config_path = crate::cmd::mcp_waste::resolve_mcp_config_path(None).ok();
-            let parsed_cfg = mcp_config_path
-                .as_deref()
-                .and_then(agentprof_adapters::copilot::load_mcp_config);
-            let config_loaded = parsed_cfg.as_ref().map(|c| {
-                c.servers
-                    .iter()
-                    .filter_map(|(name, info)| {
-                        info.tools.as_ref().map(|t| (name.clone(), t.clone()))
-                    })
-                    .collect::<std::collections::BTreeMap<_, _>>()
-            });
-            // M1.6.6 T3.3: load the optional `--tool-descriptions`
-            // sidecar ONCE (outside the per-session loop) — sidecar
-            // parsing is the only non-trivial per-invocation cost
-            // here and applies uniformly to every session.
-            let sidecar = if let Some(path) = cmd.tool_descriptions.as_deref() {
-                Some(
-                    agentprof_adapters::copilot::tool_sidecar::load_sidecar(path).map_err(|e| {
-                        ExitKind::UserError
-                            .into_anyhow(format!("sidecar load failed for {}: {e}", path.display()))
-                    })?,
-                )
-            } else {
-                None
-            };
-            // M1.6.6 audit A1: build each BPE encoder at most once per
-            // command (there are only two tokenizer variants), share via
-            // Arc so every per-session WasteComputeContext reuses the
-            // same encoder instead of re-parsing ~100–200k merge-table
-            // lines per session.
-            let bpe_cl100k = agentprof_core::analyzer::waste::build_bpe(
-                agentprof_core::model::TokenizerKind::Cl100kBase,
-            )
-            .map(std::sync::Arc::new);
-            let bpe_o200k = agentprof_core::analyzer::waste::build_bpe(
-                agentprof_core::model::TokenizerKind::O200kBase,
-            )
-            .map(std::sync::Arc::new);
-            let waste_per_report: Vec<agentprof_core::model::WasteReport> = reports
-                .iter()
-                .map(|r| {
-                    // M2.1 T5.2.5: read the ever-loaded MCP tool set
-                    // straight off the analyzer report — the analyzer
-                    // pipeline now carries it via
-                    // AnalysisReport::loaded_mcp_tools, so we no longer
-                    // need a parallel events_vec or a per-session
-                    // extract_loaded_set_from_session re-walk.
-                    let wire = &r.loaded_mcp_tools;
-                    // M1.6.6 T1.4 + T3.3 + audit B1: build a
-                    // WasteComputeContext per session. Tokenizer
-                    // inferred from the dominant model (largest token
-                    // total) via `cmd::model_hint::dominant_model`
-                    // — picking the BTreeMap's alphabetically-smallest
-                    // key would misclassify mixed-model sessions.
-                    // Sidecar + heuristic overrides layered uniformly.
-                    let model_hint = crate::cmd::model_hint::dominant_model(r);
-                    let tokenizer =
-                        agentprof_core::analyzer::waste::infer_tokenizer(model_hint.as_deref());
-                    let mut waste_ctx =
-                        agentprof_core::analyzer::waste::WasteComputeContext::new(wire)
-                            .with_tokenizer(tokenizer)
-                            .with_heuristic(cmd.tokens_per_tool);
-                    let shared_bpe = match tokenizer {
-                        agentprof_core::model::TokenizerKind::Cl100kBase => bpe_cl100k.as_ref(),
-                        agentprof_core::model::TokenizerKind::O200kBase => bpe_o200k.as_ref(),
-                        _ => None,
-                    };
-                    if let Some(b) = shared_bpe {
-                        waste_ctx = waste_ctx.with_bpe(b.clone());
-                    }
-                    if let Some(c) = config_loaded.as_ref() {
-                        waste_ctx = waste_ctx.with_config(c);
-                    }
-                    if let Some(s) = sidecar.as_ref() {
-                        waste_ctx = waste_ctx.with_sidecar(s);
-                    }
-                    agentprof_core::analyzer::compute_waste(r, &waste_ctx)
-                })
-                .collect();
-            AnyAggregateReport::McpServer(aggregate_by_mcp_server(
-                &reports,
-                &episodes_vec,
-                &waste_per_report,
-            ))
-        }
-        AggregateKey::Day => AnyAggregateReport::Day(aggregate_by_day(
-            &reports,
-            &episodes_vec,
-            cmd.low_utilization_threshold,
-        )),
-        AggregateKey::Model => {
-            AnyAggregateReport::Model(aggregate_by_model(&reports, &episodes_vec))
-        }
-        other => {
-            return Err(ExitKind::UserError.into_anyhow(format!("unsupported --by key: {other:?}")));
-        }
-    };
-
-    // Aggregators don't know --since or failure_count; CLI fills them.
-    fill_metadata(
-        &mut any_report,
-        since_to_opt_chrono(since_dur),
+    let any_report = compute_phase2(
+        cmd,
+        reports,
+        episodes_vec,
         failure_count,
-    );
-
-    // Apply --limit.
-    if cmd.limit > 0 {
-        truncate_buckets(&mut any_report, cmd.limit);
-    }
-
-    // Stderr summary on partial failures.
-    if failure_count > 0 {
-        let total = reports.len() + failure_count;
-        tracing::warn!(
-            sessions_ok = reports.len(),
-            sessions_total = total,
-            failure_count,
-            "partial aggregate: some sessions failed"
-        );
-    }
-
+        since_dur,
+        refs_total,
+    )?;
     Ok((any_report, refs_total))
 }
 
@@ -597,6 +476,239 @@ fn truncate_buckets(r: &mut AnyAggregateReport, limit: usize) {
              cmd::format::aggregate_{{md,csv,html}}::{{meta,render,render_buckets}}"
         ),
     }
+}
+
+/// Phase-2 of `aggregate`: compute the [`AnyAggregateReport`] from
+/// already-loaded reports + episodes. Shared by:
+///
+/// - `compute_aggregate` (single-path adapter load, used by `watch`)
+/// - `compute_aggregate_via_ds` (dual-path data source, used by `run`)
+///
+/// Handles `--by` dispatch (tool/mcp-server/day/model), metadata fill-in
+/// (`--since`, `failure_count`), `--limit` truncation, and the partial-
+/// failure stderr summary.
+#[allow(clippy::too_many_lines, clippy::needless_pass_by_value)]
+fn compute_phase2(
+    cmd: &AggregateCmd,
+    reports: Vec<AnalysisReport>,
+    episodes_vec: Vec<Episodes>,
+    failure_count: usize,
+    since_dur: Duration,
+    _refs_total: usize,
+) -> Result<AnyAggregateReport> {
+    if reports.is_empty() && failure_count > 0 {
+        return Err(ExitKind::DataError
+            .into_anyhow(format!("all {failure_count} session(s) failed to parse")));
+    }
+
+    // Dispatch on --by.
+    let mut any_report = match cmd.by.to_key() {
+        AggregateKey::Tool => AnyAggregateReport::Tool(aggregate_by_tool(&reports, &episodes_vec)),
+        AggregateKey::McpServer => {
+            let mcp_config_path = crate::cmd::mcp_waste::resolve_mcp_config_path(None).ok();
+            let parsed_cfg = mcp_config_path
+                .as_deref()
+                .and_then(agentprof_adapters::copilot::load_mcp_config);
+            let config_loaded = parsed_cfg.as_ref().map(|c| {
+                c.servers
+                    .iter()
+                    .filter_map(|(name, info)| {
+                        info.tools.as_ref().map(|t| (name.clone(), t.clone()))
+                    })
+                    .collect::<std::collections::BTreeMap<_, _>>()
+            });
+            let sidecar = if let Some(path) = cmd.tool_descriptions.as_deref() {
+                Some(
+                    agentprof_adapters::copilot::tool_sidecar::load_sidecar(path).map_err(|e| {
+                        ExitKind::UserError
+                            .into_anyhow(format!("sidecar load failed for {}: {e}", path.display()))
+                    })?,
+                )
+            } else {
+                None
+            };
+            let bpe_cl100k = agentprof_core::analyzer::waste::build_bpe(
+                agentprof_core::model::TokenizerKind::Cl100kBase,
+            )
+            .map(std::sync::Arc::new);
+            let bpe_o200k = agentprof_core::analyzer::waste::build_bpe(
+                agentprof_core::model::TokenizerKind::O200kBase,
+            )
+            .map(std::sync::Arc::new);
+            let waste_per_report: Vec<agentprof_core::model::WasteReport> = reports
+                .iter()
+                .map(|r| {
+                    let wire = &r.loaded_mcp_tools;
+                    let model_hint = crate::cmd::model_hint::dominant_model(r);
+                    let tokenizer =
+                        agentprof_core::analyzer::waste::infer_tokenizer(model_hint.as_deref());
+                    let mut waste_ctx =
+                        agentprof_core::analyzer::waste::WasteComputeContext::new(wire)
+                            .with_tokenizer(tokenizer)
+                            .with_heuristic(cmd.tokens_per_tool);
+                    let shared_bpe = match tokenizer {
+                        agentprof_core::model::TokenizerKind::Cl100kBase => bpe_cl100k.as_ref(),
+                        agentprof_core::model::TokenizerKind::O200kBase => bpe_o200k.as_ref(),
+                        _ => None,
+                    };
+                    if let Some(b) = shared_bpe {
+                        waste_ctx = waste_ctx.with_bpe(b.clone());
+                    }
+                    if let Some(c) = config_loaded.as_ref() {
+                        waste_ctx = waste_ctx.with_config(c);
+                    }
+                    if let Some(s) = sidecar.as_ref() {
+                        waste_ctx = waste_ctx.with_sidecar(s);
+                    }
+                    agentprof_core::analyzer::compute_waste(r, &waste_ctx)
+                })
+                .collect();
+            AnyAggregateReport::McpServer(aggregate_by_mcp_server(
+                &reports,
+                &episodes_vec,
+                &waste_per_report,
+            ))
+        }
+        AggregateKey::Day => AnyAggregateReport::Day(aggregate_by_day(
+            &reports,
+            &episodes_vec,
+            cmd.low_utilization_threshold,
+        )),
+        AggregateKey::Model => {
+            AnyAggregateReport::Model(aggregate_by_model(&reports, &episodes_vec))
+        }
+        other => {
+            return Err(ExitKind::UserError.into_anyhow(format!("unsupported --by key: {other:?}")));
+        }
+    };
+
+    fill_metadata(
+        &mut any_report,
+        since_to_opt_chrono(since_dur),
+        failure_count,
+    );
+
+    if cmd.limit > 0 {
+        truncate_buckets(&mut any_report, cmd.limit);
+    }
+
+    if failure_count > 0 {
+        let total = reports.len() + failure_count;
+        tracing::warn!(
+            sessions_ok = reports.len(),
+            sessions_total = total,
+            failure_count,
+            "partial aggregate: some sessions failed"
+        );
+    }
+
+    Ok(any_report)
+}
+
+/// Dual-path variant of [`compute_aggregate`] (M2.1.1 T5.1).
+///
+/// Constructs the data source via
+/// [`crate::data_source_factory::build_data_source`] (same code path
+/// as `list` / `mcp-waste` / `analyze`), discovers + sorts refs, then
+/// for each ref calls both `load_session` (for the rollup report) and
+/// `load_episodes` (for the per-call vec aggregate's percentile pool
+/// needs). `load_episodes` failure is non-fatal — falls back to
+/// `Episodes::default()` (skipped from the percentile pool).
+///
+/// Drains dual-path divergence warnings to stderr (unless `quiet`) at
+/// the end of the load loop, matching `list` / `mcp-waste` UX.
+fn compute_aggregate_via_ds(
+    cmd: &AggregateCmd,
+    agent_name: &str,
+    no_cache: bool,
+    storage_path: Option<PathBuf>,
+    quiet: bool,
+) -> Result<(AnyAggregateReport, usize)> {
+    use agentprof_cli::config::resolve_storage_config;
+    use agentprof_cli::data_source_factory::build_data_source;
+    use agentprof_storage::config::PartialStorageConfig;
+
+    if !(0.0..=100.0).contains(&cmd.low_utilization_threshold) {
+        return Err(ExitKind::UserError.into_anyhow(format!(
+            "--low-utilization-threshold must be between 0.0 and 100.0; got {}",
+            cmd.low_utilization_threshold
+        )));
+    }
+
+    let adapter_for_root = CopilotAdapter;
+    let root = cmd
+        .root
+        .clone()
+        .or_else(|| adapter_for_root.default_session_root())
+        .ok_or_else(|| {
+            ExitKind::UserError
+                .into_anyhow("could not determine session root; pass --root explicitly".to_string())
+        })?;
+    if !root.is_dir() {
+        return Err(
+            ExitKind::UserError.into_anyhow(format!("session root not found: {}", root.display()))
+        );
+    }
+
+    let since_dur = parse_since(&cmd.since)
+        .map_err(|msg| ExitKind::UserError.into_anyhow(format!("invalid --since: {msg}")))?;
+
+    let storage_cfg = resolve_storage_config(PartialStorageConfig::default(), storage_path)
+        .map_err(|e| ExitKind::UserError.into_anyhow(format!("storage config: {e}")))?;
+    let (ds, warnings_handle) = build_data_source(agent_name, &root, &storage_cfg, no_cache)
+        .map_err(|e| ExitKind::UserError.into_anyhow(format!("{e}")))?;
+
+    let mut all_refs = ds.discover(since_dur).map_err(|e| {
+        ExitKind::DataError.into_anyhow(format!("scanning {}: {e}", root.display()))
+    })?;
+    all_refs.sort_by(|a, b| {
+        b.started_at_ms
+            .cmp(&a.started_at_ms)
+            .then_with(|| a.id.cmp(&b.id))
+    });
+
+    let mut reports: Vec<AnalysisReport> = Vec::with_capacity(all_refs.len());
+    let mut episodes_vec: Vec<Episodes> = Vec::with_capacity(all_refs.len());
+    let mut failure_count: usize = 0;
+    for sref in &all_refs {
+        let report = match ds.load_session(&sref.id) {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(
+                    session = %agentprof_core::observability::pii::hash_short(&sref.id),
+                    error = %e,
+                    "load_session failed; skipping session"
+                );
+                failure_count += 1;
+                continue;
+            }
+        };
+        let episodes = match ds.load_episodes(&sref.id) {
+            Ok(e) => e,
+            Err(e) => {
+                tracing::warn!(
+                    session = %agentprof_core::observability::pii::hash_short(&sref.id),
+                    error = %e,
+                    "load_episodes failed; using empty Episodes for percentile pool"
+                );
+                Episodes::default()
+            }
+        };
+        reports.push(report);
+        episodes_vec.push(episodes);
+    }
+
+    let refs_total = all_refs.len();
+    let any_report = compute_phase2(
+        cmd,
+        reports,
+        episodes_vec,
+        failure_count,
+        since_dur,
+        refs_total,
+    )?;
+    crate::cmd::list::drain_and_emit_warnings(&warnings_handle, quiet);
+    Ok((any_report, refs_total))
 }
 
 #[cfg(test)]

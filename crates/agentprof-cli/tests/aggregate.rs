@@ -58,7 +58,7 @@ fn isolated_multi_sess_root() -> tempfile::TempDir {
 fn aggregate_by_tool_md_emits_header_and_rows() {
     Command::cargo_bin("agentprof")
         .unwrap()
-        .args(["aggregate", "--by", "tool", "--since", "all"])
+        .args(["--no-cache", "aggregate", "--by", "tool", "--since", "all"])
         .args(["--root"])
         .arg(multi_sess_root())
         .assert()
@@ -72,7 +72,7 @@ fn aggregate_by_tool_md_emits_header_and_rows() {
 fn aggregate_by_day_md_marks_low_utilization() {
     Command::cargo_bin("agentprof")
         .unwrap()
-        .args(["aggregate", "--by", "day", "--since", "all"])
+        .args(["--no-cache", "aggregate", "--by", "day", "--since", "all"])
         .args(["--low-utilization-threshold", "99"])
         .args(["--root"])
         .arg(multi_sess_root())
@@ -85,7 +85,14 @@ fn aggregate_by_day_md_marks_low_utilization() {
 fn aggregate_by_mcp_server_json_round_trip() {
     let out = Command::cargo_bin("agentprof")
         .unwrap()
-        .args(["aggregate", "--by", "mcp-server", "--since", "all"])
+        .args([
+            "--no-cache",
+            "aggregate",
+            "--by",
+            "mcp-server",
+            "--since",
+            "all",
+        ])
         .args(["--export", "json"])
         .args(["--root"])
         .arg(multi_sess_root())
@@ -104,7 +111,7 @@ fn aggregate_by_mcp_server_json_round_trip() {
 fn aggregate_by_tool_csv_has_correct_header() {
     let out = Command::cargo_bin("agentprof")
         .unwrap()
-        .args(["aggregate", "--by", "tool", "--since", "all"])
+        .args(["--no-cache", "aggregate", "--by", "tool", "--since", "all"])
         .args(["--export", "csv"])
         .args(["--root"])
         .arg(multi_sess_root())
@@ -125,7 +132,7 @@ fn aggregate_by_tool_csv_has_correct_header() {
 fn aggregate_by_tool_html_has_valid_html_no_script() {
     let out = Command::cargo_bin("agentprof")
         .unwrap()
-        .args(["aggregate", "--by", "tool", "--since", "all"])
+        .args(["--no-cache", "aggregate", "--by", "tool", "--since", "all"])
         .args(["--export", "html"])
         .args(["--root"])
         .arg(multi_sess_root())
@@ -148,7 +155,7 @@ fn aggregate_zero_sessions_no_window_match_exits_zero() {
     let _ = std::fs::create_dir_all(&empty_dir);
     Command::cargo_bin("agentprof")
         .unwrap()
-        .args(["aggregate", "--by", "tool"])
+        .args(["--no-cache", "aggregate", "--by", "tool"])
         .args(["--root"])
         .arg(&empty_dir)
         .assert()
@@ -160,7 +167,7 @@ fn aggregate_zero_sessions_no_window_match_exits_zero() {
 fn aggregate_nonexistent_root_exits_user_error() {
     Command::cargo_bin("agentprof")
         .unwrap()
-        .args(["aggregate", "--by", "tool"])
+        .args(["--no-cache", "aggregate", "--by", "tool"])
         .args(["--root", "/nonexistent-agentprof-aggregate-dir"])
         .assert()
         .code(1)
@@ -172,6 +179,7 @@ fn aggregate_invalid_threshold_exits_user_error() {
     Command::cargo_bin("agentprof")
         .unwrap()
         .args([
+            "--no-cache",
             "aggregate",
             "--by",
             "day",
@@ -190,7 +198,7 @@ fn aggregate_md_snapshot_by_tool() {
     let tmp = isolated_multi_sess_root();
     let out = Command::cargo_bin("agentprof")
         .unwrap()
-        .args(["aggregate", "--by", "tool", "--since", "all"])
+        .args(["--no-cache", "aggregate", "--by", "tool", "--since", "all"])
         .args(["--root"])
         .arg(tmp.path())
         .assert()
@@ -207,7 +215,7 @@ fn aggregate_md_snapshot_by_day() {
     let tmp = isolated_multi_sess_root();
     let out = Command::cargo_bin("agentprof")
         .unwrap()
-        .args(["aggregate", "--by", "day", "--since", "all"])
+        .args(["--no-cache", "aggregate", "--by", "day", "--since", "all"])
         .args(["--root"])
         .arg(tmp.path())
         .assert()
@@ -224,7 +232,7 @@ fn aggregate_html_snapshot_by_tool() {
     let tmp = isolated_multi_sess_root();
     let out = Command::cargo_bin("agentprof")
         .unwrap()
-        .args(["aggregate", "--by", "tool", "--since", "all"])
+        .args(["--no-cache", "aggregate", "--by", "tool", "--since", "all"])
         .args(["--export", "html"])
         .args(["--root"])
         .arg(tmp.path())
@@ -255,6 +263,7 @@ fn aggregate_export_tui_requires_tty_not_unsupported() {
     // NOT the M1.6.2 "tui not supported in M1.6.2" message.
     let mut cmd = Command::cargo_bin("agentprof").unwrap();
     cmd.args([
+        "--no-cache",
         "aggregate",
         "--by",
         "tool",

@@ -116,7 +116,9 @@ fn run(
     match cli.cmd {
         SubCmd::Analyze(c) => cmd::analyze::run(c, cfg, tracing_handle, no_cache, storage_path),
         SubCmd::List(c) => cmd::list::run(c, cfg, tracing_handle, no_cache, storage_path, quiet),
-        SubCmd::Aggregate(c) => cmd::aggregate::run(c, cfg, tracing_handle),
+        SubCmd::Aggregate(c) => {
+            cmd::aggregate::run(c, cfg, tracing_handle, no_cache, storage_path, quiet)
+        }
         SubCmd::Watch(c) => cmd::watch::run(c, cfg, tracing_handle, no_cache, storage_path),
         SubCmd::McpWaste(c) => {
             cmd::mcp_waste::run(c, cfg, tracing_handle, no_cache, storage_path, quiet)
