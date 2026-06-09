@@ -13,6 +13,68 @@ prefix used in commit messages).
 
 ## [Unreleased]
 
+### Added
+
+- **M2.1 SQLite persistence layer** (Phase 2 entry). Activates the
+  previously-stub `agentprof-storage` crate. Hybrid mode: default
+  `cache` at `$XDG_CACHE_HOME/agentprof/cache.sqlite` (auto-prune
+  configurable, safe to `rm`); opt-in `store` at
+  `$XDG_DATA_HOME/agentprof/store.sqlite` via `[storage] mode = "store"`
+  in config. 3-table normalized schema (`sessions` / `tools_loaded` /
+  `turn_buckets`) reconciled against v0.1.x model + `analysis_report_json`
+  blob column for disaster recovery + `loaded_mcp_tools` as part of
+  the analysis report. WAL mode + per-command short connections +
+  no connection pool. Migrations via `rusqlite_migration` crate.
+  See ADR-0019 (hybrid storage mode) + ADR-0017 (id namespace unify).
+- **`SessionDataSource` trait** in `agentprof-core` (leaf). Symmetric
+  to the existing `Adapter` trait. Three impls land with M2.1:
+  `AdapterDataSource<A>` (agentprof-adapters; wraps any Adapter),
+  `SqliteDataSource` (agentprof-storage), and `DualPathDataSource`
+  (agentprof-cli; composer). Future OTLP receiver (M2.2) will be the
+  4th implementor. See ADR-0018.
+- **Dual-path read** in `cmd::list` and `cmd::mcp-waste`: both adapter
+  and storage queried; set-union by canonical session id; per-session
+  field diff (`raw_mtime`, `started_at_ms`, `raw_path`); divergence
+  warns on stderr (suppressed by `--quiet`); adapter wins; async
+  re-upsert via `std::thread::spawn` (no tokio). `cmd::analyze`
+  write-throughs to storage after a successful analysis. `cmd::watch`
+  holds one DB connection across refresh cycles. Known M2.1 limitation:
+  `cmd::aggregate` (all 4 `--by` arms) stays single-path because
+  cross-session aggregation requires Episodes per session, not just
+  `AnalysisReport` — promoted to M2.1.1 follow-up.
+- **`agentprof db` subcommand family**: `init`, `stats`, `ingest`,
+  `prune`, `vacuum`, `export`. All accept `--storage-path` for
+  isolation; `stats` supports `--export {table,json}`; `ingest`
+  takes `--agent` + mutually exclusive `{--since DUR | --all | --session ID}`;
+  `prune` takes `--before DUR` + `--dry-run`; `export` takes
+  `<SESSION_ID>` + `--format {json,jsonl}` + `--output PATH`.
+- **Three new global CLI flags**: `--no-cache` (degrade dual-path to
+  single-path adapter), `--storage-path <PATH>` (override resolved DB
+  path), `--quiet` (suppress per-session divergence warning lines on
+  stderr).
+- New workspace dependencies: `rusqlite_migration` (1.x) and
+  `indicatif` (0.17, optional behind a `progress` feature on
+  agentprof-storage). `dirs` (5.x) promoted to workspace dependency.
+- **`AnalysisReport::loaded_mcp_tools: BTreeSet<String>`** (`#[serde(default)]`)
+  + 4 new accessor methods on `AnalysisReport` for cumulative token
+  totals (`total_input_tokens`, `total_output_tokens`,
+  `total_cache_read`, `total_cache_creation`). Powers the storage
+  layer's `dominant_model` derivation + the SQLite normalized-table
+  pre-computation.
+- **`SessionRef::new(id, agent, started_at_ms, raw_path, raw_mtime_ms, source)`**
+  cross-crate constructor (`#[non_exhaustive]` workaround).
+- **`agentprof-cli/src/lib.rs`** thin facade — exposes
+  `data_source` / `data_source_factory` / `config` modules to
+  integration tests (the crate was previously bin-only). `main.rs`
+  remains the bin entry point.
+- **`agentprof_adapters::copilot::paths::extract_session_id_from_first_event`**
+  helper. Called from `discover_sessions` to surface the canonical
+  UUID (from `data.sessionId` in the first event) instead of the
+  directory name. See ADR-0017.
+- **ADR-0017** (Unify session id namespace), **ADR-0018**
+  (SessionDataSource trait + dual-path semantics), **ADR-0019**
+  (Hybrid storage mode).
+
 ### Fixed
 
 - **agentprof-adapters / agentprof-cli (M2.1 P0):** `CopilotAdapter::discover_sessions`
