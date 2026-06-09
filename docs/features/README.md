@@ -64,3 +64,26 @@ the affected crate READMEs, so no separate `docs/features/*.md` was needed.
   the log-output PII model in
   [`privacy.md` §7](./privacy.md#7-log-output-pii-model-m164), and
   [`docs/architecture.md`](../architecture.md) §15.5.
+- **MCP server waste analysis** (`agentprof mcp-waste`, `analyze
+  --section mcp-waste`, `aggregate --by mcp-server` waste columns,
+  TUI `[5] McpWaste` split-pane view, M1.6.5) — covered by
+  [ADR-0015](../internals/adr-0015-mcp-waste-architecture.md) plus
+  `crates/agentprof-core/README.md` (`analyzer::waste` +
+  `model::waste`), `crates/agentprof-adapters/README.md`
+  (`copilot::tools_changed` + `copilot::mcp_config`),
+  `crates/agentprof-tui/README.md` (`views::mcp_waste`), and
+  `crates/agentprof-cli/README.md` (`cmd::mcp_waste`).
+- **MCP tool token-cost view** (`--tokens-per-tool <N>` heuristic +
+  `--tool-descriptions <path>` sidecar across the three MCP-waste
+  surfaces; tokenizer auto-inference from session dominant model;
+  M1.6.6) — covered by
+  [ADR-0016](../internals/adr-0016-mcp-token-cost-architecture.md)
+  plus `crates/agentprof-core/README.md` (`WasteComputeContext`
+  builder + `SidecarLookup` + `infer_tokenizer` +
+  `compute_token_cost_for_tool` + `TokenProvenance` /
+  `TokenSource` / `TokenizerKind`),
+  `crates/agentprof-adapters/README.md`
+  (`copilot::tool_sidecar`), and `crates/agentprof-cli/README.md`
+  (`cmd::model_hint::dominant_model` + the three subcommand
+  flag tables), and [`docs/architecture.md`](../architecture.md)
+  §11.1.
