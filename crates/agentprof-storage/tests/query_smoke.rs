@@ -99,3 +99,42 @@ fn load_session_missing_returns_not_found() {
         other => panic!("expected SqliteError::Rusqlite, got: {other:?}"),
     }
 }
+
+#[test]
+fn parse_agent_unknown_falls_back_to_copilot() {
+    // Locks the audit-flagged (M2.1 P2-4) silent fallback contract:
+    // a sessions row whose `agent` column holds an unknown string —
+    // i.e. one not in the closed set {copilot, claude, codex} — must
+    // surface through query_sessions_since as AgentKind::Copilot
+    // rather than crash the listing.
+    //
+    // parse_agent is private; we exercise it by directly UPDATE-ing
+    // the agent column to a future-agent value after upsert, then
+    // re-querying via the public path.
+    //
+    // When AgentKind::Unknown(String) is added (M2.1.1), this test
+    // MUST be updated to assert the new variant — at that point the
+    // silent-fallback contract is broken intentionally.
+    let mut db = Db::open_in_memory().unwrap();
+    let raw = NamedTempFile::new().unwrap();
+
+    let now_ms: i64 = 1_700_000_000_000;
+    let report = report_with_started_at_ms("future-session", now_ms);
+    upsert_report(&mut db, &report, raw.path(), 1_700_000_000).unwrap();
+
+    db.conn_for_test()
+        .execute(
+            "UPDATE sessions SET agent = 'future-agent-name' WHERE id = 'future-session'",
+            [],
+        )
+        .unwrap();
+
+    let refs = query_sessions_since(&db, Duration::from_secs(86_400), now_ms).unwrap();
+    assert_eq!(refs.len(), 1);
+    assert_eq!(refs[0].id, "future-session");
+    assert_eq!(
+        refs[0].agent,
+        AgentKind::Copilot,
+        "unknown agent must soft-fail to Copilot per audit P2-4 contract"
+    );
+}
