@@ -566,6 +566,33 @@ enabled = false
   - 启用 `agentprof-core` 的 `anthropic-api` feature
 - Tokenizer 缓存按 `(model, text_hash)` 内存缓存，避免重复 tokenize 大 schema
 
+### 11.1 MCP waste tokenizer 推断（M1.6.6）
+
+`mcp-waste` / `analyze --section mcp-waste` / `aggregate --by mcp-server` 三个
+surface 不接受手动 tokenizer 选择，而是按以下规则自动推断：
+
+1. **优先按 session 主导 model**：扫描 `AnalysisReport.model_metrics`，按
+   `ModelUsage::total()` 降序取最大者（M1.6.6 audit B1 fix — 此前用
+   `keys().next()` 取首键，导致混合 model session 误分类，详见
+   `agentprof-cli::cmd::model_hint::dominant_model`）。
+2. **按 model 名前缀分流**（`agentprof_core::analyzer::waste::infer_tokenizer`）：
+   - `gpt-5*` / `gpt-4o*` / `o1*` / `o3*` → `TokenizerKind::O200kBase`
+   - 其余（含 Anthropic / 旧 OpenAI / Copilot CLI 自有 model）→ `TokenizerKind::Cl100kBase`
+3. **tokenizer 实例复用**：CLI 三处子命令在 command 级**只构建一次** `CoreBPE`
+   并通过 `WasteComputeContext::with_bpe(Arc<CoreBPE>)` 注入到每个 per-session
+   context，避免在 100-session 跑里重复解析 merge tables（M1.6.6 audit A1）。
+4. **Sidecar 命中时走精确路径**：`--tool-descriptions <path>` 提供的 sidecar
+   覆盖到某 tool 时，per-tool 计数切换为 `TokenSource::SidecarExact`；未覆盖到
+   的 tool 仍走 `--tokens-per-tool N`（默认 200）启发式，per-report
+   `TokenProvenance` 汇总为 `Heuristic` / `SidecarExact` / `Mixed`。
+5. **启发式偏差注脚**：默认 200 tokens/tool 按 `cl100k_base` 校准，`o200k_base`
+   session 在纯启发式模式下可能高估 waste 约 15–20%；rustdoc 在
+   `DEFAULT_HEURISTIC_TOKENS` 与 `with_heuristic` 点明并建议补 sidecar 精确化
+   （M1.6.6 audit B4）。
+
+详见 [ADR-0016](internals/adr-0016-mcp-token-cost-architecture.md) D-2 / D-3 +
+spec `docs/superpowers/specs/2026-06-08-m1.6.6-mcp-waste-token-cost-design.md`。
+
 ---
 
 ## 12. 错误处理策略
@@ -753,6 +780,17 @@ pub fn compute_roi(/* ... */) -> Result<Vec<RoiRow>, CoreError> {
 | 0003 | Synthetic-only fixture strategy | Accepted | 2026-05-26 |
 | 0004 | Episode derivation — lenient single-pass algorithm | Accepted | 2026-05-27 |
 | 0005 | Analyzer foundations — payload_name + start-time turn attribution + AnalysisReport placement (含 Update §1–§6：D-1 表修正 / percentile 精度 / turn metadata extraction / mode vocabulary alignment / post-output audit schema fixes) | Accepted | 2026-05-30 |
+| 0006 | Panic-safe TUI lifecycle (install_panic_hook + enter/leave) | Accepted | 2026-05-30 |
+| 0007 | Speedscope evented JSON exporter + SVG flamegraph (M1.6.4) | Accepted | 2026-05-31 |
+| 0008 | `aggregate` report shape + utilization metric (M1.6.2) | Accepted | 2026-05-31 |
+| 0009 | `watch` runner + notify-debouncer-mini (M1.6.3) | Accepted | 2026-06-01 |
+| 0010 | Tracing infrastructure (4-layer span topology + reload-Layer + PII hash) (M1.6.4) | Accepted | 2026-06-02 |
+| 0011 | TurnDetailView + adapter args plumbing (F1) | Accepted | 2026-06-02 |
+| 0012 | Session-level per-model metrics + Models view (F1.7) | Accepted | 2026-06-03 |
+| 0013 | Event success bit (`payload_success` + `payload_error_message`) | Accepted | 2026-06-03 |
+| 0014 | v0.1.0 release strategy (cargo-dist + GitHub Release + CHANGELOG) (M1.7) | Accepted | 2026-06-04 |
+| 0015 | MCP waste architecture — `compute_waste` + `aggregate_waste` + provenance + 5th TUI view (M1.6.5) | Accepted | 2026-06-08 |
+| 0016 | MCP tool token-cost — `WasteComputeContext` builder + heuristic/sidecar fallback + tokenizer auto-inference (M1.6.6) | Accepted | 2026-06-08 |
 
 ### 14.5 文档同步的 CI 强制
 
