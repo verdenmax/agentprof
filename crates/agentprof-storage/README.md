@@ -20,9 +20,13 @@ real public surface:
   `store` configuration with XDG-aware path resolution.
 - [`SqliteError`] — `thiserror`-based error type covering `rusqlite`,
   migrations, I/O, config-path and serde failures.
+- [`Db`] (M2.1 T2.3) — opens a SQLite file (or in-memory db), applies
+  standard pragmas (`journal_mode=WAL`, `synchronous=NORMAL`,
+  `foreign_keys=ON`) and runs the embedded migrations in
+  `migrations/001_initial.sql` (`sessions` / `tools_loaded` / `turn_buckets`
+  + supporting indexes). Idempotent on re-open.
 
-Subsequent T2.x tasks will land the `Db` handle, migrations and typed query
-modules. A full README rewrite is scheduled for **T8.2** at the end of M2.1;
+Subsequent T2.x tasks will land typed query modules on top of `Db`. A full README rewrite is scheduled for **T8.2** at the end of M2.1;
 the "STUB CRATE" notice above will be removed then.
 
 ## Position in the agentprof architecture

@@ -12,7 +12,8 @@
 //! - [`config`] — [`StorageConfig`](config::StorageConfig) /
 //!   [`StorageMode`](config::StorageMode) (M2.1 T2.2)
 //! - [`error`]  — [`SqliteError`] for all fallible APIs in this crate
-//! - `sqlite::*` (planned, M2.1 T2.3+) — `Db` handle, migrations, typed queries
+//! - [`db`]     — [`Db`] handle + embedded migrations (M2.1 T2.3)
+//! - `sqlite::queries` (planned, M2.1 T2.4+) — typed accessors
 //! - `otlp` (planned, feature `otlp`) — Tonic-based OpenTelemetry receiver
 //!
 //! ## Features
@@ -32,6 +33,8 @@
 #![warn(missing_docs)]
 
 pub mod config;
+pub mod db;
 pub mod error;
 
+pub use db::Db;
 pub use error::SqliteError;

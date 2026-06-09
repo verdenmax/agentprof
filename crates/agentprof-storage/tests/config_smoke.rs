@@ -40,7 +40,9 @@ impl Drop for EnvGuard {
 
 #[test]
 fn default_mode_is_cache() {
-    let _lock = ENV_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _lock = ENV_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let cfg = StorageConfig::default();
     assert_eq!(cfg.mode, StorageMode::Cache);
     assert_eq!(cfg.auto_prune_days, 30);
@@ -48,7 +50,9 @@ fn default_mode_is_cache() {
 
 #[test]
 fn cache_default_path_under_xdg_cache_home() {
-    let _lock = ENV_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _lock = ENV_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let _g = EnvGuard::set("XDG_CACHE_HOME", "/tmp/test-xdg-cache");
     let p = StorageConfig::default_path_for(StorageMode::Cache);
     assert_eq!(
@@ -59,7 +63,9 @@ fn cache_default_path_under_xdg_cache_home() {
 
 #[test]
 fn store_default_path_under_xdg_data_home() {
-    let _lock = ENV_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _lock = ENV_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let _g = EnvGuard::set("XDG_DATA_HOME", "/tmp/test-xdg-data");
     // Ensure cache var doesn't accidentally bleed in.
     let _g2 = EnvGuard::unset("XDG_CACHE_HOME");
