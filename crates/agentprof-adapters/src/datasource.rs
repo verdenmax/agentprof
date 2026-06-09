@@ -198,10 +198,18 @@ fn system_time_to_ms(t: SystemTime) -> Option<i64> {
 }
 
 fn adapter_ref_to_datasource_ref(sref: &AdapterRef, source_name: &'static str) -> DataSourceRef {
+    // Re-read the first event line to extract the session's logical start
+    // time so consumer ordering (e.g. `list` newest-first) is independent
+    // of filesystem mtime, which varies across checkouts on CI runners
+    // and was the root cause of M2.1 snapshot test flakiness on Win/Mac/Linux.
+    // Cost: one extra BufReader::read_line per session (sub-millisecond);
+    // for the typical 100-session workload this totals <100ms total.
+    let started_at_ms =
+        crate::copilot::paths::extract_session_start_ms_from_first_event(&sref.path);
     DataSourceRef::new(
         sref.id.clone(),
         sref.agent,
-        None, // started_at_ms — not knowable cheaply without parsing
+        started_at_ms,
         Some(sref.path.clone()),
         system_time_to_ms(sref.modified_at),
         source_name,

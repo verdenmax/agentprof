@@ -141,9 +141,14 @@ pub fn run(
     let (ds, warnings_handle) = build_data_source(agent_name, &root, &storage_cfg, no_cache)
         .map_err(|e| ExitKind::UserError.into_anyhow(format!("{e}")))?;
 
-    let all_refs = ds.discover(since).map_err(|e| {
+    let mut all_refs = ds.discover(since).map_err(|e| {
         ExitKind::DataError.into_anyhow(format!("scanning {}: {e}", root.display()))
     })?;
+    // Sort by logical session start time (newest first) so output order is
+    // independent of filesystem mtime (which varies across checkouts on CI).
+    // `started_at_ms` may be None for sessions without a parseable first
+    // event — those are pushed to the end via Option's natural ordering.
+    all_refs.sort_by_key(|r| std::cmp::Reverse(r.started_at_ms));
     let total_discovered = all_refs.len();
     let filtered: Vec<SessionRef> = all_refs
         .into_iter()

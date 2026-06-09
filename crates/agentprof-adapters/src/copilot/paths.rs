@@ -85,6 +85,59 @@ pub fn extract_session_id_from_first_event(jsonl_path: &Path) -> Option<String> 
         })
 }
 
+/// Best-effort extraction of the session start time (unix epoch milliseconds)
+/// from the first event line of an `events.jsonl` file.
+///
+/// Mirrors [`extract_session_id_from_first_event`] for the timestamp side.
+/// Used by `crate::AdapterDataSource::discover` (via the internal
+/// `adapter_ref_to_datasource_ref` helper) to populate
+/// `DataSourceRef.started_at_ms` so list / aggregate ordering is independent
+/// of filesystem mtime (which varies across checkouts and breaks snapshot
+/// tests on CI).
+///
+/// Reads `data.startTime` first (the canonical session-start field for
+/// Copilot's `session.start` event), falling back to the envelope-level
+/// `timestamp` field. Returns [`None`] for any failure mode (missing file,
+/// empty/malformed JSONL, missing fields, unparseable RFC3339).
+///
+/// # Examples
+///
+/// ```
+/// use agentprof_adapters::copilot::paths::extract_session_start_ms_from_first_event;
+/// use std::io::Write;
+///
+/// let tmp = tempfile::tempdir().unwrap();
+/// let p = tmp.path().join("events.jsonl");
+/// let mut f = std::fs::File::create(&p).unwrap();
+/// writeln!(
+///     f,
+///     r#"{{"type":"session.start","data":{{"sessionId":"abc","startTime":"2026-06-09T12:00:00Z"}},"id":"e1","timestamp":"2026-06-09T12:00:00Z","parentId":null}}"#
+/// )
+/// .unwrap();
+/// let ms = extract_session_start_ms_from_first_event(&p).unwrap();
+/// // 2026-06-09T12:00:00Z = 1781006400 epoch seconds → 1781006400000 ms
+/// assert_eq!(ms, 1_781_006_400_000);
+/// ```
+#[must_use]
+pub fn extract_session_start_ms_from_first_event(jsonl_path: &Path) -> Option<i64> {
+    let file = File::open(jsonl_path).ok()?;
+    let mut reader = BufReader::new(file);
+    let mut line = String::new();
+    reader.read_line(&mut line).ok()?;
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_str(trimmed).ok()?;
+    let ts_str = value
+        .get("data")
+        .and_then(|d| d.get("startTime"))
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| value.get("timestamp").and_then(serde_json::Value::as_str))?;
+    let dt = chrono::DateTime::parse_from_rfc3339(ts_str).ok()?;
+    Some(dt.timestamp_millis())
+}
+
 /// Default on-disk location where Copilot CLI persists sessions.
 ///
 /// Resolves to `$HOME/.copilot/session-state`. Returns [`None`] when the
