@@ -21,8 +21,13 @@ use crate::error::SqliteError;
 
 /// Embedded SQL migrations, ordered. Numeric prefix gives the apply order;
 /// the textual name is for debugging only.
-const MIGRATIONS: &[(&str, &str)] =
-    &[("001_initial", include_str!("../migrations/001_initial.sql"))];
+const MIGRATIONS: &[(&str, &str)] = &[
+    ("001_initial", include_str!("../migrations/001_initial.sql")),
+    (
+        "002_episodes_column",
+        include_str!("../migrations/002_episodes_column.sql"),
+    ),
+];
 
 /// `SQLite` database handle for agentprof persistence.
 ///

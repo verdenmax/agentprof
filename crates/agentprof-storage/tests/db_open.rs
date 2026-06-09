@@ -48,3 +48,23 @@ fn open_is_idempotent() {
     let db2 = Db::open_and_migrate(&path).expect("re-open same path");
     assert!(db2.table_names_for_test().iter().any(|t| t == "sessions"));
 }
+
+#[test]
+fn open_creates_episodes_column_from_migration_002() {
+    let tmp = tempfile::tempdir().expect("create tempdir");
+    let path = tmp.path().join("test.sqlite");
+    let db = Db::open_and_migrate(&path).expect("open ok");
+
+    let conn = db.conn_for_test();
+    let exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name = 'episodes_json'",
+            [],
+            |r| r.get::<_, i64>(0).map(|n| n > 0),
+        )
+        .expect("query column");
+    assert!(
+        exists,
+        "expected sessions.episodes_json column after migration 002"
+    );
+}
