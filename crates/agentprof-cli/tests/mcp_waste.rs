@@ -16,7 +16,7 @@ fn fixture_root() -> std::path::PathBuf {
 fn mcp_waste_md_default_renders_summary_header() {
     let out = Command::cargo_bin("agentprof")
         .unwrap()
-        .args(["mcp-waste", "--root"])
+        .args(["--no-cache", "mcp-waste", "--root"])
         .arg(fixture_root())
         .args(["--since", "all"])
         .assert()
@@ -70,7 +70,7 @@ fn redact_generated_date(s: &str) -> String {
 fn mcp_waste_json_default_is_valid_json() {
     let out = Command::cargo_bin("agentprof")
         .unwrap()
-        .args(["mcp-waste", "--root"])
+        .args(["--no-cache", "mcp-waste", "--root"])
         .arg(fixture_root())
         .args(["--since", "all", "--export", "json"])
         .assert()
@@ -89,7 +89,7 @@ fn mcp_waste_json_default_is_valid_json() {
 fn mcp_waste_html_includes_expected_table() {
     Command::cargo_bin("agentprof")
         .unwrap()
-        .args(["mcp-waste", "--root"])
+        .args(["--no-cache", "mcp-waste", "--root"])
         .arg(fixture_root())
         .args(["--since", "all", "--export", "html"])
         .assert()
@@ -105,7 +105,7 @@ fn mcp_waste_writes_output_file_when_output_flag_given() {
     let outpath = tmp.path().join("waste.md");
     Command::cargo_bin("agentprof")
         .unwrap()
-        .args(["mcp-waste", "--root"])
+        .args(["--no-cache", "mcp-waste", "--root"])
         .arg(fixture_root())
         .args(["--since", "all", "--output"])
         .arg(&outpath)
@@ -121,7 +121,7 @@ fn mcp_waste_no_sessions_exits_data_error() {
     let tmp = tempfile::tempdir().unwrap();
     Command::cargo_bin("agentprof")
         .unwrap()
-        .args(["mcp-waste", "--root"])
+        .args(["--no-cache", "mcp-waste", "--root"])
         .arg(tmp.path())
         .args(["--since", "all"])
         .assert()
@@ -137,7 +137,7 @@ fn mcp_waste_md_with_sidecar_shows_exact_tokens() {
         .join("mcp-tool-sidecar/global.json");
     let out = Command::cargo_bin("agentprof")
         .unwrap()
-        .args(["mcp-waste", "--root"])
+        .args(["--no-cache", "mcp-waste", "--root"])
         .arg(fixture_root())
         .args(["--since", "all", "--tool-descriptions"])
         .arg(sidecar)
@@ -155,7 +155,7 @@ fn mcp_waste_md_with_sidecar_shows_exact_tokens() {
 fn mcp_waste_md_with_tokens_per_tool_override_shows_500_per_tool() {
     let out = Command::cargo_bin("agentprof")
         .unwrap()
-        .args(["mcp-waste", "--root"])
+        .args(["--no-cache", "mcp-waste", "--root"])
         .arg(fixture_root())
         .args(["--since", "all", "--tokens-per-tool", "500"])
         .assert()
@@ -172,7 +172,7 @@ fn mcp_waste_md_with_tokens_per_tool_override_shows_500_per_tool() {
 fn mcp_waste_top_flag_limits_table_rows() {
     let out = Command::cargo_bin("agentprof")
         .unwrap()
-        .args(["mcp-waste", "--root"])
+        .args(["--no-cache", "mcp-waste", "--root"])
         .arg(fixture_root())
         .args(["--since", "all", "--top", "0"])
         .assert()

@@ -29,7 +29,7 @@ fn fixtures_root() -> PathBuf {
 fn list_happy_path_lists_committed_fixtures() {
     Command::cargo_bin("agentprof")
         .unwrap()
-        .args(["list", "--root"])
+        .args(["--no-cache", "list", "--root"])
         .arg(fixtures_root())
         .args(["--since", "all", "--limit", "100"])
         .assert()
@@ -45,7 +45,7 @@ fn list_happy_path_lists_committed_fixtures() {
 fn list_default_limit_caps_output() {
     let out = Command::cargo_bin("agentprof")
         .unwrap()
-        .args(["list", "--root"])
+        .args(["--no-cache", "list", "--root"])
         .arg(fixtures_root())
         .args(["--since", "all", "--limit", "2"])
         .assert()
@@ -63,7 +63,7 @@ fn list_since_filter_with_zero_window_yields_empty_or_few() {
     // 1-second window is almost certainly past for committed fixtures.
     let out = Command::cargo_bin("agentprof")
         .unwrap()
-        .args(["list", "--root"])
+        .args(["--no-cache", "list", "--root"])
         .arg(fixtures_root())
         .args(["--since", "1s"])
         .assert()
@@ -86,6 +86,7 @@ fn list_nonexistent_root_exits_user_error() {
     Command::cargo_bin("agentprof")
         .unwrap()
         .args([
+            "--no-cache",
             "list",
             "--root",
             "/nonexistent/agentprof/list/path",
@@ -104,7 +105,7 @@ fn list_corrupt_fixture_summarized_in_stderr() {
     // failure is reported but doesn't crash the command.
     let assertion = Command::cargo_bin("agentprof")
         .unwrap()
-        .args(["list", "--root"])
+        .args(["--no-cache", "list", "--root"])
         .arg(fixtures_root())
         .args(["--since", "all", "--limit", "100"])
         .assert()
@@ -124,7 +125,7 @@ fn list_corrupt_fixture_summarized_in_stderr() {
 fn list_unsupported_agent_exits_user_error() {
     Command::cargo_bin("agentprof")
         .unwrap()
-        .args(["list", "--agent", "claude", "--since", "all"])
+        .args(["--no-cache", "list", "--agent", "claude", "--since", "all"])
         .assert()
         .failure()
         .code(1)
