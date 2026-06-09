@@ -14,17 +14,23 @@ workspace = true
 
 [features]
 default = []
+# Enable the CLI ingest progress bar (used by `agentprof ingest`).
+progress = ["dep:indicatif"]
 # Enable the OTLP receiver (subscribes to Claude Code telemetry).
 otlp = ["dep:opentelemetry", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk", "dep:tonic", "dep:tokio"]
 
 [dependencies]
-agentprof-core = { workspace = true }
-serde          = { workspace = true }
-serde_json     = { workspace = true }
-thiserror      = { workspace = true }
-tracing        = { workspace = true }
-chrono         = { workspace = true }
-rusqlite       = { workspace = true }
+agentprof-core     = { workspace = true }
+rusqlite           = { workspace = true, features = ["bundled"] }
+rusqlite_migration = { workspace = true }
+serde              = { workspace = true, features = ["derive"] }
+serde_json         = { workspace = true }
+thiserror          = { workspace = true }
+tracing            = { workspace = true }
+chrono             = { workspace = true }
+dirs               = { workspace = true }
+
+indicatif          = { workspace = true, optional = true }
 
 opentelemetry       = { workspace = true, optional = true }
 opentelemetry-otlp  = { workspace = true, optional = true }
