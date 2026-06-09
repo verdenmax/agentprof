@@ -146,6 +146,30 @@ impl Db {
         &self.conn
     }
 
+    /// Test-only helper: borrow the underlying [`Connection`] for raw SQL
+    /// `SELECT`s in integration tests (e.g. `COUNT(*)` assertions in
+    /// `tests/upsert_smoke.rs`).
+    ///
+    /// Hidden from public rustdoc. Production callers must go through the
+    /// crate's typed APIs (M2.1 T2.4 [`crate::upsert::upsert_report`],
+    /// later tasks for queries).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_storage::Db;
+    /// let db = Db::open_in_memory().unwrap();
+    /// let n: i64 = db
+    ///     .conn_for_test()
+    ///     .query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0))
+    ///     .unwrap();
+    /// assert_eq!(n, 0);
+    /// ```
+    #[doc(hidden)]
+    pub const fn conn_for_test(&self) -> &Connection {
+        &self.conn
+    }
+
     /// Mutably borrow the underlying connection (sibling modules issuing
     /// transactions).
     #[allow(dead_code)]

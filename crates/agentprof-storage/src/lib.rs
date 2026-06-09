@@ -13,7 +13,9 @@
 //!   [`StorageMode`](config::StorageMode) (M2.1 T2.2)
 //! - [`error`]  — [`SqliteError`] for all fallible APIs in this crate
 //! - [`db`]     — [`Db`] handle + embedded migrations (M2.1 T2.3)
-//! - `sqlite::queries` (planned, M2.1 T2.4+) — typed accessors
+//! - [`upsert`] — [`upsert_report`](upsert::upsert_report) atomic 3-table
+//!   write for one session (M2.1 T2.4)
+//! - `sqlite::queries` (planned, M2.1 T2.5+) — typed accessors
 //! - `otlp` (planned, feature `otlp`) — Tonic-based OpenTelemetry receiver
 //!
 //! ## Features
@@ -35,6 +37,7 @@
 pub mod config;
 pub mod db;
 pub mod error;
+pub mod upsert;
 
 pub use db::Db;
 pub use error::SqliteError;
