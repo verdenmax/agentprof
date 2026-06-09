@@ -3,13 +3,15 @@
 > **本文件是项目总入口。** 如果你是第一次进入本仓库（或时隔一段时间回来），**先读这里**，再去任何其他文档。
 >
 > **文件名**：`tasks/ROADMAP.md`
-> **版本**：1.4
-> **最后更新**：2026-06-03
-> **当前 commit**：`main` HEAD `766b8f0`（post-M1.6.4 + follow-up wave）；最近一个 milestone merge = `8abc590` (M1.6.4)，后续 8 个 cleanup commits（`d87adec` → `766b8f0`，2026-06-03 M1.6.4 follow-up wave）
-> **当前阶段**：**Phase 0 + 1 (MVP)** — M1.1 / M1.2 / M1.3 / M1.4 ✅ 完成（含 4 轮 M1.4 followups），**M1.5 ✅ 完成**（TUI + ADR-0006 panic-safe lifecycle），**M1.6.1 ✅ 完成**（`list` 子命令 + 8 个 M1.5 audit polish 项），**M1.6.2 ✅ 完成**（`aggregate` 子命令 + ADR-0008），**M1.6.3 ✅ 完成 2026-06-01**（`watch` 子命令 + `aggregate --export tui` 激活 + ADR-0009），**M1.6.4 ✅ 完成 2026-06-02**（`--export speedscope|html` shipped 2026-05-31 + ADR-0007；tracing 基础设施 shipped 2026-06-02 + ADR-0010：全工程结构化 tracing across all 5 crates，13 `eprintln!` → `tracing`，全局 `--log-level` / `--log-file`，TUI 自动 XDG state log，PII hash，4 层 span 拓扑），**2026-06-03 M1.6.4 follow-up wave ✅ 完成**（8 commits: `d87adec` → `766b8f0`），M1.6.5 (MCP waste, deferred to 0.2.0) / M1.7 (v0.1.0 release) 待开始
-> **下一步入口**：`tasks/001-mvp-agent-token-profiler.md` §10 Milestone 1.7（v0.1.0 release via `github-release` skill）；M1.6.5（MCP waste analysis）属于 post-MVP 增量，可推到 0.2.0
+> **版本**：1.5
+> **最后更新**：2026-06-10
+> **当前 commit**：`feat/m2.1-sqlite-persistence` HEAD `f5acde9`（M2.1 T7-fix id-namespace hotfix + T8 docs sync 进行中）；最近一个 milestone merge on `main` = `8abc590` (M1.6.4) → ... → v0.1.0 / M1.6.5 / M1.6.6 / docs sweep
+> **当前阶段**：**Phase 2 — M2.1 SQLite 持久化 nearing release**（branch `feat/m2.1-sqlite-persistence`）：hybrid cache/store mode ([ADR-0019](../docs/internals/adr-0019-hybrid-storage-mode.md))，`SessionDataSource` trait + dual-path ([ADR-0018](../docs/internals/adr-0018-session-datasource-trait.md))，id-namespace 统一 hotfix ([ADR-0017](../docs/internals/adr-0017-unify-session-id-namespace.md))，`agentprof db {init,stats,ingest,prune,vacuum,export}` 子命令家族，3 全局 flag（`--no-cache` / `--storage-path` / `--quiet`），analyze write-through + watch 长持连接；`list` + `mcp-waste` dual-path 接入；`aggregate` dual-path 推迟到 **M2.1.1**（需 Episodes hoist）。T8 docs sync 进行中。Phase 0 + 1 (MVP) ✅ 已 release v0.1.0。
+> **下一步入口**：完成 M2.1 T8.2 docs sync → merge `feat/m2.1-sqlite-persistence` 到 main → v0.2.0 tag（`github-release` skill）→ **M2.1.1 aggregate dual-path** → **M2.2 OTLP receiver**（详见 [`docs/plan.md`](../docs/plan.md) §8）
 >
 > **重大 pivot**（ADR-0001 events-first，详见 §4.1 / §4.2）：M1.2 不再做 ClaudeAdapter，改做 **CopilotAdapter**（real wire data 直接可得）；tokenizer / ROI / waste / aggregate 全部从 M1.3 推迟到 M1.5+。Claude / Codex / Gemini 适配器推迟到 Phase 2 / 3。
+
+参见 [`docs/superpowers/specs/2026-06-09-m2.1-sqlite-persistence-design.md`](../docs/superpowers/specs/2026-06-09-m2.1-sqlite-persistence-design.md) 与 [`docs/plan.md`](../docs/plan.md) §6 Phase 2 / §8 next steps。
 
 ---
 

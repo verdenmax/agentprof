@@ -90,7 +90,7 @@ agentprof-cli  ──▶  agentprof-tui
 |---|---|---|---|
 | `agentprof-core` | lib | `model`, `tokenizer`, `analyzer` (+ `analyzer::aggregate` M1.6.2), `export` (M1.6.4: speedscope JSON + SVG flamegraph), `observability::pii::{hash_path, hash_short}` (M1.6.4 tracing), `error` | `serde`, `serde_json`, `tiktoken-rs`, `chrono`, `thiserror`, **`sha2`** (M1.6.4 tracing), `reqwest`(opt, feature `anthropic-api`) |
 | `agentprof-adapters` | lib | `claude`, `codex`, `copilot`, `registry`, `discovery` | `serde_json`, `walkdir`, `globset` |
-| `agentprof-storage` | lib | `sqlite::{schema, migrations, queries}`, `otlp`(feature) | `rusqlite`(bundled), `opentelemetry-otlp`(opt), `tonic`(opt) |
+| `agentprof-storage` | lib | SQLite persistence layer with hybrid cache/store mode (M2.1 ✅): `config::{StorageConfig, StorageMode, PartialStorageConfig}` (XDG-aware path resolution per [ADR-0019](internals/adr-0019-hybrid-storage-mode.md)), `db::Db` (handle + embedded migrations under `migrations/001_initial.sql`; pragmas `journal_mode=WAL` / `synchronous=NORMAL` / `foreign_keys=ON`), `upsert::upsert_report(db, report, raw_path, ingested_at_secs)` (atomic 3-table write), `query::{query_sessions_since, load_session}` (read API), `datasource::SqliteDataSource` (impl of `agentprof_core::datasource::SessionDataSource`, see [ADR-0018](internals/adr-0018-session-datasource-trait.md)), `admin::{stats, prune_before, vacuum, export_session_json}` (backs the `agentprof db` family), `error::SqliteError` (thiserror); `otlp`(feature, planned M2.2) | `rusqlite`(bundled), `serde_json`, `chrono`, `directories`, `opentelemetry-otlp`(opt), `tonic`(opt), `tokio`(opt) |
 | `agentprof-tui` | lib | `app` (with `AppRunner`) + `app::{terminal,event,state}`, `views::{flamegraph, roi, aggregate, models, turn_detail, format}`, `theme`, `error` — **shipped M1.5** ([`README`](../crates/agentprof-tui/README.md), [ADR-0006](internals/adr-0006-panic-safe-tui.md)); + `watch::{WatchRunner, WatchData, RefreshKind, ReloadError, AggSortKey}` + cross-session arm in `views::aggregate` + `Event::Refresh` — **shipped M1.6.3** ([ADR-0009](internals/adr-0009-watch-runner-and-notify.md)); + `views::turn_detail` (F1 Enter-to-open) + `views::models` (F1.7 Models view, key `4`, surfaces session-level per-model token totals — see [ADR-0012](internals/adr-0012-session-model-metrics-and-models-view.md)) — post-MVP UX waves F1, F1.5–F1.19 layered on the M1.5 base | `ratatui 0.29`, `crossterm 0.28` |
 | `agentprof-cli` | bin (`agentprof`) | `cmd::analyze` ✅ M1.4 + `--export tui` (M1.5) + `--export speedscope\|html` ✅ M1.6.4，`cmd::list` ✅ M1.6.1，`cmd::aggregate` ✅ M1.6.2 (--by tool\|mcp-server\|day\|model, --export md\|json\|csv\|html) + `--export tui` ✅ M1.6.3（deferred from M1.6.2），`cmd::watch` ✅ M1.6.3 (单 session + `watch aggregate ...` 子模式)，`observability::{config, init, tui_guard}` ✅ M1.6.4 (tracing infra — global `--log-level` / `--log-file` + TUI auto-redirect + reload-Layer)，`cmd::{ingest_otlp, config}` 规划中（Phase 2），`export` 已取消（与 `analyze --export` 重复），`config`, `main` | `clap`, `tracing`, `tracing-subscriber`, **`tracing-appender`**（M1.6.4 tracing，rolling-file writer），`anyhow`, `directories`, **`askama`**, **`csv`**, **`notify-debouncer-mini`**（M1.6.3，含 `notify` v6.1.1 transitive） |
 | `xtask` | bin | `anonymize`, `dist-check`, `release-notes` | `xshell` |
@@ -439,9 +439,29 @@ ingest-otlp [--listen 0.0.0.0:4317]            # 🚧 规划中 — Phase 2
 
 config  [show | edit | path]                   # 🚧 规划中 — Phase 2
     XDG 配置：~/.config/agentprof/config.toml。
+
+db <SUBCOMMAND>                                # ✅ M2.1 (v0.2.0)
+    SQLite cache/store lifecycle and inspection. All six actions honour
+    the global --storage-path flag for hermetic per-invocation DB targeting.
+      init                     Create DB + run migrations (idempotent)
+      stats [--export table|json]
+                               Show mode / path / file size / row counts / oldest+newest
+      ingest --agent X (--all | --since DUR | --session ID)
+                               Batch-import sessions into the DB; per-session
+                               failures logged via tracing + counted (exit 0).
+                               Uses AdapterDataSource directly (pure write — no
+                               dual-path read fan-out).
+      prune --before DUR [--dry-run]
+                               Delete sessions older than N days; FK CASCADE drops
+                               tools_loaded / turn_buckets rows. --dry-run = preview.
+      vacuum                   Run SQLite VACUUM; prints before/after file size.
+      export <SESSION_ID> [--format json|jsonl] [--output PATH]
+                               json = stored AnalysisReport verbatim;
+                               jsonl = one line per top-level report field.
+    See ADR-0019 (hybrid storage) + spec §9.
 ```
 
-### 全局 flags (M1.6.4)
+### 全局 flags (M1.6.4 + M2.1)
 
 适用于所有子命令（clap `global = true`），由 `agentprof-cli::observability` 模块解析。
 
@@ -459,6 +479,27 @@ config  [show | edit | path]                   # 🚧 规划中 — Phase 2
 （系统级 opt-out：`agentprof_core::observability::pii::hash_path` 自身在每次调用
 都读 env var，所以 L1 cmd / L2 adapter / L3 analyzer + aggregator 四层 span
 同步生效。详见 2026-06-03 fix `83d2ed0`）。
+
+`--no-cache`（M2.1） — 跳过 SQLite 存储 I/O，dual-path data source 降级为
+单路径 adapter view。一次性 inspection 不想触碰缓存时使用。详见
+[ADR-0018](internals/adr-0018-session-datasource-trait.md) + [ADR-0019](internals/adr-0019-hybrid-storage-mode.md)。
+
+`--storage-path <PATH>`（M2.1） — 覆盖解析后的 DB 文件路径。优先级高于
+`[storage].path` 配置项与 XDG 默认值。`db export` 输出到 alt 文件、
+multi-tenant CI 场景需要。
+
+`--quiet`（M2.1） — 抑制 `agentprof: warn: session <id>: N fields differ …`
+divergence warning lines（stderr）。结构化 `tracing` 事件不受影响。
+背景：`DualPathDataSource` 检测到 adapter 与 storage 同一 id 的字段不一致
+时（id-namespace 已由 ADR-0017 统一），会按 adapter-wins 规则提示并
+opportunistic re-upsert。详见 [ADR-0018](internals/adr-0018-session-datasource-trait.md)。
+
+> **M2.1 缓存覆盖范围**：`list` / `mcp-waste` 走 dual-path（adapter +
+> SQLite，read-fast、write-through-on-analyze、warn-on-drift）；
+> `analyze` write-through 缓存 + `watch` 长持连接（spec §10.2）；
+> `aggregate` **暂未** 接入 dual-path —— 需要 `Episodes` 数据而当前
+> `AnalysisReport` 不携带，hoist 是 M2.1.1 的工作。用户运行
+> `agentprof aggregate ...` 暂时不会看到来自 SQLite 缓存的加速。
 
 详见 [ADR-0010](internals/adr-0010-tracing-infrastructure.md) 与 §15.5 Observability。
 
@@ -482,50 +523,92 @@ config  [show | edit | path]                   # 🚧 规划中 — Phase 2
 
 ## 9. SQLite Schema
 
-文件路径默认 `${XDG_DATA_HOME:-~/.local/share}/agentprof/agentprof.sqlite`，可在配置覆盖。
+> **Status (M2.1, schema_version=1)**: shipped. Final DDL lives in
+> `crates/agentprof-storage/migrations/001_initial.sql` and is normative
+> against this section. See [ADR-0019](internals/adr-0019-hybrid-storage-mode.md)
+> for the cache-vs-store decision and M2.1 spec §5 for the column-level
+> design rationale.
+
+文件路径默认按 mode 派生：
+- **cache mode** (default): `${XDG_CACHE_HOME:-~/.cache}/agentprof/cache.sqlite`
+- **store mode** (opt-in): `${XDG_DATA_HOME:-~/.local/share}/agentprof/store.sqlite`
+
+可在 `[storage].path` 配置或 `--storage-path <PATH>` flag 覆盖（precedence
+flag > config > XDG default）。详见 §10 与 [ADR-0019](internals/adr-0019-hybrid-storage-mode.md)。
 
 ```sql
+-- agentprof v0.2.0 M2.1 initial schema (schema_version=1)
+
 CREATE TABLE sessions (
     id                    TEXT    PRIMARY KEY,
-    agent                 TEXT    NOT NULL,         -- 'claude' | 'codex' | 'copilot'
-    model                 TEXT,
-    started_at            INTEGER,                   -- unix epoch
+    agent                 TEXT    NOT NULL,              -- 'copilot' | 'claude' | 'codex'
+    dominant_model        TEXT,                          -- nullable; from model_metrics by total tokens
+    started_at            INTEGER,                       -- unix epoch (ms)
     duration_ms           INTEGER,
-    raw_path              TEXT,
-    schema_utilization    REAL,
+    raw_path              TEXT    NOT NULL,              -- absolute source jsonl path
+    raw_mtime             INTEGER NOT NULL,              -- mtime (ms) — drives dual-path freshness
     total_input_tokens    INTEGER,
     total_output_tokens   INTEGER,
-    estimated_waste_usd   REAL
+    total_cache_read      INTEGER,
+    total_cache_creation  INTEGER,
+    schema_version        INTEGER NOT NULL DEFAULT 1,    -- analyzer version; bumped breaking-ly to force recompute
+    ingested_at           INTEGER NOT NULL,              -- write time (ms)
+    analysis_report_json  TEXT    NOT NULL               -- complete AnalysisReport serde JSON (disaster recovery)
 );
+CREATE INDEX idx_sessions_started       ON sessions(started_at DESC);
+CREATE INDEX idx_sessions_agent_started ON sessions(agent, started_at DESC);
 
 CREATE TABLE tools_loaded (
-    session_id     TEXT REFERENCES sessions(id) ON DELETE CASCADE,
-    tool_name      TEXT,
-    source         TEXT,            -- 'builtin' | 'mcp:<server>' | 'skill:<name>'
-    schema_tokens  INTEGER,
-    call_count     INTEGER,
+    session_id        TEXT    NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    tool_name         TEXT    NOT NULL,
+    source            TEXT    NOT NULL,                  -- 'builtin' | 'mcp:<server>' | 'skill:<name>'
+    call_count        INTEGER NOT NULL,
+    total_duration_ms INTEGER NOT NULL,
+    tokens            INTEGER,                           -- M1.6.6 token cost (NULL when unknown)
+    token_source      TEXT,                              -- 'heuristic' | 'sidecar'
     PRIMARY KEY (session_id, tool_name)
 );
+CREATE INDEX idx_tools_call_count ON tools_loaded(session_id, call_count DESC);
 
 CREATE TABLE turn_buckets (
-    session_id           TEXT REFERENCES sessions(id) ON DELETE CASCADE,
-    turn_index           INTEGER,
-    system_tokens        INTEGER,
-    tools_schema_tokens  INTEGER,
-    history_tokens       INTEGER,
-    user_tokens          INTEGER,
-    tool_result_tokens   INTEGER,
-    output_tokens        INTEGER,
-    cache_read           INTEGER,
-    cache_creation       INTEGER,
+    session_id      TEXT    NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    turn_index      INTEGER NOT NULL,
+    input_tokens    INTEGER,
+    output_tokens   INTEGER,
+    cache_read      INTEGER,
+    cache_creation  INTEGER,
+    model           TEXT,
     PRIMARY KEY (session_id, turn_index)
 );
-
-CREATE INDEX idx_sessions_started ON sessions(started_at DESC);
-CREATE INDEX idx_tools_call_count ON tools_loaded(session_id, call_count);
 ```
 
-Schema 由 `agentprof-storage/migrations/` 管理；每个迁移文件 `NNN_<name>.sql`，启动时自动执行（idempotent）。
+**Storage strategy**:
+- `analysis_report_json` carries the **complete** serialised
+  `AnalysisReport`. The cli's read path hydrates from this column;
+  the normalised child tables (`tools_loaded` / `turn_buckets`) are
+  for future SQL-level queries and `agentprof db export --format jsonl`,
+  not the hot read path.
+- `loaded_mcp_tools` (M2.1 T5.2.5 hoist into `AnalysisReport`) is
+  serialised inside `analysis_report_json` — no separate table — so
+  the dual-path read can answer mcp-waste questions without
+  re-deriving from raw events.
+- **`upsert_report` semantics** (spec §10.2): `INSERT OR REPLACE` on
+  `sessions` does **not** cascade to children (it updates in place,
+  no row delete). The implementation explicitly `DELETE FROM <child>
+  WHERE session_id = ?` then re-INSERTs, all inside one transaction.
+
+**Index choices**:
+- `idx_sessions_started` — `list --since 7d` is the hottest query.
+- `idx_sessions_agent_started` — multi-agent filter once M3.1 / M3.2 land.
+- `idx_tools_call_count` — `aggregate --by tool` low-utilization scan.
+
+**`PRAGMA` set on every open** (`Db::open`):
+- `journal_mode = WAL` — concurrent read + serialized write.
+- `synchronous = NORMAL` — sync on checkpoint, not per-tx (fine for cache).
+- `foreign_keys = ON` — cascade deletes for `db prune`.
+
+Schema is owned by `agentprof-storage/migrations/`; each migration file
+`NNN_<name>.sql`, applied on `Db::open` (idempotent).
 
 ---
 
@@ -538,7 +621,15 @@ Schema 由 `agentprof-storage/migrations/` 管理；每个迁移文件 `NNN_<nam
 claude  = "~/.claude/projects"
 codex   = "~/.codex/sessions"
 copilot = "~/.copilot/session-state"
-db      = "~/.local/share/agentprof/agentprof.sqlite"
+db      = "~/.local/share/agentprof/agentprof.sqlite"   # legacy alias; see [storage].path below
+
+[storage]                                  # ✅ M2.1 (v0.2.0)
+# "cache" (default; XDG_CACHE_HOME) | "store" (XDG_DATA_HOME, opt-in)
+mode = "cache"
+# Override default XDG-derived path; takes effect for the active mode.
+# path = "~/.cache/agentprof/cache.sqlite"
+# Cache mode only — ignored in store mode. 0 disables auto-pruning.
+auto_prune_days = 30
 
 [tokenizer]
 anthropic_estimator   = "cl100k"          # cl100k | api
@@ -791,6 +882,9 @@ pub fn compute_roi(/* ... */) -> Result<Vec<RoiRow>, CoreError> {
 | 0014 | v0.1.0 release strategy (cargo-dist + GitHub Release + CHANGELOG) (M1.7) | Accepted | 2026-06-04 |
 | 0015 | MCP waste architecture — `compute_waste` + `aggregate_waste` + provenance + 5th TUI view (M1.6.5) | Accepted | 2026-06-08 |
 | 0016 | MCP tool token-cost — `WasteComputeContext` builder + heuristic/sidecar fallback + tokenizer auto-inference (M1.6.6) | Accepted | 2026-06-08 |
+| 0017 | Unify session id namespace across adapter and storage (M2.1 hotfix — P0) | Accepted | 2026-06-10 |
+| 0018 | `SessionDataSource` trait abstraction + dual-path semantics (warn + adapter-wins + async re-upsert) (M2.1) | Accepted | 2026-06-10 |
+| 0019 | Hybrid storage mode — cache (default, `$XDG_CACHE_HOME`) vs store (opt-in, `$XDG_DATA_HOME`) (M2.1) | Accepted | 2026-06-10 |
 
 ### 14.5 文档同步的 CI 强制
 

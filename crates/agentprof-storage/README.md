@@ -1,100 +1,139 @@
 # agentprof-storage
 
-> SQLite persistence and (optional) OTLP receiver for agentprof.
+> SQLite persistence layer for **agentprof**, with a hybrid cache/store
+> mode for the on-disk file and (planned, feature-gated) OTLP receiver.
 >
-> **Status (2026-06-01): STUB CRATE — no implementation has shipped.** The
-> 19-LOC `lib.rs` only contains `//!` module docs and the `[features]` /
-> dependency wiring. Every API described below is *planned*, not present.
-> Activated milestone: **Phase 2** (see [`docs/architecture.md`](../../docs/architecture.md)
-> §15.5 and [`docs/plan.md`](../../docs/plan.md) "Phase 2 engineering"); not on
-> the M1.7 v0.1.0 release path. The crate is kept in the workspace so the
-> dependency wiring (`rusqlite` bundled + optional OTLP stack) compiles end-to-end
-> and so the `storage:` CHANGELOG prefix is reserved.
-
-## Status — M2.1 in progress (v0.2.0)
-
-Phase 2 SQLite work has begun. As of M2.1 T2.2 the crate exposes its first
-real public surface:
-
-- [`config::StorageConfig`] / [`config::StorageMode`] — hybrid `cache` vs
-  `store` configuration with XDG-aware path resolution.
-- [`SqliteError`] — `thiserror`-based error type covering `rusqlite`,
-  migrations, I/O, config-path and serde failures.
-- [`Db`] (M2.1 T2.3) — opens a SQLite file (or in-memory db), applies
-  standard pragmas (`journal_mode=WAL`, `synchronous=NORMAL`,
-  `foreign_keys=ON`) and runs the embedded migrations in
-  `migrations/001_initial.sql` (`sessions` / `tools_loaded` / `turn_buckets`
-  + supporting indexes). Idempotent on re-open.
-- [`upsert::upsert_report`] (M2.1 T2.4) — atomic 3-table write for a single
-  session: `INSERT OR REPLACE` into `sessions` plus explicit
-  `DELETE`+`INSERT` for the `tools_loaded` / `turn_buckets` children
-  (the parent `OR REPLACE` does **not** cascade child deletes), all
-  inside one transaction.
-- [`query::query_sessions_since`] / [`query::load_session`] (M2.1 T2.5) —
-  read API: enumerate `SessionRef`s within a time window (newest first),
-  and hydrate a full `AnalysisReport` from `analysis_report_json` by id.
-- [`datasource::SqliteDataSource`] (M2.1 T2.6) — implements
-  `agentprof_core::datasource::SessionDataSource`; wraps a shared
-  `Arc<Mutex<Db>>` and maps `QueryReturnedNoRows` → `DataSourceError::NotFound`,
-  other `SqliteError`s → `DataSourceError::Storage { source: "sqlite", … }`.
-- [`admin::stats`] / [`admin::prune_before`] / [`admin::vacuum`] /
-  [`admin::export_session_json`] (M2.1 T2.7) — DB-admin helpers backing
-  the `agentprof db {stats|prune|vacuum|export}` subcommands.
-
-Subsequent T2.x tasks will land typed query modules on top of `Db`. A full README rewrite is scheduled for **T8.2** at the end of M2.1;
-the "STUB CRATE" notice above will be removed then.
+> **Status (M2.1, v0.2.0)**: shipped end-to-end — `Db` handle + embedded
+> migrations, atomic `upsert_report`, typed read API, `SessionDataSource`
+> impl for dual-path reads, and the `admin::*` helpers that back the
+> `agentprof db` cli subcommand family. The OTLP receiver remains
+> planned (feature `otlp`, M2.2 milestone).
 
 ## Position in the agentprof architecture
 
-Depends only on `agentprof-core`. *Will* provide durable storage for analysis
-reports across sessions, plus an opt-in OpenTelemetry receiver for live
-telemetry ingestion. See [`docs/architecture.md`](../../docs/architecture.md)
-§9 (SQLite schema — normative) and §15.4 (feature flags). The MVP shipping
-surface (M1.1 – M1.6.4) operates entirely on filesystem session logs and does
-not touch this crate.
+Leaf-adjacent: depends **only** on
+[`agentprof-core`](../agentprof-core/README.md). Provides:
 
-## Planned public interface
+- durable storage for `AnalysisReport`s across analyses (hybrid cache /
+  store mode — see [ADR-0019](../../docs/internals/adr-0019-hybrid-storage-mode.md));
+- a `SessionDataSource` implementation that the cli composes with the
+  adapter to deliver dual-path reads — see
+  [ADR-0018](../../docs/internals/adr-0018-session-datasource-trait.md);
+- admin helpers (`stats`, `prune_before`, `vacuum`, `export_session_json`)
+  that back `agentprof db {stats,prune,vacuum,export}`.
 
-These items are **not yet exported**. Once Phase 2 work begins, this section
-will become the L2 surface for the crate.
+See `docs/architecture.md` §9 (SQLite schema — normative against this
+crate's `migrations/001_initial.sql`), §10 (`[storage]` config block),
+and §15.4 (feature flags).
 
-- `sqlite::Db` — bundled SQLite handle, migration-aware
-- `sqlite::queries::*` — typed accessors for `sessions` / `tools_loaded` / `turn_buckets`
-- `otlp::Receiver` (feature `otlp`) — Tonic-based OTLP gRPC server
+## Public API
 
-```rust
-// Planned shape (will become a real doctest once Phase 2 lands):
-// let db = agentprof_storage::sqlite::Db::open_default()?;
-// db.migrate()?;
+| Item | Purpose | Stability |
+|---|---|---|
+| [`config::StorageConfig`] | Resolved storage configuration (`mode` + `path` + `auto_prune_days`). Built by merging `PartialStorageConfig` (from TOML) with XDG-aware defaults. | `#[non_exhaustive]`, additive |
+| [`config::StorageMode`] | `Cache` (default, `$XDG_CACHE_HOME`) vs `Store` (opt-in, `$XDG_DATA_HOME`). See [ADR-0019](../../docs/internals/adr-0019-hybrid-storage-mode.md). | `#[non_exhaustive]` |
+| [`config::PartialStorageConfig`] | Lossless deserialisation target for the `[storage]` TOML block (all fields `Option`). cli merges this into `StorageConfig`. | `#[non_exhaustive]`, additive |
+| [`Db`] | SQLite handle. `Db::open(path)` runs the embedded migrations (`migrations/001_initial.sql`) and applies pragmas `journal_mode=WAL` / `synchronous=NORMAL` / `foreign_keys=ON`. Idempotent on re-open. `Db::open_in_memory()` for tests. | Stable |
+| [`upsert::upsert_report`] | `fn upsert_report(db, report, raw_path, ingested_at_secs)` — atomic write of one session's three rows (`sessions` + per-row `tools_loaded` + per-row `turn_buckets`) inside a single transaction. Explicit `DELETE` of child rows before `INSERT` to make re-upsert idempotent (parent `INSERT OR REPLACE` does **not** cascade in SQLite). | Stable |
+| [`query::query_sessions_since`] | Enumerate `agentprof_core::datasource::SessionRef`s with `started_at >= cutoff`, newest first. Backs `list --since`. | Stable |
+| [`query::load_session`] | Hydrate a full `AnalysisReport` from `sessions.analysis_report_json` by id. `QueryReturnedNoRows` → `SqliteError::NotFound`. | Stable |
+| [`SqliteDataSource`] | Implements [`agentprof_core::datasource::SessionDataSource`]. Wraps an `Arc<Mutex<Db>>`; maps `NotFound` → `DataSourceError::NotFound`, other `SqliteError`s → `DataSourceError::Storage { source: "sqlite", … }`. Consumed by the cli's `DualPathDataSource` composer per [ADR-0018](../../docs/internals/adr-0018-session-datasource-trait.md). | Stable |
+| [`admin::stats`] | `DbStats { mode, path, file_size_bytes, sessions_count, tools_loaded_count, turn_buckets_count, oldest_started_at, newest_started_at }` for `agentprof db stats`. | Stable |
+| [`admin::prune_before`] | Cascading delete by `started_at`. Cache mode honours `auto_prune_days`; store mode never auto-prunes. Backs `agentprof db prune`. | Stable |
+| [`admin::vacuum`] | `VACUUM` SQLite; returns `(before_bytes, after_bytes)`. In-memory DBs report `(0, 0)` (SQLite quirk). | Stable |
+| [`admin::export_session_json`] | Read the verbatim `analysis_report_json` for a session id. Backs `agentprof db export --format json`. | Stable |
+| [`SqliteError`] | `thiserror` enum: `Open` / `Migrate` / `Io` / `Sqlite` / `Serde` / `ConfigPath` / `NotFound`. All variants carry user-actionable context (paths, ids). | `#[non_exhaustive]` |
+
+### Typical usage
+
+```rust,ignore
+use std::sync::{Arc, Mutex};
+use agentprof_storage::{config::StorageConfig, Db, SqliteDataSource, upsert};
+
+let cfg = StorageConfig::default_cache();                          // ~/.cache/agentprof/cache.sqlite
+let db  = Db::open(cfg.resolve_path()?)?;                          // applies pragmas + migrations
+let shared = Arc::new(Mutex::new(db));
+
+// Write-through caching on analyze:
+let report = /* AnalysisReport */ unimplemented!();
+let now_secs: i64 = 0; // chrono::Utc::now().timestamp()
+upsert::upsert_report(&shared.lock().unwrap(), &report, std::path::Path::new("/path/to/events.jsonl"), now_secs)?;
+
+// Wrap as a SessionDataSource for the cli's dual-path read:
+let _ds = SqliteDataSource::new(Arc::clone(&shared));
+# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-## Planned modules
+## Schema
+
+Final DDL is in `migrations/001_initial.sql` and reproduced in
+`docs/architecture.md` §9 (normative copy). Three tables:
+
+- `sessions` (PK `id`) — agent / dominant_model / started_at /
+  duration_ms / raw_path / raw_mtime / total_* / schema_version /
+  ingested_at / **`analysis_report_json` (the full serialised
+  `AnalysisReport`, including the M2.1 T5.2.5 hoisted
+  `loaded_mcp_tools` field — read path hydrates from this column)**.
+- `tools_loaded` (PK `(session_id, tool_name)`, FK CASCADE) — per-tool
+  call counts + total duration + optional M1.6.6 token cost +
+  `token_source`.
+- `turn_buckets` (PK `(session_id, turn_index)`, FK CASCADE) — per-turn
+  token totals + model.
+
+Indexes: `idx_sessions_started`, `idx_sessions_agent_started`,
+`idx_tools_call_count`.
+
+See `docs/superpowers/specs/2026-06-09-m2.1-sqlite-persistence-design.md`
+§5 for the column-level design rationale and
+[ADR-0019](../../docs/internals/adr-0019-hybrid-storage-mode.md) for the
+cache-vs-store policy.
+
+## Modules
 
 | Module | Purpose |
 |---|---|
-| `sqlite::schema` | DDL constants matching `docs/architecture.md` §9 |
-| `sqlite::migrations` | Numbered migration files; runs idempotently on `open` |
-| `sqlite::queries` | High-level typed accessors |
-| `otlp` (feature `otlp`) | OpenTelemetry OTLP receiver |
+| `config`     | `StorageConfig` / `StorageMode` / `PartialStorageConfig` + XDG path resolution |
+| `db`         | `Db` handle + embedded migrations (`include_str!("../migrations/001_initial.sql")`) + pragmas |
+| `upsert`     | `upsert_report(db, &AnalysisReport, &Path, secs)` atomic 3-table write |
+| `query`      | `query_sessions_since(db, since) → Vec<SessionRef>` / `load_session(db, id) → AnalysisReport` |
+| `datasource` | `SqliteDataSource` impl of `agentprof_core::datasource::SessionDataSource` (M2.1 T2.6) |
+| `admin`      | `stats` / `prune_before` / `vacuum` / `export_session_json` (M2.1 T2.7) backing the `agentprof db` family |
+| `error`      | `SqliteError` for every fallible API |
+| `otlp` (planned, feature `otlp`) | Tonic-based OpenTelemetry receiver (M2.2) |
 
 ## Features
 
 | Feature | Default | Effect |
 |---|---|---|
-| `otlp` | off | Pulls in `opentelemetry`, `opentelemetry-otlp`, `opentelemetry_sdk`, `tonic`, `tokio`; enables the `Receiver` API used by `agentprof ingest-otlp`. |
+| `otlp` | off | Pulls in `opentelemetry`, `opentelemetry-otlp`, `opentelemetry_sdk`, `tonic`, `tokio`; enables the planned receiver consumed by `agentprof ingest-otlp` (M2.2). |
 
 ## Dependencies
 
 - Workspace internal: `agentprof-core`
-- External: `serde`, `serde_json`, `thiserror`, `tracing`, `chrono`, `rusqlite` (bundled)
-- Optional (feature `otlp`): `opentelemetry`, `opentelemetry-otlp`, `opentelemetry_sdk`, `tonic`, `tokio`
+- External: `serde`, `serde_json`, `thiserror`, `tracing`, `chrono`,
+  `directories`, `rusqlite` (bundled)
+- Optional (feature `otlp`): `opentelemetry`, `opentelemetry-otlp`,
+  `opentelemetry_sdk`, `tonic`, `tokio`
 
 ## Local commands
 
 ```sh
-cargo test -p agentprof-storage --all-features
-cargo doc  -p agentprof-storage --no-deps --open
+cargo test  -p agentprof-storage --all-features
+cargo clippy -p agentprof-storage --all-targets --all-features -- -D warnings
+cargo doc   -p agentprof-storage --no-deps --open
 ```
+
+Integration tests under `tests/` cover migration idempotency,
+upsert+reload round-trips, cascade-delete invariants, and config
+resolution for both modes.
+
+## Reference ADRs
+
+| ADR | Topic |
+|---|---|
+| [0017](../../docs/internals/adr-0017-unify-session-id-namespace.md) | Unify session id namespace (M2.1 hotfix — makes dual-path actually function) |
+| [0018](../../docs/internals/adr-0018-session-datasource-trait.md) | `SessionDataSource` trait + dual-path semantics |
+| [0019](../../docs/internals/adr-0019-hybrid-storage-mode.md) | Hybrid cache vs store mode |
 
 ## Change history
 

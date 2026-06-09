@@ -162,6 +162,17 @@ agentprof list --since 24h --limit 5
 
 Cross-session aggregation reports across the four canonical keys.
 
+> **M2.1 known limitation — no SQLite cache speed-up yet**: all four
+> `--by` arms still go through the single-path adapter on every
+> invocation. Cross-session aggregation needs per-call duration data
+> from `Episodes` that the current `AnalysisReport` doesn't carry, so
+> the dual-path read (M2.1) hasn't been wired here. **Fix landing in
+> M2.1.1** via an `Episodes`-hoist into `AnalysisReport` (mirrors the
+> M2.1 T5.2.5 hoist of `loaded_mcp_tools`). Until then, `list` /
+> `analyze` / `mcp-waste` benefit from the SQLite cache but `aggregate`
+> does not. See [ADR-0018](../../docs/internals/adr-0018-session-datasource-trait.md)
+> "Consequences › Neutral" and `docs/plan.md` §8.
+
 ```sh
 agentprof aggregate --by tool --since 30d                          # md table to stdout
 agentprof aggregate --by mcp-server --since 7d --export csv
