@@ -157,8 +157,19 @@ impl SidecarToolEntry for ToolEntry {
 /// ```
 #[tracing::instrument(name = "adapter.tool_sidecar", skip_all, fields(path = %path.display()))]
 pub fn load_sidecar(path: &Path) -> Result<Sidecar, SidecarError> {
-    let metadata =
-        std::fs::metadata(path).map_err(|_| SidecarError::NotFound(path.to_path_buf()))?;
+    // Audit B3: pre-fix this used `.map_err(|_| NotFound(...))` which
+    // collapsed every I/O failure (permission denied, stale NFS handle,
+    // I/O error on an unreadable mount) into a `NotFound` masquerade,
+    // hiding the real cause from operators. Discriminate explicitly so
+    // ENOENT keeps the user-friendly NotFound variant while anything
+    // else preserves the underlying `io::Error` via `SidecarError::Io`.
+    let metadata = std::fs::metadata(path).map_err(|e| match e.kind() {
+        std::io::ErrorKind::NotFound => SidecarError::NotFound(path.to_path_buf()),
+        _ => SidecarError::Io {
+            path: path.to_path_buf(),
+            source: e,
+        },
+    })?;
 
     if metadata.is_file() {
         load_global_file(path)
@@ -247,6 +258,55 @@ mod tests {
     fn load_sidecar_missing_path_returns_not_found_err() {
         let r = load_sidecar(Path::new("/this/dir/does/not/exist/sidecar.json"));
         assert!(matches!(r, Err(SidecarError::NotFound(_))));
+    }
+
+    // Audit B3 regression: a non-NotFound IO failure on metadata() must
+    // preserve the underlying io::Error via SidecarError::Io and NOT
+    // masquerade as SidecarError::NotFound. Exercised by chmod 000 on a
+    // file inside a tempdir then probing it as a non-root caller. On
+    // root or filesystems that ignore mode bits (e.g. some CI sandboxes)
+    // the metadata() call succeeds — we skip the assertion in that
+    // case so the test stays portable, but the Io branch is also
+    // covered by manual review.
+    #[test]
+    fn load_sidecar_permission_denied_returns_io_err_not_not_found() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().expect("tempdir");
+        // Make a directory with no permissions, then attempt to stat a
+        // file inside it. `metadata()` on the inner path traverses the
+        // dir and fails with PermissionDenied on the parent lookup.
+        let locked_dir = tmp.path().join("locked");
+        std::fs::create_dir(&locked_dir).expect("mkdir");
+        let inner = locked_dir.join("sidecar.json");
+        std::fs::write(&inner, "[]").expect("write");
+        std::fs::set_permissions(&locked_dir, std::fs::Permissions::from_mode(0o000))
+            .expect("chmod 000");
+
+        let r = load_sidecar(&inner);
+        // Restore permissions so tempdir cleanup works.
+        let _ = std::fs::set_permissions(&locked_dir, std::fs::Permissions::from_mode(0o755));
+
+        match r {
+            Err(SidecarError::Io { source, .. }) => {
+                assert_ne!(
+                    source.kind(),
+                    std::io::ErrorKind::NotFound,
+                    "ENOENT should have produced SidecarError::NotFound, not Io"
+                );
+            }
+            Err(SidecarError::NotFound(_))
+                if std::env::var_os("USER").as_deref() == Some(std::ffi::OsStr::new("root")) =>
+            {
+                // Root bypasses mode bits; the chmod 000 dir is still
+                // readable. Accept NotFound for the inner missing file.
+            }
+            Ok(_) => {
+                // Some test harnesses (containerized CI, NFS) ignore
+                // mode bits — accept that and rely on review for the
+                // Io branch.
+            }
+            other => panic!("expected Io or skipped, got {other:?}"),
+        }
     }
 
     #[test]
