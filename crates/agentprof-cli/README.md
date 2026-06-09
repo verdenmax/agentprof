@@ -407,10 +407,34 @@ layer behind a `reload::Layer` so the writer can be swapped at runtime
                        Default: env AGENTPROF_LOG_LEVEL / AGENTPROF_LOG, then "warn".
 --log-file <PATH>      Trace events to file. "-" forces stderr (overrides TUI auto-redirect).
                        Default: non-TUI = stderr; TUI = $XDG_STATE_HOME/agentprof/agentprof.log.
+--no-cache             (v0.2.0 / M2.1 T4.3) Skip all storage I/O — degrades the dual-path
+                       data source to a single-path adapter view. Useful for one-shot
+                       inspection without touching the SQLite cache.
+--storage-path <PATH>  (v0.2.0 / M2.1 T4.3) Override the resolved storage DB path.
+                       Beats both the `[storage]` config-file value and the XDG default.
+--quiet                (v0.2.0 / M2.1 T4.3) Suppress per-session "adapter vs storage"
+                       divergence warning lines on stderr. Structured `tracing` events
+                       are unaffected.
 ```
 
 Both flags are clap `global = true` — they work on every subcommand
 (`analyze`, `list`, `aggregate`, `watch`, `watch aggregate`).
+
+### v0.2.0 storage config (M2.1 T4.3)
+
+The CLI now parses an optional `[storage]` section in the agentprof TOML
+config (resolution path lands in a follow-up task). Schema lives in
+`agentprof_storage::config::PartialStorageConfig`; the CLI merges it via
+[`agentprof_cli::config::resolve_storage_config`] which also honours the
+`--storage-path` override above (flag wins over config-file value, per
+`docs/architecture.md` §10).
+
+```toml
+[storage]
+mode            = "cache"            # or "store"
+path            = "/custom/db.sqlite"  # omit to use XDG default
+auto_prune_days = 30                 # 0 disables auto-pruning
+```
 
 ### Env vars
 

@@ -41,6 +41,30 @@ struct Cli {
     #[arg(long, global = true)]
     log_file: Option<PathBuf>,
 
+    /// Skip all storage I/O (degrades dual-path to single-path adapter).
+    ///
+    /// When set, `agentprof` behaves as if no `SQLite` cache existed:
+    /// the adapter is the sole source of truth, and no rows are read
+    /// from or written to the storage layer (M2.1 T4.3).
+    #[arg(global = true, long)]
+    no_cache: bool,
+
+    /// Override the resolved storage DB path.
+    ///
+    /// Beats both the `[storage]` config-file value and the XDG-derived
+    /// default. See `agentprof_storage::config::StorageConfig` for the
+    /// resolution order (M2.1 T4.3).
+    #[arg(global = true, long, value_name = "PATH")]
+    storage_path: Option<PathBuf>,
+
+    /// Suppress per-session divergence warning lines on stderr.
+    ///
+    /// Affects only the dual-path `adapter vs storage` divergence
+    /// warnings introduced in M2.1 T4.1; structured `tracing` events
+    /// remain unchanged (M2.1 T4.3).
+    #[arg(global = true, long)]
+    quiet: bool,
+
     #[command(subcommand)]
     cmd: SubCmd,
 }
