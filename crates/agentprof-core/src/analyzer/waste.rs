@@ -30,6 +30,18 @@ use crate::model::{
 /// Chosen to approximate "short description + small input schema" for a
 /// typical MCP tool entry. See ADR-0016 D-3 for the rationale and the
 /// follow-up calibration plan.
+///
+/// **Tokenizer caveat (audit B4):** this constant is calibrated against
+/// `cl100k_base` (Anthropic-ish + GPT-4 family). Sessions routed to
+/// `o200k_base` (GPT-4o / GPT-5 / o1 / o3) typically encode the same
+/// JSON in ~15–20% fewer tokens, so heuristic mode will *overshoot*
+/// real waste by roughly that margin for those models. For exact
+/// per-tool counts, pair the analyzer with a sidecar via
+/// [`WasteComputeContext::with_sidecar`] (which switches to
+/// [`compute_token_cost_for_tool`] and yields
+/// [`TokenSource::SidecarExact`]). A future calibration pass may
+/// split this into per-tokenizer constants — tracked alongside
+/// ADR-0016 D-3.
 pub const DEFAULT_HEURISTIC_TOKENS: u64 = 200;
 
 /// Lookup interface for a *tool sidecar* — a per-agent registry mapping a
@@ -176,6 +188,13 @@ impl<'a> WasteComputeContext<'a> {
 
     /// Override the heuristic token-per-tool constant (default
     /// [`DEFAULT_HEURISTIC_TOKENS`]).
+    ///
+    /// **Tokenizer caveat (audit B4):** the default
+    /// [`DEFAULT_HEURISTIC_TOKENS`] is calibrated for `cl100k_base`;
+    /// `o200k_base` sessions may overshoot real per-tool cost by
+    /// 15–20% if you keep the default. For exact counts, attach a
+    /// sidecar via [`Self::with_sidecar`]; otherwise consider passing
+    /// a model-aware override to this method.
     #[must_use]
     pub const fn with_heuristic(mut self, heuristic_tokens_per_tool: u64) -> Self {
         self.heuristic_tokens_per_tool = heuristic_tokens_per_tool;
