@@ -37,3 +37,56 @@ fn load_session_unknown_id_is_not_found() {
         other => panic!("expected NotFound, got {other:?}"),
     }
 }
+
+#[test]
+fn adapter_load_episodes_returns_derived_for_fixture() {
+    use agentprof_adapters::{copilot::CopilotAdapter, AdapterDataSource};
+    use agentprof_core::SessionDataSource;
+    use std::sync::Arc;
+
+    let fixture_root =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/copilot");
+    let ds = AdapterDataSource::new(Arc::new(CopilotAdapter), fixture_root);
+
+    let id = "00000000-0000-0000-0000-000000001000";
+    let eps = ds.load_episodes(id).expect("load");
+    assert!(
+        !eps.tools.is_empty(),
+        "cross-turn-tool fixture should have ≥1 tool"
+    );
+}
+
+#[test]
+fn adapter_load_episodes_unknown_id_is_not_found() {
+    use agentprof_adapters::{copilot::CopilotAdapter, AdapterDataSource};
+    use agentprof_core::{DataSourceError, SessionDataSource};
+    use std::sync::Arc;
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let ds = AdapterDataSource::new(Arc::new(CopilotAdapter), tmp.path().to_path_buf());
+    match ds.load_episodes("no-such-id") {
+        Err(DataSourceError::NotFound { id }) => assert_eq!(id, "no-such-id"),
+        other => panic!("expected NotFound, got {other:?}"),
+    }
+}
+
+#[test]
+fn adapter_load_episodes_by_ref_skips_discover() {
+    use agentprof_adapters::{copilot::CopilotAdapter, AdapterDataSource};
+    use agentprof_core::adapter::Adapter as _;
+    use std::sync::Arc;
+
+    let fixture_root =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/copilot");
+    let ds = AdapterDataSource::new(Arc::new(CopilotAdapter), fixture_root);
+
+    let refs = CopilotAdapter
+        .discover_sessions(ds.root())
+        .expect("discover");
+    let sref = refs
+        .into_iter()
+        .find(|r| r.id == "00000000-0000-0000-0000-000000001000")
+        .expect("cross-turn-tool fixture");
+    let eps = ds.load_episodes_by_ref(&sref).expect("load");
+    assert!(!eps.tools.is_empty());
+}

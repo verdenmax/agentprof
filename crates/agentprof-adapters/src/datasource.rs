@@ -171,6 +171,44 @@ impl<A: Adapter> AdapterDataSource<A> {
         let report = analyze(&episodes, &raw.meta, &raw.parse_warnings);
         Ok(report)
     }
+
+    /// Load `Episodes` given a pre-built [`AdapterRef`], skipping the
+    /// `discover_sessions` scan. Symmetric to [`Self::load_session_by_ref`]
+    /// for the episodes side; used by `cmd::db::ingest` to avoid the
+    /// O(N²) hot loop on `db ingest --all`.
+    ///
+    /// # Errors
+    ///
+    /// - [`DataSourceError::Adapter`] if `Adapter::load_session(&sref)`
+    ///   fails (I/O, malformed JSONL beyond recovery).
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use std::sync::Arc;
+    /// use std::path::PathBuf;
+    /// use agentprof_adapters::{AdapterDataSource, copilot::CopilotAdapter};
+    /// use agentprof_core::adapter::Adapter as _;
+    ///
+    /// let ds = AdapterDataSource::new(
+    ///     Arc::new(CopilotAdapter),
+    ///     PathBuf::from("/home/me/.copilot/session-state"),
+    /// );
+    /// let refs = CopilotAdapter.discover_sessions(ds.root()).expect("discover");
+    /// for sref in &refs {
+    ///     let _eps = ds.load_episodes_by_ref(sref).expect("load");
+    /// }
+    /// ```
+    pub fn load_episodes_by_ref(
+        &self,
+        sref: &AdapterRef,
+    ) -> Result<agentprof_core::episode::Episodes, DataSourceError> {
+        let raw = self
+            .adapter
+            .load_session(sref)
+            .map_err(|e| wrap_adapter_err(self.name, e))?;
+        Ok(derive_episodes(&raw.events, &raw.meta))
+    }
 }
 
 const fn name_for(kind: AgentKind) -> &'static str {
@@ -254,6 +292,25 @@ impl<A: Adapter + 'static> SessionDataSource for AdapterDataSource<A> {
         let episodes = derive_episodes(&raw.events, &raw.meta);
         let report = analyze(&episodes, &raw.meta, &raw.parse_warnings);
         Ok(report)
+    }
+
+    fn load_episodes(
+        &self,
+        id: &str,
+    ) -> Result<agentprof_core::episode::Episodes, DataSourceError> {
+        let all = self
+            .adapter
+            .discover_sessions(self.root.as_path())
+            .map_err(|e| wrap_adapter_err(self.name, e))?;
+        let sref = all
+            .into_iter()
+            .find(|s| s.id == id)
+            .ok_or_else(|| DataSourceError::NotFound { id: id.to_owned() })?;
+        let raw = self
+            .adapter
+            .load_session(&sref)
+            .map_err(|e| wrap_adapter_err(self.name, e))?;
+        Ok(derive_episodes(&raw.events, &raw.meta))
     }
 }
 
