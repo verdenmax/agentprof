@@ -404,15 +404,14 @@ pub fn compute_aggregate(
                 .zip(events_vec.iter())
                 .map(|(r, events)| {
                     let wire = agentprof_adapters::copilot::extract_loaded_set_from_session(events);
-                    // M1.6.6 T1.4 + T3.3: build a WasteComputeContext
-                    // per session. Tokenizer inferred from the first
-                    // model key in `model_metrics` (best signal until
-                    // an explicit `meta.model` lands). Sidecar +
-                    // heuristic overrides are layered uniformly.
-                    let model_hint: Option<String> = r
-                        .model_metrics
-                        .as_ref()
-                        .and_then(|m| m.keys().next().cloned());
+                    // M1.6.6 T1.4 + T3.3 + audit B1: build a
+                    // WasteComputeContext per session. Tokenizer
+                    // inferred from the dominant model (largest token
+                    // total) via `cmd::model_hint::dominant_model`
+                    // — picking the BTreeMap's alphabetically-smallest
+                    // key would misclassify mixed-model sessions.
+                    // Sidecar + heuristic overrides layered uniformly.
+                    let model_hint = crate::cmd::model_hint::dominant_model(r);
                     let tokenizer =
                         agentprof_core::analyzer::waste::infer_tokenizer(model_hint.as_deref());
                     let mut waste_ctx =

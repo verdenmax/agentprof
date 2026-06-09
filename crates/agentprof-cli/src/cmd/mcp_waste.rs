@@ -286,14 +286,13 @@ pub fn run(
             let episodes = derive_episodes(&raw.events, &raw.meta);
             let report = analyze(&episodes, &raw.meta, &raw.parse_warnings);
             let wire = extract_loaded_set_from_session(&raw.events);
-            // M1.6.6 T1.4 + T4.1: assemble the WasteComputeContext —
-            // tokenizer inferred from the session's first observed
-            // model, then layer `--tokens-per-tool` (heuristic) and
-            // `--tool-descriptions` (sidecar) per ADR-0016 D-2.
-            let model_hint: Option<String> = report
-                .model_metrics
-                .as_ref()
-                .and_then(|m| m.keys().next().cloned());
+            // M1.6.6 T1.4 + T4.1 + audit B1: assemble the
+            // WasteComputeContext — tokenizer inferred from the
+            // session's *dominant* model (largest token total) via
+            // `cmd::model_hint::dominant_model`, then layer
+            // `--tokens-per-tool` (heuristic) and `--tool-descriptions`
+            // (sidecar) per ADR-0016 D-2.
+            let model_hint = crate::cmd::model_hint::dominant_model(&report);
             let tokenizer = agentprof_core::analyzer::waste::infer_tokenizer(model_hint.as_deref());
             let mut waste_ctx = agentprof_core::analyzer::waste::WasteComputeContext::new(&wire)
                 .with_tokenizer(tokenizer)

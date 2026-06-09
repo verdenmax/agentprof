@@ -23,6 +23,7 @@ pub mod exit;
 pub mod format;
 pub mod list;
 pub mod mcp_waste;
+pub mod model_hint;
 pub mod since;
 pub mod watch;
 

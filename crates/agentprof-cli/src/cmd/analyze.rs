@@ -237,15 +237,12 @@ pub fn run(
                 .filter_map(|(name, info)| info.tools.as_ref().map(|t| (name.clone(), t.clone())))
                 .collect::<std::collections::BTreeMap<_, _>>()
         });
-        // Build the WasteComputeContext (M1.6.6 T1.4 + T3.1): infer the
-        // tokenizer from the first model key seen in `model_metrics` (the
-        // best signal until M1.6.7 adds an explicit `meta.model`), load
-        // the optional `--tool-descriptions` sidecar per ADR-0016 D-2,
-        // and layer the `--tokens-per-tool` heuristic override.
-        let model_hint: Option<String> = report
-            .model_metrics
-            .as_ref()
-            .and_then(|m| m.keys().next().cloned());
+        // Build the WasteComputeContext (M1.6.6 T1.4 + T3.1 + audit B1):
+        // pick the *dominant* model (largest token total) — not the
+        // BTreeMap's alphabetically-smallest key — to drive tokenizer
+        // selection. Mixed-model sessions otherwise mis-route to the
+        // wrong encoder; see `cmd::model_hint::dominant_model`.
+        let model_hint = crate::cmd::model_hint::dominant_model(&report);
         let tokenizer = agentprof_core::analyzer::waste::infer_tokenizer(model_hint.as_deref());
 
         let sidecar = if let Some(path) = cmd.tool_descriptions.as_deref() {
