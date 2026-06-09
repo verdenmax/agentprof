@@ -435,8 +435,20 @@ pub fn compute_waste(report: &AnalysisReport, ctx: &WasteComputeContext) -> Wast
     // exhaustion in practice; on the unlikely error we fall back to
     // heuristic-only mode (no sidecar lookups), which keeps
     // `compute_waste` infallible while still producing meaningful counts.
+    //
+    // Audit B2: surface that fallback through a `tracing::warn!` so
+    // users can tell apart "no sidecar configured" (Heuristic by
+    // design) from "tokenizer init failed" (Heuristic by accident) —
+    // pre-fix the `.ok()` swallow made both look identical.
     let owned_bpe: Option<CoreBPE> = if ctx.bpe.is_none() {
-        build_bpe(ctx.tokenizer)
+        let built = build_bpe(ctx.tokenizer);
+        if built.is_none() {
+            tracing::warn!(
+                tokenizer = ?ctx.tokenizer,
+                "tokenizer init failed; falling back to heuristic-only token cost"
+            );
+        }
+        built
     } else {
         None
     };
