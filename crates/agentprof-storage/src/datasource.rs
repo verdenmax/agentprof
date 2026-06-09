@@ -10,7 +10,7 @@
 //! - any other [`SqliteError`] → [`DataSourceError::Storage`] with
 //!   `source = "sqlite"`.
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use agentprof_core::analyzer::AnalysisReport;
@@ -94,16 +94,6 @@ fn default_now_ms() -> i64 {
         .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
 }
 
-fn poisoned_mutex_err() -> DataSourceError {
-    DataSourceError::Storage {
-        source: "sqlite",
-        underlying: Box::new(SqliteError::ConfigPath {
-            kind: "mutex",
-            message: "poisoned".to_owned(),
-        }),
-    }
-}
-
 fn map_storage(err: SqliteError) -> DataSourceError {
     DataSourceError::Storage {
         source: "sqlite",
@@ -118,12 +108,17 @@ impl SessionDataSource for SqliteDataSource {
 
     fn discover(&self, since: Duration) -> Result<Vec<SessionRef>, DataSourceError> {
         let now_ms = (self.now_ms_fn)();
-        let guard = self.db.lock().map_err(|_| poisoned_mutex_err())?;
+        // M2.1 audit P1-5 / P2-1: a poisoned mutex means a *previous*
+        // panicked holder left the protected `Db` in some state. The
+        // SQLite connection itself is fine (the panic happened in
+        // Rust-land, not in C-land), so recover via `into_inner`
+        // rather than synthesising a misleading "config path" error.
+        let guard = self.db.lock().unwrap_or_else(PoisonError::into_inner);
         query_sessions_since(&guard, since, now_ms).map_err(map_storage)
     }
 
     fn load_session(&self, id: &str) -> Result<AnalysisReport, DataSourceError> {
-        let guard = self.db.lock().map_err(|_| poisoned_mutex_err())?;
+        let guard = self.db.lock().unwrap_or_else(PoisonError::into_inner);
         match load_session(&guard, id) {
             Ok(r) => Ok(r),
             Err(SqliteError::Rusqlite {
