@@ -275,6 +275,20 @@ prefix used in commit messages).
 
 ### Fixed
 
+- **agentprof-adapters / agentprof-cli (M2.1 CI fix, 2026-06-09):** `list`
+  and `aggregate` output ordering is now deterministic across CI runners
+  regardless of filesystem mtime. Two layers fixed: (1) new helper
+  `agentprof_adapters::copilot::paths::extract_session_start_ms_from_first_event`
+  eagerly parses `data.startTime` (or envelope `timestamp`) from the
+  first event of `events.jsonl` — same cheap `BufReader::read_line` pass
+  the id extractor already uses; `AdapterDataSource::adapter_ref_to_datasource_ref`
+  uses it to populate `DataSourceRef.started_at_ms`; (2) `cmd::list::run`
+  and `DualPathDataSource::merge_refs` both sort by
+  `(Reverse(started_at_ms), id)` so dual-path and `--no-cache` produce
+  byte-identical stdout. Regenerated `cli_nocache_regression__list_no_cache_stable`
+  snapshot. ADR-0017 amended (2026-06-09 update) to record the now-eager
+  `startTime` parsing — the relaxed `diff_fields(None == no opinion)`
+  semantic is retained as defense-in-depth.
 - **agentprof-adapters / agentprof-cli (M2.1 P0):** `CopilotAdapter::discover_sessions`
   now sets `SessionRef.id` to the canonical UUID parsed from
   `data.sessionId` in the first event of `events.jsonl`, not the

@@ -49,11 +49,30 @@ name is still used as a synthetic id — broken sessions remain discoverable
 so the user sees them in `list` and can act on them.
 
 Additionally, `diff_fields` was relaxed to treat `Option::None` as "no
-opinion" rather than disagreement. The adapter still does not parse
-`startTime` eagerly (it returns `None` for `started_at_ms`), so without
-this change every fresh scan would spuriously flag `started_at_ms` as a
-divergence between the adapter (`None`) and storage (`Some(_)`). A real
-disagreement now requires both sides to assert a value and disagree.
+opinion" rather than disagreement. Originally the adapter did not parse
+`startTime` eagerly (returning `None` for `started_at_ms`), so without
+this relaxation every fresh scan would have spuriously flagged
+`started_at_ms` as a divergence between the adapter (`None`) and storage
+(`Some(_)`). A real disagreement now requires both sides to assert a
+value and disagree.
+
+> **Update 2026-06-09** — commit `fb96414` reverses the *return-`None`*
+> half of that compromise: the new helper
+> `agentprof_adapters::copilot::paths::extract_session_start_ms_from_first_event`
+> reads `data.startTime` (or envelope `timestamp`) from the first event
+> line — same cheap `BufReader::read_line` pass the id extractor uses.
+> `AdapterDataSource::adapter_ref_to_datasource_ref` now populates
+> `started_at_ms` eagerly. The relaxed `diff_fields` semantics are
+> retained (defense-in-depth + still useful when a future adapter can't
+> get a cheap timestamp), but in practice both sides now agree on the
+> ms-precision logical start and divergence flags only fire on real
+> drift (e.g. a stale ingested row with an older timestamp from before
+> the source `events.jsonl` was reflowed).
+>
+> This unblocks deterministic `list`/`aggregate` ordering across CI
+> runners regardless of fixture mtime — the original M2.1 P0 fix only
+> covered the id namespace; the M2.1 CI fix on `fb96414` covers the
+> ordering namespace.
 
 ## Considered alternatives
 

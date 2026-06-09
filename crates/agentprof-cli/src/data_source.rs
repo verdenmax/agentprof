@@ -307,7 +307,16 @@ fn merge_refs(
         by_id.insert(adapter_ref.id.clone(), adapter_ref);
     }
     let mut out: Vec<SessionRef> = by_id.into_values().collect();
-    out.sort_by_key(|r| std::cmp::Reverse(r.started_at_ms));
+    // Secondary sort by `id` for byte-stable tiebreak when multiple sessions
+    // share the exact same `started_at_ms` (common in test fixtures).
+    // Without this, dual-path's HashMap-based merge yields a different
+    // tied-order than the single-path adapter's vec order — verified by
+    // M2.1 verification subagent (2026-06-09 Block B #5 vs #6).
+    out.sort_by(|a, b| {
+        b.started_at_ms
+            .cmp(&a.started_at_ms)
+            .then_with(|| a.id.cmp(&b.id))
+    });
     out
 }
 

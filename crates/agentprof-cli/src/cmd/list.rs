@@ -146,9 +146,16 @@ pub fn run(
     })?;
     // Sort by logical session start time (newest first) so output order is
     // independent of filesystem mtime (which varies across checkouts on CI).
+    // Secondary key `id` provides byte-stable tiebreak when multiple sessions
+    // share the exact same `started_at_ms` (common in test fixtures), so
+    // `list --no-cache` matches dual-path `list` byte-for-byte on stdout.
     // `started_at_ms` may be None for sessions without a parseable first
     // event — those are pushed to the end via Option's natural ordering.
-    all_refs.sort_by_key(|r| std::cmp::Reverse(r.started_at_ms));
+    all_refs.sort_by(|a, b| {
+        b.started_at_ms
+            .cmp(&a.started_at_ms)
+            .then_with(|| a.id.cmp(&b.id))
+    });
     let total_discovered = all_refs.len();
     let filtered: Vec<SessionRef> = all_refs
         .into_iter()
