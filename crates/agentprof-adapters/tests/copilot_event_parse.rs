@@ -707,3 +707,56 @@ fn with_mcp_waste_fixture_extracts_expected_loaded_set() {
     assert!(loaded.contains("mcp__github__create_issue"));
     assert!(loaded.contains("mcp__filesystem__read_file"));
 }
+
+#[test]
+fn copilot_user_message_with_mcp_load_extracts_tool_names() {
+    // Locks the M2.1 T5.2.5 `Event::payload_loaded_mcp_tools()` trait
+    // contract: a CopilotEvent::UserMessage whose `transformedContent`
+    // embeds a <tools_changed_notice> block must surface the MCP tool
+    // names (and only the MCP ones — bash/edit/skill__ etc. are filtered).
+    //
+    // This exercises the per-event trait override
+    // (CopilotEvent → payload_loaded_mcp_tools) rather than the
+    // session-level wrapper extract_loaded_set_from_session.
+    use agentprof_core::adapter::Event;
+
+    // Real Copilot user.message wire shape with an embedded
+    // <tools_changed_notice> block listing MCP + builtin + skill tools;
+    // only the mcp__ prefixed ones must come back from the trait method.
+    let line = r#"{
+        "type":"user.message",
+        "data":{
+            "content":"Continue.",
+            "transformedContent":"<context>noise</context>\n<tools_changed_notice>\nNew tools available: mcp__github__search_issues, mcp__github__create_issue, bash, edit, skill__telemetry__report\n</tools_changed_notice>",
+            "source":"cli",
+            "attachments":[],
+            "interactionId":"int-7"
+        },
+        "id":"e-load","timestamp":"2026-05-26T11:00:00Z","parentId":"e0"
+    }"#;
+    let evt: CopilotEvent = serde_json::from_str(line).expect("parse");
+
+    let loaded = evt.payload_loaded_mcp_tools();
+    assert_eq!(
+        loaded.len(),
+        2,
+        "only the two mcp__ entries should pass the filter, got {loaded:?}"
+    );
+    assert!(loaded.contains("mcp__github__search_issues"));
+    assert!(loaded.contains("mcp__github__create_issue"));
+    // Negative checks — non-MCP tools must NOT appear.
+    assert!(!loaded.contains("bash"));
+    assert!(!loaded.contains("edit"));
+    assert!(!loaded.contains("skill__telemetry__report"));
+}
+
+#[test]
+fn copilot_non_user_message_event_yields_empty_loaded_set() {
+    // Defensive companion to the above: a non-UserMessage event (here:
+    // session.model_change) must return an empty BTreeSet — the trait
+    // default — regardless of any other payload data.
+    use agentprof_core::adapter::Event;
+    let line = r#"{"type":"session.model_change","data":{"newModel":"claude-opus-4.7"},"id":"e4","timestamp":"2026-05-26T10:06:00Z","parentId":"e1"}"#;
+    let evt: CopilotEvent = serde_json::from_str(line).expect("parse");
+    assert!(evt.payload_loaded_mcp_tools().is_empty());
+}
