@@ -92,10 +92,11 @@ Aligns adapter id-space with the canonical UUID storage already uses.
 
 - `agentprof list` output now shows UUIDs (longer than dir names). Width
   of the ID column grows from ~24 chars to 36 chars.
-- The `cli_nocache_compat::list_no_cache_stable` snapshot was regenerated
+- The `cli_nocache_regression::list_no_cache_stable` snapshot was regenerated
   to reflect the new IDs. The test still serves its purpose (lock against
   future regression of single-path output) — this change is a deliberate,
-  one-time correction.
+  one-time correction. (Test file renamed from `cli_nocache_compat.rs` →
+  `cli_nocache_regression.rs` in M2.1 audit P2-5.)
 - One previously committed fixture (`with-session-shutdown`) shared a
   `sessionId` (`…-000099`) with `with-mcp-waste`. The shutdown fixture
   was re-stamped to `…-000019` to avoid a real collision in the now-merged
@@ -107,6 +108,7 @@ Aligns adapter id-space with the canonical UUID storage already uses.
 
 ## Snapshot / fixture deltas
 
-- `crates/agentprof-cli/tests/snapshots/cli_nocache_compat__list_no_cache_stable.snap`
+- `crates/agentprof-cli/tests/snapshots/cli_nocache_regression__list_no_cache_stable.snap`
+  (file renamed from `cli_nocache_compat__list_no_cache_stable.snap` in M2.1 audit P2-5)
 - `crates/agentprof-adapters/tests/fixtures/copilot/with-session-shutdown/events.jsonl`
   (`sessionId` `…-000099` → `…-000019`)
