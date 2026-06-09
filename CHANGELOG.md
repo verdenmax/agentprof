@@ -13,6 +13,49 @@ prefix used in commit messages).
 
 ## [Unreleased]
 
+### Performance
+
+- **agentprof-core (audit A1):** `WasteComputeContext` now caches the
+  `tiktoken-rs` BPE encoder via a new `bpe: Option<Arc<CoreBPE>>`
+  field + `with_bpe(Arc<CoreBPE>)` builder method, plus a public
+  `build_bpe(TokenizerKind)` helper. CLI driver code in `analyze`,
+  `aggregate --by mcp-server`, and `mcp-waste` builds the encoder
+  once per command and shares it across all per-session contexts —
+  on a 100-session run this avoids ~100 × (50 ms + tens of MB) of
+  redundant merge-table parsing.
+
+### Fixed
+
+- **agentprof-cli (audit B1):** `analyze`, `aggregate --by mcp-server`,
+  and `mcp-waste` now pick the *dominant* model (largest
+  `ModelUsage::total()`) when inferring the session tokenizer. Pre-fix,
+  they used `model_metrics.keys().next()` (alphabetically smallest),
+  so a mixed-model session that mostly used `gpt-5-mini` but logged a
+  single `claude-haiku-4.5` call was misclassified as Anthropic and
+  routed to `cl100k_base`, mispricing the gpt-5-mini bulk of the work.
+  The rule lives in the new `crate::cmd::model_hint::dominant_model`
+  helper, shared by all three subcommands.
+- **agentprof-core (audit B2):** `compute_waste` now emits a
+  `tracing::warn!` when inline BPE construction returns `None`,
+  separating "no sidecar configured" (heuristic by design) from
+  "tokenizer init failed" (heuristic by accident). Pre-fix the
+  `.ok()` swallow made both look identical.
+- **agentprof-adapters (audit B3):** `tool_sidecar::load_sidecar`
+  preserves the real `io::ErrorKind` on `fs::metadata()` failures.
+  Pre-fix every IO error (permission denied, stale NFS, unreadable
+  mount) masqueraded as `SidecarError::NotFound`, sending users to
+  debug a phantom missing file. Now only `ErrorKind::NotFound`
+  returns `NotFound`; everything else propagates through
+  `SidecarError::Io { path, source }`.
+
+### Documentation
+
+- **agentprof-core (audit B4):** `DEFAULT_HEURISTIC_TOKENS` and
+  `WasteComputeContext::with_heuristic` rustdoc now call out the
+  cl100k_base calibration bias — `o200k_base` (GPT-4o / GPT-5 /
+  o1 / o3) sessions may overshoot real waste by ~15–20% under the
+  default constant. Points users at `with_sidecar()` for precision.
+
 ### Changed
 
 - **BREAKING (agentprof-core, pre-1.0):** `analyzer::waste::compute_waste`

@@ -27,9 +27,12 @@ use agentprof_core::analyzer::AnalysisReport;
 ///
 /// # Examples
 ///
-/// ```ignore
-/// // Wired through `cmd::model_hint::dominant_model(&report)` in
-/// // analyze / aggregate / mcp-waste — see those subcommands for use.
+/// ```text
+/// // In a CLI subcommand handler:
+/// let model_hint = crate::cmd::model_hint::dominant_model(&report);
+/// let tokenizer = agentprof_core::analyzer::waste::infer_tokenizer(
+///     model_hint.as_deref(),
+/// );
 /// ```
 #[must_use]
 pub fn dominant_model(report: &AnalysisReport) -> Option<String> {
