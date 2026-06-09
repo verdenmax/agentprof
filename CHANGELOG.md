@@ -13,87 +13,12 @@ prefix used in commit messages).
 
 ## [Unreleased]
 
-### Removed
-
-- **agentprof-cli (M2.1 audit P1-1):** Deleted dead `ReUpsertFn` /
-  `DualPathDataSource::new_with_reupsert` / `re_upsert` field /
-  `merge_refs` callback fan-out / and the
-  `re_upsert_callback_fires_on_diverging_session` test. The async
-  re-upsert design shipped in M2.1 T4.2 was never wired up by the
-  data-source factory, and detached threads at the tail of a
-  one-shot CLI invocation are killed at process exit anyway. Proper
-  async refresh deferred to M2.1.1. See ADR-0018 §Behaviour
-  rolled-back note + `crates/agentprof-cli/src/data_source.rs`
-  module docs.
-
-### Fixed
-
-- **agentprof-cli, watch (M2.1 audit P1-2):** `cmd::watch` no longer
-  holds the SQLite `Db` connection open for the entire `run_single`
-  lifetime. The handle is now dropped immediately after the initial
-  upsert, releasing the WAL lock so concurrent `agentprof db
-  ingest` from another shell can write while a watch session is
-  attached. Per spec §8 watch performs no further writes after the
-  initial flush, so the long-lived handle was idle dead weight.
-- **agentprof-adapters, agentprof-cli (M2.1 audit P1-3):** `db
-  ingest` was O(N²) — `AdapterDataSource::load_session(id)`
-  re-scanned the entire session root on every call. New
-  `AdapterDataSource::load_session_by_ref(&AdapterRef)` skips the
-  rescan; the CLI's ingest loop now calls it directly with the
-  `AdapterRef`s it already holds from its one up-front `discover`.
-  For 100 sessions this cuts 10,000 first-line reads down to 100.
-- **agentprof-cli, db (M2.1 audit P1-4):** `db ingest` now exits **2
-  (`ExitKind::DataError`)** when 100 % of discovered sessions fail
-  to upsert, instead of silently exit 0. Partial failures (some ok)
-  still exit 0 — the user got *some* of what they asked for and
-  per-session errors are already on stderr.
-- **agentprof-storage (M2.1 audit P1-5 + P2-1):**
-  `SqliteDataSource::{discover, load_session}` recover from a
-  poisoned mutex via `PoisonError::into_inner` (matching the
-  `drain_warnings` style elsewhere in the codebase) instead of
-  synthesising a misleading `SqliteError::ConfigPath { kind:
-  "mutex", … }`. The `poisoned_mutex_err` helper is gone;
-  `SqliteError::ConfigPath` is no longer abused for non-config-path
-  failures.
-
-### Changed
-
-- **agentprof-storage (M2.1 audit P2-2):** `admin::*` and
-  `query::*` migrated from `Db::conn_for_test()` to the existing
-  `pub(crate) Db::conn()`. `conn_for_test` retained for external
-  integration tests (where `pub(crate)` isn't reachable) but its
-  rustdoc now spells out the contract and points production callers
-  at `conn()`.
-- **agentprof-storage (M2.1 audit P2-4):** `query::parse_agent`
-  elevated the "unknown agent string" fallback log from
-  `tracing::warn!` to `tracing::error!` (visible by default) and
-  added a TODO + rustdoc explaining why the soft-fail policy
-  (panicking mid-listing is worse) stays until M2.1.1 introduces a
-  proper `AgentKind::Unknown(String)` variant.
-
-### Tests
-
-- **agentprof-cli (M2.1 audit P2-5):** Renamed
-  `tests/cli_nocache_compat.rs` → `tests/cli_nocache_regression.rs`
-  (and the two `insta` snapshot files alongside). The previous name
-  implied a "v0.1.x baseline lock" which was never accurate — the
-  snapshots were captured in M2.1 T7.1. Module doc rewritten to
-  describe the actual purpose: catch accidental regressions in the
-  single-path `--no-cache` output during dual-path refactors.
-
-### Docs
-
-- **agentprof-storage (M2.1 audit P2-3):** Fixed broken ADR link in
-  `crates/agentprof-storage/src/config.rs` module doc —
-  `adr-0018-storage-hybrid.md` (does not exist) →
-  `adr-0019-hybrid-storage-mode.md` (correct ADR).
-- **ADR-0018 (M2.1 audit P2-6):** Added "Known issue" footer
-  documenting that `SessionRef::new`'s 6-positional-arg constructor
-  is typo-prone (three `Option<…>` middle args), why obvious fixes
-  (`Default` impl / builder) are blocked today, and that the proper
-  redesign is deferred to M2.1.1.
-- **ADR-0018**: 'Behaviour' rewritten to mark the async re-upsert
-  design as rolled-back per audit P1-1.
+> The [Unreleased] section is consolidated per Keep-a-Changelog 1.1:
+> Added → Changed → Removed → Fixed → Performance → Documentation →
+> Tests. This block covers everything between v0.1.0 (2026-06-06) and
+> the planned v0.2.0 tag — M1.6.5 + M1.6.6 + audit followup + M2.1
+> SQLite persistence + M2.1 P0 + M2.1 audit P1/P2 followup + 12 new
+> regression tests.
 
 ### Added
 
@@ -117,10 +42,10 @@ prefix used in commit messages).
 - **Dual-path read** in `cmd::list` and `cmd::mcp-waste`: both adapter
   and storage queried; set-union by canonical session id; per-session
   field diff (`raw_mtime`, `started_at_ms`, `raw_path`); divergence
-  warns on stderr (suppressed by `--quiet`); adapter wins; async
-  re-upsert via `std::thread::spawn` (no tokio). `cmd::analyze`
+  warns on stderr (suppressed by `--quiet`); adapter wins. `cmd::analyze`
   write-throughs to storage after a successful analysis. `cmd::watch`
-  holds one DB connection across refresh cycles. Known M2.1 limitation:
+  holds one DB connection across refresh cycles (released immediately
+  after the initial upsert per M2.1 audit P1-2). Known M2.1 limitation:
   `cmd::aggregate` (all 4 `--by` arms) stays single-path because
   cross-session aggregation requires Episodes per session, not just
   `AnalysisReport` — promoted to M2.1.1 follow-up.
@@ -144,7 +69,9 @@ prefix used in commit messages).
   layer's `dominant_model` derivation + the SQLite normalized-table
   pre-computation.
 - **`SessionRef::new(id, agent, started_at_ms, raw_path, raw_mtime_ms, source)`**
-  cross-crate constructor (`#[non_exhaustive]` workaround).
+  cross-crate constructor (`#[non_exhaustive]` workaround). See the
+  "Known issue" footer of ADR-0018 for the typo-prone-args caveat
+  and the M2.1.1 redesign plan.
 - **`agentprof-cli/src/lib.rs`** thin facade — exposes
   `data_source` / `data_source_factory` / `config` modules to
   integration tests (the crate was previously bin-only). `main.rs`
@@ -153,105 +80,15 @@ prefix used in commit messages).
   helper. Called from `discover_sessions` to surface the canonical
   UUID (from `data.sessionId` in the first event) instead of the
   directory name. See ADR-0017.
-- **ADR-0017** (Unify session id namespace), **ADR-0018**
-  (SessionDataSource trait + dual-path semantics), **ADR-0019**
-  (Hybrid storage mode).
-
-### Fixed
-
-- **agentprof-adapters / agentprof-cli (M2.1 P0):** `CopilotAdapter::discover_sessions`
-  now sets `SessionRef.id` to the canonical UUID parsed from
-  `data.sessionId` in the first event of `events.jsonl`, not the
-  directory name. Previously the adapter and storage layers used
-  disjoint id namespaces, so `DualPathDataSource::merge_refs` joined
-  on `id` with an empty intersection → the
-  `agentprof: warn: session <id>: N fields differ …` divergence line
-  never fired and `--quiet` was dead code. `diff_fields` was also
-  relaxed to treat `Option::None` as "no opinion" (vs. spurious
-  disagreement) so the new join doesn't flag every fresh scan. New
-  helper `agentprof_adapters::copilot::paths::extract_session_id_from_first_event`.
-  Re-enables the `dualpath_warns_on_stale_db` test (was `#[ignore]`'d
-  in T7.2 pending this fix). See `docs/internals/adr-0017-unify-session-id-namespace.md`.
-  The `cli_nocache_compat::list_no_cache_stable` snapshot was
-  regenerated (list now shows UUIDs instead of dir names) and the
-  `with-session-shutdown` fixture's colliding `sessionId` was
-  re-stamped from `…-000099` to `…-000019`.
-
-### Performance
-
-- **agentprof-core (audit A1):** `WasteComputeContext` now caches the
-  `tiktoken-rs` BPE encoder via a new `bpe: Option<Arc<CoreBPE>>`
-  field + `with_bpe(Arc<CoreBPE>)` builder method, plus a public
-  `build_bpe(TokenizerKind)` helper. CLI driver code in `analyze`,
-  `aggregate --by mcp-server`, and `mcp-waste` builds the encoder
-  once per command and shares it across all per-session contexts —
-  on a 100-session run this avoids ~100 × (50 ms + tens of MB) of
-  redundant merge-table parsing.
-
-### Fixed
-
-- **agentprof-cli (audit B1):** `analyze`, `aggregate --by mcp-server`,
-  and `mcp-waste` now pick the *dominant* model (largest
-  `ModelUsage::total()`) when inferring the session tokenizer. Pre-fix,
-  they used `model_metrics.keys().next()` (alphabetically smallest),
-  so a mixed-model session that mostly used `gpt-5-mini` but logged a
-  single `claude-haiku-4.5` call was misclassified as Anthropic and
-  routed to `cl100k_base`, mispricing the gpt-5-mini bulk of the work.
-  The rule lives in the new `crate::cmd::model_hint::dominant_model`
-  helper, shared by all three subcommands.
-- **agentprof-core (audit B2):** `compute_waste` now emits a
-  `tracing::warn!` when inline BPE construction returns `None`,
-  separating "no sidecar configured" (heuristic by design) from
-  "tokenizer init failed" (heuristic by accident). Pre-fix the
-  `.ok()` swallow made both look identical.
-- **agentprof-adapters (audit B3):** `tool_sidecar::load_sidecar`
-  preserves the real `io::ErrorKind` on `fs::metadata()` failures.
-  Pre-fix every IO error (permission denied, stale NFS, unreadable
-  mount) masqueraded as `SidecarError::NotFound`, sending users to
-  debug a phantom missing file. Now only `ErrorKind::NotFound`
-  returns `NotFound`; everything else propagates through
-  `SidecarError::Io { path, source }`.
-- **agentprof-adapters (CI portability):** the B3 regression test
-  `load_sidecar_permission_denied_returns_io_err_not_not_found` is
-  now gated behind `#[cfg(unix)]`. `std::os::unix::fs::PermissionsExt`
-  is Unix-only, so Windows CI failed to compile the test (E0433:
-  `cannot find unix in os`). The Io-branch coverage stays Unix-only;
-  the lib itself builds and tests on Windows.
-
-### Documentation
-
-- **agentprof-core (audit B4):** `DEFAULT_HEURISTIC_TOKENS` and
-  `WasteComputeContext::with_heuristic` rustdoc now call out the
-  cl100k_base calibration bias — `o200k_base` (GPT-4o / GPT-5 /
-  o1 / o3) sessions may overshoot real waste by ~15–20% under the
-  default constant. Points users at `with_sidecar()` for precision.
-
-### Changed
-
-- **BREAKING (agentprof-core, pre-1.0):** `analyzer::waste::compute_waste`
-  signature changed from `(report, wire_loaded, config_loaded)` to
-  `(report, &WasteComputeContext)` (M1.6.6 T1.4). The builder-pattern
-  context struct + `#[non_exhaustive]` locks the shape — future field
-  additions become non-breaking via `with_*` methods. No published
-  external consumers exist.
-
-### Added
-
-- **cli (M2.1 T4.2):** `DualPathDataSource` gains an optional
-  re-upsert callback (`ReUpsertFn = Arc<dyn Fn(String) + Send + Sync>`)
-  via the new `new_with_reupsert(adapter, storage, warnings, re_upsert)`
-  constructor. When the adapter wins on a diverging session id, the
-  composer spawns a detached `std::thread` that invokes the callback
-  with the session id — wiring point for "refresh the stale `SQLite`
-  snapshot in the background". Fire-and-forget: no `tokio`, no join,
-  no retries; callbacks must log their own errors (typically via
-  `tracing`). Existing `new(..)` constructor preserved as a wrapper
-  passing `None`.
-
+- **`AdapterDataSource::load_session_by_ref(&AdapterRef)`** fast path
+  — lets callers that already hold an `AdapterRef` from a previous
+  `discover_sessions` skip the per-call session-root rescan. Used
+  by `agentprof db ingest` to drop ingest cost from O(N²) to O(N).
+  See M2.1 audit P1-3.
 - **adapters (M2.1 T3.1):** new `agentprof_adapters::AdapterDataSource<A>`
   wrapper bridges any `Adapter` impl into the
-  `agentprof_core::datasource::SessionDataSource` trait introduced in T1.
-  Stores `(Arc<A>, PathBuf root)` and runs the full
+  `agentprof_core::datasource::SessionDataSource` trait. Stores
+  `(Arc<A>, PathBuf root)` and runs the full
   `discover_sessions → load_session → episode::derive_episodes →
   analyzer::analyze` pipeline inline on `load_session(id)`; `discover`
   filters by `modified_at` against the supplied `since` window and maps
@@ -261,7 +98,9 @@ prefix used in commit messages).
   `DataSourceError::NotFound`. The `Adapter` trait is unchanged — this
   keeps existing impls (and `CopilotAdapter`'s unit-struct shape)
   intact. Unblocks the dual-path composer (T4).
-
+- **ADR-0017** (Unify session id namespace), **ADR-0018**
+  (SessionDataSource trait + dual-path semantics), **ADR-0019**
+  (Hybrid storage mode).
 - **M1.6.6 MCP tool token-cost view** (extends M1.6.5; Phase 2 of the
   original "View C" brainstorm). Surfaces "how many *tokens* of my
   context budget were wasted on tool descriptions the agent never
@@ -334,13 +173,29 @@ prefix used in commit messages).
 
 ### Changed
 
+- **BREAKING (agentprof-core, pre-1.0):** `analyzer::waste::compute_waste`
+  signature changed from `(report, wire_loaded, config_loaded)` to
+  `(report, &WasteComputeContext)` (M1.6.6 T1.4). The builder-pattern
+  context struct + `#[non_exhaustive]` locks the shape — future field
+  additions become non-breaking via `with_*` methods. No published
+  external consumers exist.
 - **BREAKING (agentprof-core, pre-1.0):** `analyzer::aggregate::group_by_mcp::aggregate_by_mcp_server`
   signature gained a 3rd parameter `waste_per_report: &[WasteReport]` (M1.6.5 T3.3).
   Callers must compute per-session waste via `compute_waste` and pass the
   resulting slice. No published external consumers exist; flagged here
   for v0.2.0 release-notes accuracy.
-
-- **`tests`: pin in-turn skill rollup contract + document `/tmp/sess` test path rationale**
+- **agentprof-storage (M2.1 audit P2-2):** `admin::*` and `query::*`
+  migrated from `Db::conn_for_test()` to the existing `pub(crate)
+  Db::conn()`. `conn_for_test` retained for external integration
+  tests (where `pub(crate)` isn't reachable) but its rustdoc now
+  spells out the contract and points production callers at `conn()`.
+- **agentprof-storage (M2.1 audit P2-4):** `query::parse_agent`
+  elevated the "unknown agent string" fallback log from
+  `tracing::warn!` to `tracing::error!` (visible by default) and
+  added a TODO + rustdoc explaining why the soft-fail policy
+  (panicking mid-listing is worse) stays until M2.1.1 introduces a
+  proper `AgentKind::Unknown(String)` variant.
+- **tests: pin in-turn skill rollup contract + document `/tmp/sess` test path rationale**
   (closes P3 backlog `skill-call-count-fixture` + P4 backlog `t9-tmp-path-rationale`).
   The committed Copilot integration fixtures (`with-skill-invoked`,
   `two-skills-one-turn`, `tool-and-skill-same-turn`) all emit
@@ -380,15 +235,6 @@ prefix used in commit messages).
   convention mismatch), restoring positional sync. Three unit tests
   pin the helper's contract (Json variant, Io variant, OutOfOrder
   no-op).
-- **`docs`: post-implementation notes on M1.3 plan and design**
-  (plan_drift `parsewarning-variants`). The historical M1.3 spec/plan
-  referenced `ParseWarning::MissingField` and `UnknownVariant` variants
-  that were superseded during implementation; the actual shipped enum
-  in `agentprof-core::error` differs. Added callouts at the top of
-  both `docs/superpowers/plans/2026-05-27-m1.3-...md` and the
-  corresponding `-design.md` pointing readers to the real enum and
-  documenting that Task 6's `MissingField`-dominance triage was
-  never executed.
 - **Privacy: sanitize personal absolute paths in committed docs.**
   Across 15 `docs/superpowers/plans/*.md` files (~80 occurrences),
   `/home/verden/pfind/2026-spring/code/agentprof` → `/path/to/agentprof`
@@ -413,8 +259,93 @@ prefix used in commit messages).
   output format; our README claim becomes silently false) (closes M-2
   from T8 quality review).
 
+### Removed
+
+- **agentprof-cli (M2.1 audit P1-1):** Deleted dead `ReUpsertFn` /
+  `DualPathDataSource::new_with_reupsert` / `re_upsert` field /
+  `merge_refs` callback fan-out / and the
+  `re_upsert_callback_fires_on_diverging_session` test. The async
+  re-upsert design originally prototyped in M2.1 T4.2 was never
+  wired up by the data-source factory, and detached threads at the
+  tail of a one-shot CLI invocation are killed at process exit
+  anyway. Proper async refresh deferred to M2.1.1. Net effect on
+  users: zero (the surface was never invoked from any subcommand).
+  See ADR-0018 §Behaviour rolled-back note +
+  `crates/agentprof-cli/src/data_source.rs` module docs.
+
 ### Fixed
 
+- **agentprof-adapters / agentprof-cli (M2.1 P0):** `CopilotAdapter::discover_sessions`
+  now sets `SessionRef.id` to the canonical UUID parsed from
+  `data.sessionId` in the first event of `events.jsonl`, not the
+  directory name. Previously the adapter and storage layers used
+  disjoint id namespaces, so `DualPathDataSource::merge_refs` joined
+  on `id` with an empty intersection → the
+  `agentprof: warn: session <id>: N fields differ …` divergence line
+  never fired and `--quiet` was dead code. `diff_fields` was also
+  relaxed to treat `Option::None` as "no opinion" (vs. spurious
+  disagreement) so the new join doesn't flag every fresh scan. New
+  helper `agentprof_adapters::copilot::paths::extract_session_id_from_first_event`.
+  Re-enables the `dualpath_warns_on_stale_db` test (was `#[ignore]`'d
+  in T7.2 pending this fix). See `docs/internals/adr-0017-unify-session-id-namespace.md`.
+  The `cli_nocache_regression::list_no_cache_stable` snapshot was
+  regenerated (list now shows UUIDs instead of dir names) and the
+  `with-session-shutdown` fixture's colliding `sessionId` was
+  re-stamped from `…-000099` to `…-000019`.
+- **agentprof-cli, watch (M2.1 audit P1-2):** `cmd::watch` no longer
+  holds the SQLite `Db` connection open for the entire `run_single`
+  lifetime. The handle is now dropped immediately after the initial
+  upsert, releasing the WAL lock so concurrent `agentprof db
+  ingest` from another shell can write while a watch session is
+  attached. Per spec §8 watch performs no further writes after the
+  initial flush, so the long-lived handle was idle dead weight.
+- **agentprof-adapters, agentprof-cli (M2.1 audit P1-3):** `db
+  ingest` was O(N²) — `AdapterDataSource::load_session(id)`
+  re-scanned the entire session root on every call. New
+  `AdapterDataSource::load_session_by_ref(&AdapterRef)` skips the
+  rescan; the CLI's ingest loop now calls it directly with the
+  `AdapterRef`s it already holds from its one up-front `discover`.
+  For 100 sessions this cuts 10,000 first-line reads down to 100.
+- **agentprof-cli, db (M2.1 audit P1-4):** `db ingest` now exits **2
+  (`ExitKind::DataError`)** when 100 % of discovered sessions fail
+  to upsert, instead of silently exit 0. Partial failures (some ok)
+  still exit 0 — the user got *some* of what they asked for and
+  per-session errors are already on stderr.
+- **agentprof-storage (M2.1 audit P1-5 + P2-1):**
+  `SqliteDataSource::{discover, load_session}` recover from a
+  poisoned mutex via `PoisonError::into_inner` (matching the
+  `drain_warnings` style elsewhere in the codebase) instead of
+  synthesising a misleading `SqliteError::ConfigPath { kind:
+  "mutex", … }`. The `poisoned_mutex_err` helper is gone;
+  `SqliteError::ConfigPath` is no longer abused for non-config-path
+  failures.
+- **agentprof-cli (audit B1):** `analyze`, `aggregate --by mcp-server`,
+  and `mcp-waste` now pick the *dominant* model (largest
+  `ModelUsage::total()`) when inferring the session tokenizer. Pre-fix,
+  they used `model_metrics.keys().next()` (alphabetically smallest),
+  so a mixed-model session that mostly used `gpt-5-mini` but logged a
+  single `claude-haiku-4.5` call was misclassified as Anthropic and
+  routed to `cl100k_base`, mispricing the gpt-5-mini bulk of the work.
+  The rule lives in the new `crate::cmd::model_hint::dominant_model`
+  helper, shared by all three subcommands.
+- **agentprof-core (audit B2):** `compute_waste` now emits a
+  `tracing::warn!` when inline BPE construction returns `None`,
+  separating "no sidecar configured" (heuristic by design) from
+  "tokenizer init failed" (heuristic by accident). Pre-fix the
+  `.ok()` swallow made both look identical.
+- **agentprof-adapters (audit B3):** `tool_sidecar::load_sidecar`
+  preserves the real `io::ErrorKind` on `fs::metadata()` failures.
+  Pre-fix every IO error (permission denied, stale NFS, unreadable
+  mount) masqueraded as `SidecarError::NotFound`, sending users to
+  debug a phantom missing file. Now only `ErrorKind::NotFound`
+  returns `NotFound`; everything else propagates through
+  `SidecarError::Io { path, source }`.
+- **agentprof-adapters (CI portability):** the B3 regression test
+  `load_sidecar_permission_denied_returns_io_err_not_not_found` is
+  now gated behind `#[cfg(unix)]`. `std::os::unix::fs::PermissionsExt`
+  is Unix-only, so Windows CI failed to compile the test (E0433:
+  `cannot find unix in os`). The Io-branch coverage stays Unix-only;
+  the lib itself builds and tests on Windows.
 - **`adapters`: `ToolTelemetry.restricted_properties` now skips serializing
   on `Null`** (P2 backlog `tooltelemetry-restricted-props-skip-if`).
   Older Copilot CLI versions omit the `restrictedProperties` field
@@ -445,7 +376,8 @@ prefix used in commit messages).
   (cross-platform XDG-spec primary) before falling back to `BaseDirs`.
   Two unit tests pinned at the function boundary on every platform.
 - **`ci`: appease clippy 1.96 `unnecessary_sort_by` lint** (18 sites
-  across `agentprof-core`, `agentprof-adapters`, `agentprof-tui`).
+  across `agentprof-core`, `agentprof-adapters`, `agentprof-tui`, plus
+  one tail-end `cli` site at `merge_refs` per M2.1 CI fix 404ebd8).
   Mechanical conversion `sort_by(|a, b| b.X.cmp(&a.X))` →
   `sort_by_key(|b| std::cmp::Reverse(b.X))`; behavior unchanged.
   Includes one tuple-destructuring variant in `turn_detail.rs:673`
@@ -469,6 +401,85 @@ prefix used in commit messages).
   trigger). `paste` 1.0.15 reaches us transitively through `ratatui`
   0.29.0; will be removed when ratatui drops the `paste` dependency
   (likely in 0.30+).
+- **`ci`: ignore RUSTSEC-2025-0119 `number_prefix`** in `deny.toml`
+  with rationale comment (M2.1 CI fix 57eb54f). Transitive via
+  `indicatif`'s progress-bar formatting; advisory is unmaintained-crate
+  notice, not a security vulnerability.
+
+### Performance
+
+- **agentprof-core (audit A1):** `WasteComputeContext` now caches the
+  `tiktoken-rs` BPE encoder via a new `bpe: Option<Arc<CoreBPE>>`
+  field + `with_bpe(Arc<CoreBPE>)` builder method, plus a public
+  `build_bpe(TokenizerKind)` helper. CLI driver code in `analyze`,
+  `aggregate --by mcp-server`, and `mcp-waste` builds the encoder
+  once per command and shares it across all per-session contexts —
+  on a 100-session run this avoids ~100 × (50 ms + tens of MB) of
+  redundant merge-table parsing.
+
+### Documentation
+
+- **agentprof-core (audit B4):** `DEFAULT_HEURISTIC_TOKENS` and
+  `WasteComputeContext::with_heuristic` rustdoc now call out the
+  cl100k_base calibration bias — `o200k_base` (GPT-4o / GPT-5 /
+  o1 / o3) sessions may overshoot real waste by ~15–20% under the
+  default constant. Points users at `with_sidecar()` for precision.
+- **agentprof-storage (M2.1 audit P2-3):** Fixed broken ADR link in
+  `crates/agentprof-storage/src/config.rs` module doc —
+  `adr-0018-storage-hybrid.md` (does not exist) →
+  `adr-0019-hybrid-storage-mode.md` (correct ADR).
+- **ADR-0018 (M2.1 audit P2-6):** Added "Known issue" footer
+  documenting that `SessionRef::new`'s 6-positional-arg constructor
+  is typo-prone (three `Option<…>` middle args), why obvious fixes
+  (`Default` impl / builder) are blocked today, and that the proper
+  redesign is deferred to M2.1.1.
+- **ADR-0018**: 'Behaviour' rewritten to mark the async re-upsert
+  design as rolled-back per audit P1-1.
+- **ADR-0017 (post-audit-sweep):** "Negative consequences" and
+  "Snapshot / fixture deltas" sections refreshed for the M2.1 audit
+  P2-5 test rename (`cli_nocache_compat` → `cli_nocache_regression`).
+- **docs: post-implementation notes on M1.3 plan and design**
+  (plan_drift `parsewarning-variants`). The historical M1.3 spec/plan
+  referenced `ParseWarning::MissingField` and `UnknownVariant` variants
+  that were superseded during implementation; the actual shipped enum
+  in `agentprof-core::error` differs. Added callouts at the top of
+  both `docs/superpowers/plans/2026-05-27-m1.3-...md` and the
+  corresponding `-design.md` pointing readers to the real enum and
+  documenting that Task 6's `MissingField`-dominance triage was
+  never executed.
+- **post-M2.1 doc sweep:** `docs/architecture.md` §8 `db ingest`
+  row, `crates/agentprof-cli/README.md` `db` subcommand table, and
+  `crates/agentprof-adapters/README.md` `AdapterDataSource` bullet
+  brought back in sync with the audit P1-3 / P1-4 code shipped on
+  `main`. `docs/plan.md` §6 / §7.1 / §7.2 / §8, `tasks/ROADMAP.md`
+  header, and root `README.md` updated to mark M2.1 as merged on
+  `main` (was "nearly complete on `feat/m2.1-sqlite-persistence`")
+  and to close the §7.2 "SQLite schema 演进策略" open question
+  (decided: hybrid 3-table + `analysis_report_json` blob).
+
+### Tests
+
+- **agentprof-cli (M2.1 audit P2-5):** Renamed
+  `tests/cli_nocache_compat.rs` → `tests/cli_nocache_regression.rs`
+  (and the two `insta` snapshot files alongside). The previous name
+  implied a "v0.1.x baseline lock" which was never accurate — the
+  snapshots were captured in M2.1 T7.1. Module doc rewritten to
+  describe the actual purpose: catch accidental regressions in the
+  single-path `--no-cache` output during dual-path refactors.
+- **agentprof-cli (M2.1 T7.1 + T7.2):** `cli_nocache_regression` insta
+  baseline locks single-path `list --no-cache` + `aggregate --no-cache`
+  byte-stable output. `cli_dualpath` covers dual-path silent /
+  warn / quiet / write-through paths.
+- **M2.1 audit regression suite — 12 new tests across 5 files**
+  (commits 228cb36 → 499e702): H1 `AnalysisReport::total_*` accessor
+  coverage in core; H2 `loaded_mcp_tools` `#[serde(default)]`
+  backward-compat lock in core; H3 `upsert_report` → raw-SELECT
+  round-trip for token totals in storage; M1 storage FK CASCADE on
+  prune for `tools_loaded` / `turn_buckets`; M2 cli `diff_fields`
+  None-tolerant path locked; L1 adapters `CopilotEvent::payload_loaded_mcp_tools`
+  fixture coverage; L2 storage `parse_agent` unknown-fallback contract.
+  All seven commits are pure regression locks — no behavior change,
+  but pin contracts the M2.1 audit identified as untested.
 
 ## [0.1.0] - 2026-06-06
 
