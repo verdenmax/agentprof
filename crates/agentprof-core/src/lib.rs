@@ -11,6 +11,10 @@
 //!   and supporting types.
 //! - [`analyzer`] — rollup functions ([`analyzer::analyze`],
 //!   [`analyzer::AnalysisReport`]) consuming `Episodes`.
+//! - [`datasource`] — the [`datasource::SessionDataSource`] trait,
+//!   [`datasource::SessionRef`], and [`datasource::DataSourceError`]
+//!   (M2.1 abstraction over file adapters, `SQLite` store, and the
+//!   dual-path composer).
 //! - [`model`] — domain types ([`model::session::RawSession`],
 //!   [`model::meta::SessionMeta`], [`model::tool_source::ToolSource`]).
 //! - [`error`] — workspace-level errors ([`error::CoreError`],
@@ -24,6 +28,7 @@
 
 pub mod adapter;
 pub mod analyzer;
+pub mod datasource;
 pub mod episode;
 pub mod error;
 pub mod export;
