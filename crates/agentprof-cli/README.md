@@ -359,7 +359,7 @@ See [`docs/architecture.md`](../../docs/architecture.md) §8 for the canonical s
 | `cmd::watch` | The `watch` subcommand: single-session + `watch aggregate` cross-session live-refresh TUI. Owns the `notify-debouncer-mini` thread and drives `agentprof_tui::watch::WatchRunner` via an mpsc channel + reload closure. | ✓ shipped (M1.6.3) |
 | `cmd::mcp_waste` | The `mcp-waste` subcommand: cross-session report of MCP tools loaded but never called. Per-session `compute_waste` + cross-session `aggregate_waste` + md/json/html renderers. Also owns the shared `resolve_mcp_config_path` helper consumed by `analyze --section mcp-waste`. | ✓ shipped (M1.6.5) |
 | `exit` | `ExitKind` enum + `classify_error` downcast | ✓ shipped (M1.4) |
-| `data_source` | `DualPathDataSource` composer — fans out `SessionDataSource` calls to an adapter + optional `SQLite` store, merges by session id (adapter wins), records divergence warnings | ✓ shipped (M2.1 T4.1) |
+| `data_source` | `DualPathDataSource` composer — fans out `SessionDataSource` calls to an adapter + optional `SQLite` store, merges by session id (adapter wins), records divergence warnings, and optionally fires a `ReUpsertFn` callback on a detached `std::thread` so the CLI can refresh the stale storage entry in the background | ✓ shipped (M2.1 T4.2) |
 | `cmd::{ingest_otlp, config}` | One module per planned subcommand | planned (Phase 2) |
 | `config` | TOML loader / writer for `~/.config/agentprof/config.toml` | planned (M1.5+) |
 | `report_html` | `askama` templates for the HTML report | planned (M1.5+) |

@@ -73,6 +73,17 @@ prefix used in commit messages).
 
 ### Added
 
+- **cli (M2.1 T4.2):** `DualPathDataSource` gains an optional
+  re-upsert callback (`ReUpsertFn = Arc<dyn Fn(String) + Send + Sync>`)
+  via the new `new_with_reupsert(adapter, storage, warnings, re_upsert)`
+  constructor. When the adapter wins on a diverging session id, the
+  composer spawns a detached `std::thread` that invokes the callback
+  with the session id — wiring point for "refresh the stale `SQLite`
+  snapshot in the background". Fire-and-forget: no `tokio`, no join,
+  no retries; callbacks must log their own errors (typically via
+  `tracing`). Existing `new(..)` constructor preserved as a wrapper
+  passing `None`.
+
 - **adapters (M2.1 T3.1):** new `agentprof_adapters::AdapterDataSource<A>`
   wrapper bridges any `Adapter` impl into the
   `agentprof_core::datasource::SessionDataSource` trait introduced in T1.
