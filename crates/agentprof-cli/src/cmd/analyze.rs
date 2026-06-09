@@ -472,10 +472,13 @@ fn resolve_session_by_path(adapter: &CopilotAdapter, p: &Path) -> Result<Session
         .and_then(|m| m.modified().ok())
         .unwrap_or(SystemTime::UNIX_EPOCH);
     let size_bytes = meta.map_or(0, |m| m.len());
-    let id = path.parent().and_then(|d| d.file_name()).map_or_else(
-        || "unknown".to_string(),
-        |n| n.to_string_lossy().into_owned(),
-    );
+    let id = agentprof_adapters::copilot::paths::extract_session_id_from_first_event(&path)
+        .unwrap_or_else(|| {
+            path.parent().and_then(|d| d.file_name()).map_or_else(
+                || "unknown".to_string(),
+                |n| n.to_string_lossy().into_owned(),
+            )
+        });
     Ok(SessionRef::new(
         id,
         adapter.agent_kind(),

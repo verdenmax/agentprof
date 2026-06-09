@@ -31,13 +31,12 @@ fn fixtures_root() -> PathBuf {
 
 /// Path to the cross-turn-tool fixture directory.
 ///
-/// We use the Path selector (not Uuid) because `SessionRef.id` is the
-/// directory name set by `CopilotAdapter::discover_sessions`, NOT the
-/// inner wire-format `sessionId` field. So `--session cross-turn-tool`
-/// would be rejected by the `looks_like_uuid` heuristic, and
-/// `--session 00000000-...-001000` (the inner UUID) doesn't match the
-/// `SessionRef` set built by discovery. Path selector sidesteps both
-/// problems and is what real users would type anyway.
+/// We use the Path selector (not Uuid) for ergonomic reasons: it keeps the
+/// test independent of the inner wire-format `sessionId` value. As of the
+/// M2.1 id-namespace fix, `SessionRef.id` and `report.meta.id` share the
+/// same UUID namespace, so `--session <uuid>` would now also work — but the
+/// path form is what real users typically type when pointing at a single
+/// fixture and is more robust against fixture sessionId churn.
 fn cross_turn_path() -> PathBuf {
     fixtures_root().join("cross-turn-tool")
 }
@@ -524,10 +523,9 @@ fn analyze_html_snapshot_with_ask_user_mid_session() {
 /// with-mcp-waste fixture renders the "## MCP Server Waste" section with
 /// per-server + top-20-unused tables. Pins the spec §7.1 markdown shape.
 ///
-/// Uses the Path selector instead of `--root` + `--session <uuid>` because
-/// `CopilotAdapter::discover_sessions` keys `SessionRef` ids on the *directory
-/// name*, not the inner wire-format `sessionId` — see the long comment on
-/// `cross_turn_path()` above for the same precedent.
+/// Uses the Path selector for ergonomic stability (independent of the
+/// fixture's inner wire-format `sessionId` value). As of the M2.1
+/// id-namespace fix, `--root` + `--session <uuid>` would also work.
 #[test]
 fn analyze_section_mcp_waste_md_uses_with_mcp_waste_fixture() {
     let out = Command::cargo_bin("agentprof")

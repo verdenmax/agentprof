@@ -84,12 +84,6 @@ fn dualpath_silent_when_db_in_sync() {
 }
 
 #[test]
-#[ignore = "M2.1 dual-path id-namespace bug: adapter discover_sessions sets \
-    SessionRef.id = directory name (e.g. `with-mcp-waste`), while \
-    upsert_report stores by report.meta.id (UUID parsed from events.jsonl). \
-    merge_refs joins on id so the two corpora never overlap, and the stale \
-    raw_mtime in the DB never triggers diff_fields. Filed as a follow-up; \
-    re-enable once the discover/upsert id space is unified."]
 fn dualpath_warns_on_stale_db() {
     let tmp = TempDir::new().unwrap();
     let db_path = tmp.path().join("c.sqlite");

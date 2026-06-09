@@ -16,10 +16,74 @@
 //! }
 //! ```
 
-use std::fs;
+use std::fs::{self, File};
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 use agentprof_core::adapter::{AdapterError, AgentKind, SessionRef};
+
+/// Best-effort extraction of the canonical session id from the first event
+/// line of an `events.jsonl` file.
+///
+/// Copilot CLI writes a `session.start` event as the very first line of every
+/// session log. Its `data.sessionId` field is the **canonical** UUID that
+/// downstream layers — notably the storage layer's `upsert_report` keyed on
+/// `SessionMeta::id` — use as the cross-cutting
+/// session identifier. This helper exists so [`discover_sessions`] can pin
+/// `SessionRef.id` to the same namespace, keeping the dual-path adapter ↔
+/// storage merge join (`DualPathDataSource::merge_refs`) intersecting on the
+/// same key (M2.1 P0 bug fix).
+///
+/// Returns [`None`] if the file is missing, empty, malformed JSON, or simply
+/// lacks the expected `data.sessionId` / `sessionId` field. Callers should
+/// fall back to a synthetic id (e.g. the parent directory name) so a single
+/// corrupt session never collapses whole-root discovery.
+///
+/// The function is intentionally cheap: a single `BufReader::read_line`
+/// against the first line. For 100 sessions this totals well under 100 ms.
+///
+/// # Examples
+///
+/// ```
+/// use agentprof_adapters::copilot::paths::extract_session_id_from_first_event;
+/// use std::io::Write;
+///
+/// let tmp = tempfile::tempdir().unwrap();
+/// let p = tmp.path().join("events.jsonl");
+/// let mut f = std::fs::File::create(&p).unwrap();
+/// writeln!(
+///     f,
+///     r#"{{"type":"session.start","data":{{"sessionId":"abc-123"}},"id":"e1","timestamp":"2026-01-01T00:00:00Z","parentId":null}}"#
+/// )
+/// .unwrap();
+/// assert_eq!(
+///     extract_session_id_from_first_event(&p).as_deref(),
+///     Some("abc-123")
+/// );
+/// ```
+#[must_use]
+pub fn extract_session_id_from_first_event(jsonl_path: &Path) -> Option<String> {
+    let file = File::open(jsonl_path).ok()?;
+    let mut reader = BufReader::new(file);
+    let mut line = String::new();
+    reader.read_line(&mut line).ok()?;
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_str(trimmed).ok()?;
+    value
+        .get("data")
+        .and_then(|d| d.get("sessionId"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
+        .or_else(|| {
+            value
+                .get("sessionId")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        })
+}
 
 /// Default on-disk location where Copilot CLI persists sessions.
 ///
@@ -106,10 +170,16 @@ pub fn discover_sessions(root: &Path) -> Result<Vec<SessionRef>, AdapterError> {
             continue;
         }
         let modified_at = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-        let id = dir_path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .map_or_else(|| dir_path.to_string_lossy().into_owned(), str::to_owned);
+        // Prefer the canonical UUID embedded in the session.start event so
+        // SessionRef.id matches report.meta.id used by storage upserts. Fall
+        // back to the directory name when the events.jsonl is unreadable or
+        // malformed — we still want broken sessions to be discoverable.
+        let id = extract_session_id_from_first_event(&events_path).unwrap_or_else(|| {
+            dir_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map_or_else(|| dir_path.to_string_lossy().into_owned(), str::to_owned)
+        });
 
         sessions.push(SessionRef::new(
             id,

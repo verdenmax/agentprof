@@ -37,8 +37,15 @@ fn list_happy_path_lists_committed_fixtures() {
         .stdout(contains("ID"))
         .stdout(contains("Started"))
         .stdout(contains("Model"))
-        // At least 1 known fixture should be listed:
-        .stdout(contains("cross-turn-tool").or(contains("minimal")));
+        // At least 1 known fixture should be listed. As of the M2.1
+        // id-namespace fix, list rows show the canonical UUID parsed from
+        // events.jsonl rather than the directory name; assert on
+        // sessionIds that uniquely identify those two fixtures
+        // (cross-turn-tool=...001000, minimal=...000001).
+        .stdout(
+            contains("00000000-0000-0000-0000-000000001000")
+                .or(contains("00000000-0000-0000-0000-000000000001")),
+        );
 }
 
 #[test]

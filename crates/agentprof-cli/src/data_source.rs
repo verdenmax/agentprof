@@ -398,18 +398,32 @@ fn merge_refs(
 /// `id`, `agent`, and `source` fields are intentionally excluded
 /// (`id` is the join key; `agent` would indicate a corrupt store;
 /// `source` is expected to differ — that is the whole point).
+///
+/// Fields where one side is `None` (i.e. that data source did not bother
+/// to compute the value cheaply) are treated as **no opinion** rather than
+/// disagreement. This avoids spurious divergence warnings on every fresh
+/// scan where, e.g., the adapter path does not eagerly parse a session's
+/// `startTime` but storage already has it persisted. A real disagreement
+/// requires both sides to assert a value and disagree.
 fn diff_fields(a: &SessionRef, b: &SessionRef) -> Vec<&'static str> {
     let mut diffs = Vec::new();
-    if a.raw_mtime_ms != b.raw_mtime_ms {
+    if both_some_and_differ(a.raw_mtime_ms, b.raw_mtime_ms) {
         diffs.push("raw_mtime_ms");
     }
-    if a.started_at_ms != b.started_at_ms {
+    if both_some_and_differ(a.started_at_ms, b.started_at_ms) {
         diffs.push("started_at_ms");
     }
-    if a.raw_path != b.raw_path {
+    if a.raw_path.is_some() && b.raw_path.is_some() && a.raw_path != b.raw_path {
         diffs.push("raw_path");
     }
     diffs
+}
+
+const fn both_some_and_differ(a: Option<i64>, b: Option<i64>) -> bool {
+    match (a, b) {
+        (Some(x), Some(y)) => x != y,
+        _ => false,
+    }
 }
 
 #[cfg(test)]

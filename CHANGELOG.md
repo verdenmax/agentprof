@@ -13,6 +13,26 @@ prefix used in commit messages).
 
 ## [Unreleased]
 
+### Fixed
+
+- **agentprof-adapters / agentprof-cli (M2.1 P0):** `CopilotAdapter::discover_sessions`
+  now sets `SessionRef.id` to the canonical UUID parsed from
+  `data.sessionId` in the first event of `events.jsonl`, not the
+  directory name. Previously the adapter and storage layers used
+  disjoint id namespaces, so `DualPathDataSource::merge_refs` joined
+  on `id` with an empty intersection → the
+  `agentprof: warn: session <id>: N fields differ …` divergence line
+  never fired and `--quiet` was dead code. `diff_fields` was also
+  relaxed to treat `Option::None` as "no opinion" (vs. spurious
+  disagreement) so the new join doesn't flag every fresh scan. New
+  helper `agentprof_adapters::copilot::paths::extract_session_id_from_first_event`.
+  Re-enables the `dualpath_warns_on_stale_db` test (was `#[ignore]`'d
+  in T7.2 pending this fix). See `docs/internals/adr-0017-unify-session-id-namespace.md`.
+  The `cli_nocache_compat::list_no_cache_stable` snapshot was
+  regenerated (list now shows UUIDs instead of dir names) and the
+  `with-session-shutdown` fixture's colliding `sessionId` was
+  re-stamped from `…-000099` to `…-000019`.
+
 ### Performance
 
 - **agentprof-core (audit A1):** `WasteComputeContext` now caches the

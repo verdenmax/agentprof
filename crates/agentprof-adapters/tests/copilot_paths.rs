@@ -88,9 +88,17 @@ fn load_session_returns_raw_session_for_fixture_minimal() {
         .join("fixtures")
         .join("copilot");
     let sessions = paths::discover_sessions(&fixture_root).unwrap();
+    // Locate by trailing path segment instead of `s.id`: as of the M2.1
+    // id-namespace fix, `SessionRef.id` is the canonical UUID from
+    // events.jsonl, not the directory name.
     let minimal = sessions
         .iter()
-        .find(|s| s.id == "minimal")
+        .find(|s| {
+            s.path
+                .parent()
+                .and_then(|p| p.file_name())
+                .is_some_and(|n| n == "minimal")
+        })
         .expect("minimal fixture should be discovered");
 
     let raw = adapter.load_session(minimal).unwrap();
