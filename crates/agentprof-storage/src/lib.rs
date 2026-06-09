@@ -17,6 +17,8 @@
 //!   write for one session (M2.1 T2.4)
 //! - [`query`]  — [`query_sessions_since`](query::query_sessions_since) /
 //!   [`load_session`](query::load_session) read API (M2.1 T2.5)
+//! - [`datasource`] — [`SqliteDataSource`] impl of
+//!   [`agentprof_core::datasource::SessionDataSource`] (M2.1 T2.6)
 //! - `otlp` (planned, feature `otlp`) — Tonic-based OpenTelemetry receiver
 //!
 //! ## Features
@@ -36,10 +38,12 @@
 #![warn(missing_docs)]
 
 pub mod config;
+pub mod datasource;
 pub mod db;
 pub mod error;
 pub mod query;
 pub mod upsert;
 
+pub use datasource::SqliteDataSource;
 pub use db::Db;
 pub use error::SqliteError;
