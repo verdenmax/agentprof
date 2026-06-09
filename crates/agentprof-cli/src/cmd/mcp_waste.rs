@@ -5,8 +5,11 @@
 //! As of T4.2 the [`run`] entry point wires the full pipeline: discover
 //! sessions (Copilot adapter) → filter by `--since` mtime → load
 //! `mcp.json` once → per-session
-//! `load_session → derive_episodes → analyze → extract_loaded_set →
-//! compute_waste` → `aggregate_waste` → render → stdout/file.
+//! `load_session → derive_episodes → analyze → compute_waste`
+//! (M2.1 T5.2.5: ever-loaded MCP tools now hang off `analyze`'s
+//! `AnalysisReport.loaded_mcp_tools`, so the previous explicit
+//! `extract_loaded_set_from_session` step is folded into `analyze`)
+//! → `aggregate_waste` → render → stdout/file.
 //! T4.3 fills in the three renderers (`render_md`, `render_json`,
 //! `render_html`) — the HTML output is a self-contained document built
 //! from `templates/mcp_waste_full.html.jinja`.
@@ -156,8 +159,12 @@ fn expand_tilde(p: &std::path::Path) -> PathBuf {
 ///    parse failures degrade silently to `None` so the CLI stays usable
 ///    on hosts without a Copilot MCP config.
 /// 4. For each surviving session, run
-///    `load_session → derive_episodes → analyze → extract_loaded_set →
-///    compute_waste`. Per-session failures are warned to stderr (via
+///    `load_session → derive_episodes → analyze → compute_waste`
+///    (M2.1 T5.2.5: the ever-loaded MCP tool set is now carried by
+///    `AnalysisReport.loaded_mcp_tools`, populated by `analyze` via
+///    `Event::payload_loaded_mcp_tools` — the previous explicit
+///    `extract_loaded_set_from_session` step is no longer needed
+///    here). Per-session failures are warned to stderr (via
 ///    `tracing::warn!`) and skipped, matching `aggregate`'s policy.
 /// 5. Cross-session aggregation via
 ///    [`agentprof_core::analyzer::aggregate_waste`].
@@ -194,9 +201,7 @@ pub fn run(
     _cfg: &LogConfig,
     _tracing_handle: &TracingHandle,
 ) -> anyhow::Result<()> {
-    use agentprof_adapters::copilot::{
-        extract_loaded_set_from_session, load_mcp_config, CopilotAdapter,
-    };
+    use agentprof_adapters::copilot::{load_mcp_config, CopilotAdapter};
     use agentprof_core::adapter::Adapter;
     use agentprof_core::analyzer::{aggregate_waste, analyze, compute_waste};
     use agentprof_core::episode::derive_episodes;
@@ -285,7 +290,11 @@ pub fn run(
             let raw = adapter.load_session(sref)?;
             let episodes = derive_episodes(&raw.events, &raw.meta);
             let report = analyze(&episodes, &raw.meta, &raw.parse_warnings);
-            let wire = extract_loaded_set_from_session(&raw.events);
+            // M2.1 T5.2.5: ever-loaded MCP tool set now hangs off the
+            // analyzer report, so we no longer need to re-walk
+            // raw.events here. Borrowing keeps WasteComputeContext's
+            // &BTreeSet contract intact.
+            let wire = &report.loaded_mcp_tools;
             // M1.6.6 T1.4 + T4.1 + audit B1: assemble the
             // WasteComputeContext — tokenizer inferred from the
             // session's *dominant* model (largest token total) via
@@ -294,7 +303,7 @@ pub fn run(
             // (sidecar) per ADR-0016 D-2.
             let model_hint = crate::cmd::model_hint::dominant_model(&report);
             let tokenizer = agentprof_core::analyzer::waste::infer_tokenizer(model_hint.as_deref());
-            let mut waste_ctx = agentprof_core::analyzer::waste::WasteComputeContext::new(&wire)
+            let mut waste_ctx = agentprof_core::analyzer::waste::WasteComputeContext::new(wire)
                 .with_tokenizer(tokenizer)
                 .with_heuristic(args.tokens_per_tool);
             let shared_bpe = match tokenizer {

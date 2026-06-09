@@ -312,27 +312,18 @@ pub fn compute_aggregate(
     // Sequential parse (D-2; rayon deferred).
     let mut reports: Vec<AnalysisReport> = Vec::with_capacity(refs.len());
     let mut episodes_vec: Vec<Episodes> = Vec::with_capacity(refs.len());
-    // M1.6.5 T3.3: when `--by mcp-server`, keep the per-session raw
-    // event vectors so we can run `extract_loaded_set_from_session +
-    // compute_waste` after parsing and feed the resulting waste
-    // reports to `aggregate_by_mcp_server`. For every other --by we
-    // leave this empty (cost = zero allocations beyond the Vec header).
-    let want_waste = matches!(cmd.by.to_key(), AggregateKey::McpServer);
-    let mut events_vec: Vec<Vec<agentprof_adapters::copilot::CopilotEvent>> = if want_waste {
-        Vec::with_capacity(refs.len())
-    } else {
-        Vec::new()
-    };
+    // M2.1 T5.2.5: loaded_mcp_tools now lives on AnalysisReport itself
+    // (populated by analyzer during analyze()), so `--by mcp-server`
+    // no longer needs to hold per-session raw event vectors just to
+    // re-run extract_loaded_set_from_session. The waste computation
+    // below borrows report.loaded_mcp_tools directly.
     let mut failure_count: usize = 0;
 
     for sref in &refs {
-        match load_and_analyze(adapter, sref, want_waste) {
-            Ok((report, episodes, events)) => {
+        match load_and_analyze(adapter, sref) {
+            Ok((report, episodes)) => {
                 reports.push(report);
                 episodes_vec.push(episodes);
-                if want_waste {
-                    events_vec.push(events);
-                }
             }
             Err(e) => {
                 tracing::warn!(
@@ -401,9 +392,14 @@ pub fn compute_aggregate(
             .map(std::sync::Arc::new);
             let waste_per_report: Vec<agentprof_core::model::WasteReport> = reports
                 .iter()
-                .zip(events_vec.iter())
-                .map(|(r, events)| {
-                    let wire = agentprof_adapters::copilot::extract_loaded_set_from_session(events);
+                .map(|r| {
+                    // M2.1 T5.2.5: read the ever-loaded MCP tool set
+                    // straight off the analyzer report — the analyzer
+                    // pipeline now carries it via
+                    // AnalysisReport::loaded_mcp_tools, so we no longer
+                    // need a parallel events_vec or a per-session
+                    // extract_loaded_set_from_session re-walk.
+                    let wire = &r.loaded_mcp_tools;
                     // M1.6.6 T1.4 + T3.3 + audit B1: build a
                     // WasteComputeContext per session. Tokenizer
                     // inferred from the dominant model (largest token
@@ -415,7 +411,7 @@ pub fn compute_aggregate(
                     let tokenizer =
                         agentprof_core::analyzer::waste::infer_tokenizer(model_hint.as_deref());
                     let mut waste_ctx =
-                        agentprof_core::analyzer::waste::WasteComputeContext::new(&wire)
+                        agentprof_core::analyzer::waste::WasteComputeContext::new(wire)
                             .with_tokenizer(tokenizer)
                             .with_heuristic(cmd.tokens_per_tool);
                     let shared_bpe = match tokenizer {
@@ -527,24 +523,18 @@ fn run_tui_for_aggregate(
 fn load_and_analyze(
     adapter: &CopilotAdapter,
     sref: &SessionRef,
-    keep_events: bool,
-) -> Result<(
-    AnalysisReport,
-    Episodes,
-    Vec<agentprof_adapters::copilot::CopilotEvent>,
-)> {
+) -> Result<(AnalysisReport, Episodes)> {
     let raw = adapter
         .load_session(sref)
         .with_context(|| format!("loading session {}", sref.path.display()))?;
     let episodes = derive_episodes(&raw.events, &raw.meta);
     let report = analyze(&episodes, &raw.meta, &raw.parse_warnings);
-    // Caller passes `keep_events = true` only when the per-session
-    // raw events are needed downstream (M1.6.5 T3.3: waste
-    // computation for `--by mcp-server`). Otherwise we drop them
-    // immediately to keep peak memory close to the pre-M1.6.5
-    // baseline.
-    let events = if keep_events { raw.events } else { Vec::new() };
-    Ok((report, episodes, events))
+    // M2.1 T5.2.5: raw.events are no longer needed downstream — the
+    // ever-loaded MCP tool set is now carried by
+    // AnalysisReport::loaded_mcp_tools, so `--by mcp-server` reads
+    // it straight off `report`. Dropping `raw.events` here keeps
+    // peak memory close to the pre-M1.6.5 baseline.
+    Ok((report, episodes))
 }
 
 // `parse_since` moved to `crate::cmd::since` per full-review CLI #1

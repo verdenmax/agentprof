@@ -228,7 +228,12 @@ pub fn run(
     let waste = if cmd.section.contains(&AnalysisSection::McpWaste)
         || cmd.export == ExportFormat::Tui
     {
-        let wire_loaded = agentprof_adapters::copilot::extract_loaded_set_from_session(&raw.events);
+        // M2.1 T5.2.5: the ever-loaded MCP tool set is now carried by
+        // the analyzer pipeline inside report.loaded_mcp_tools, so we
+        // no longer need to walk raw.events here. Borrowing the field
+        // keeps WasteComputeContext's &BTreeSet contract intact and
+        // avoids a redundant per-event re-scan.
+        let wire_loaded = &report.loaded_mcp_tools;
         let mcp_config_path = resolve_mcp_config_path(None)?;
         let parsed_cfg = agentprof_adapters::copilot::load_mcp_config(&mcp_config_path);
         let config_loaded = parsed_cfg.as_ref().map(|c| {
@@ -261,7 +266,7 @@ pub fn run(
         // re-parsing the embedded merge table each call.
         let bpe = agentprof_core::analyzer::waste::build_bpe(tokenizer).map(std::sync::Arc::new);
 
-        let mut waste_ctx = agentprof_core::analyzer::waste::WasteComputeContext::new(&wire_loaded)
+        let mut waste_ctx = agentprof_core::analyzer::waste::WasteComputeContext::new(wire_loaded)
             .with_tokenizer(tokenizer)
             .with_heuristic(cmd.tokens_per_tool);
         if let Some(b) = bpe.as_ref() {
