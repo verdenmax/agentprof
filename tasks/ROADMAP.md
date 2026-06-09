@@ -3,11 +3,11 @@
 > **本文件是项目总入口。** 如果你是第一次进入本仓库（或时隔一段时间回来），**先读这里**，再去任何其他文档。
 >
 > **文件名**：`tasks/ROADMAP.md`
-> **版本**：1.5
-> **最后更新**：2026-06-10
-> **当前 commit**：`feat/m2.1-sqlite-persistence` HEAD `f5acde9`（M2.1 T7-fix id-namespace hotfix + T8 docs sync 进行中）；最近一个 milestone merge on `main` = `8abc590` (M1.6.4) → ... → v0.1.0 / M1.6.5 / M1.6.6 / docs sweep
-> **当前阶段**：**Phase 2 — M2.1 SQLite 持久化 nearing release**（branch `feat/m2.1-sqlite-persistence`）：hybrid cache/store mode ([ADR-0019](../docs/internals/adr-0019-hybrid-storage-mode.md))，`SessionDataSource` trait + dual-path ([ADR-0018](../docs/internals/adr-0018-session-datasource-trait.md))，id-namespace 统一 hotfix ([ADR-0017](../docs/internals/adr-0017-unify-session-id-namespace.md))，`agentprof db {init,stats,ingest,prune,vacuum,export}` 子命令家族，3 全局 flag（`--no-cache` / `--storage-path` / `--quiet`），analyze write-through + watch 长持连接；`list` + `mcp-waste` dual-path 接入；`aggregate` dual-path 推迟到 **M2.1.1**（需 Episodes hoist）。T8 docs sync 进行中。Phase 0 + 1 (MVP) ✅ 已 release v0.1.0。
-> **下一步入口**：完成 M2.1 T8.2 docs sync → merge `feat/m2.1-sqlite-persistence` 到 main → v0.2.0 tag（`github-release` skill）→ **M2.1.1 aggregate dual-path** → **M2.2 OTLP receiver**（详见 [`docs/plan.md`](../docs/plan.md) §8）
+> **版本**：1.6
+> **最后更新**：2026-06-11
+> **当前 commit**：`docs/post-audit-sweep` HEAD `499e702`（M2.1 wave + P0 hotfix + audit P1/P2 followup + 7 regression-test commits all on `main` — branch `feat/m2.1-sqlite-persistence` archived; doc sweep in progress on `docs/post-audit-sweep`）。
+> **当前阶段**：**Phase 2 — M2.1 SQLite 持久化 ✅ shipped on `main`**：hybrid cache/store mode ([ADR-0019](../docs/internals/adr-0019-hybrid-storage-mode.md))，`SessionDataSource` trait + dual-path ([ADR-0018](../docs/internals/adr-0018-session-datasource-trait.md))，id-namespace 统一 hotfix ([ADR-0017](../docs/internals/adr-0017-unify-session-id-namespace.md))，`agentprof db {init,stats,ingest,prune,vacuum,export}` 子命令家族，3 全局 flag（`--no-cache` / `--storage-path` / `--quiet`），analyze write-through + watch 长持连接，audit P1/P2 followup（ingest exit-2-on-full-fail / O(N) hot loop fix / mutex poison recovery / ReUpsertFn 删除）；`list` + `mcp-waste` dual-path 接入；`aggregate` dual-path 推迟到 **M2.1.1**（需 Episodes hoist）。Phase 0 + 1 (MVP) ✅ 已 release v0.1.0。1067 tests passing。
+> **下一步入口**：post-M2.1 doc sweep on `docs/post-audit-sweep` → merge → **v0.2.0 tag**（`github-release` skill）→ **M2.1.1 aggregate dual-path** → **M2.2 OTLP receiver**（详见 [`docs/plan.md`](../docs/plan.md) §8）
 >
 > **重大 pivot**（ADR-0001 events-first，详见 §4.1 / §4.2）：M1.2 不再做 ClaudeAdapter，改做 **CopilotAdapter**（real wire data 直接可得）；tokenizer / ROI / waste / aggregate 全部从 M1.3 推迟到 M1.5+。Claude / Codex / Gemini 适配器推迟到 Phase 2 / 3。
 

@@ -155,7 +155,7 @@ playwright.click   |   1240        |   0   |     ∞ (waste)   | ✗ kill
 - [x] MCP waste token-cost view ✅ M1.6.6（`--tokens-per-tool` heuristic + `--tool-descriptions` sidecar 走 tiktoken 精确计数；3 个子命令统一接入；TUI 5th view banner 2 行 + Tokens 列；aggregate `--by mcp-server` 加 Wasted-tokens 列；[ADR-0016](internals/adr-0016-mcp-token-cost-architecture.md)）
 
 ### Phase 2：工程化（再 1 周）
-- [~] **M2.1 SQLite 持久化** — 🟡 nearly complete on `feat/m2.1-sqlite-persistence`：hybrid cache/store mode ([ADR-0019](internals/adr-0019-hybrid-storage-mode.md))，`SessionDataSource` trait + dual-path read ([ADR-0018](internals/adr-0018-session-datasource-trait.md))，id-namespace 统一 hotfix ([ADR-0017](internals/adr-0017-unify-session-id-namespace.md))，`agentprof db {init,stats,ingest,prune,vacuum,export}` 子命令家族，3 个全局 flag（`--no-cache` / `--storage-path` / `--quiet`）。`analyze` + `list` + `mcp-waste` 三个 surface 已接入；**aggregate dual-path 推迟到 M2.1.1**（需 Episodes hoist 进 AnalysisReport）。
+- [x] **M2.1 SQLite 持久化** — ✅ merged to `main` (HEAD `499e702`): hybrid cache/store mode ([ADR-0019](internals/adr-0019-hybrid-storage-mode.md))，`SessionDataSource` trait + dual-path read ([ADR-0018](internals/adr-0018-session-datasource-trait.md))，id-namespace 统一 hotfix ([ADR-0017](internals/adr-0017-unify-session-id-namespace.md))，`agentprof db {init,stats,ingest,prune,vacuum,export}` 子命令家族，3 个全局 flag（`--no-cache` / `--storage-path` / `--quiet`），audit P1/P2 followup (ingest exit-2-on-full-fail / O(N) hot loop fix / mutex poison recovery / ReUpsertFn 删除)。`analyze` + `list` + `mcp-waste` 三个 surface 已接入；**aggregate dual-path 推迟到 M2.1.1**（需 Episodes hoist 进 AnalysisReport）。Pending **v0.2.0 tag**。
 - [ ] **M2.2 OTLP receiver** — 接入 Claude Code 的 telemetry endpoint。**M2.1 完成后下一站**。`SessionDataSource` trait 已经为 OTLP impl 预留 slot（[ADR-0018](internals/adr-0018-session-datasource-trait.md) "OTLP-ready"）。监听拓扑（gRPC 4317 only vs 也开 HTTP 4318）+ 认证策略需在 M2.2 brainstorming 决定。
 - [ ] Web dashboard（可选，M2.3 候选）
 
@@ -176,10 +176,10 @@ playwright.click   |   1240        |   0   |     ∞ (waste)   | ✗ kill
 - [x] **技术栈**？→ **Rust 2021，MSRV 1.78**（详见 [`architecture.md`](architecture.md) §2）。`ccusage` 路线（Node/TS）和 Python 路线均放弃 —— Rust 更适合本地 CLI + binary 分发 + TUI 性能 + tokenizer 接入。
 - [x] **火焰图渲染**？→ **TUI + HTML + Speedscope 三栖**：terminal `ratatui` TUI（M1.5）+ HTML 静态报告（M1.6.4，`askama` 模板）+ Speedscope JSON（M1.6.4，`analyze --export speedscope` 可直接拖 speedscope.app）。Perfetto 暂不做（Speedscope 对 flame 场景更合适）。
 - [x] **是否做 OTLP receiver**？→ **是**，作为 **M2.2** 列入 Phase 2 工程化（详见 §6 Phase 2 + [`tasks/001-mvp-agent-token-profiler.md`](../tasks/001-mvp-agent-token-profiler.md) §11.2）。
+- [x] **SQLite schema 演进策略**：单表 JSONB 还是规范化多表？→ **混合**（M2.1 决定，ship 在 main）。3 表规范化 (`sessions` / `tools_loaded` / `turn_buckets`) + `sessions.analysis_report_json` blob 列承载完整 `AnalysisReport`（包括 M2.1 T5.2.5 hoist 的 `loaded_mcp_tools`）。读路径从 blob hydrate；规范化子表是 future SQL-level query + `db export --format jsonl` 的预留。`schema_version=1` 单调递增，breaking schema 改动强制 recompute。详见 [ADR-0019](internals/adr-0019-hybrid-storage-mode.md) + `architecture.md` §9。
 
 ### 7.2 待回答（v0.2.0+ 范围）
 
-- [ ] SQLite schema 演进策略：单表 `analysis_reports` JSONB 还是规范化的 sessions/turns/tools 多表？（M2.1 brainstorming 入口决定）
 - [ ] OTLP receiver 监听拓扑：gRPC only（4317）还是 HTTP/protobuf 也开（4318）？认证策略？（M2.2 brainstorming 入口决定）
 - [ ] Web dashboard：纯静态 HTML 报告（已有）够用，还是要做 server 模式（实时刷新 + SQLite 后端）？（如做则 M2.3）
 - [ ] 是否要内置定价表，把 token-cost 翻译成 actual $？（M3.3 在 Phase 3 已列出，需先确定 SLA：每月手动 sync 还是 cron 自动）
@@ -189,7 +189,7 @@ playwright.click   |   1240        |   0   |     ∞ (waste)   | ✗ kill
 
 ## 8. 下一步行动
 
-> **2026-06-10 更新**：v0.1.0 已 release，v0.1.x 增量（M1.6.5 + M1.6.6 + audit + docs sweep）累积 73 commits on main；**M2.1 SQLite 持久化在 `feat/m2.1-sqlite-persistence` 分支 nearly complete**（hybrid mode / `SessionDataSource` trait / `db` 子命令家族 / 3 全局 flag / id-namespace hotfix 全部 ship；详见 [ADR-0017](internals/adr-0017-unify-session-id-namespace.md) / [ADR-0018](internals/adr-0018-session-datasource-trait.md) / [ADR-0019](internals/adr-0019-hybrid-storage-mode.md)）。**当前位置**：M2.1 进入 T8 文档同步阶段，下一站 **M2.2 OTLP receiver**（Phase 2 第二条腿）。
+> **2026-06-11 更新**：v0.1.0 已 release，v0.1.x 增量 + **M2.1 SQLite 持久化（含 P0 + audit P1/P2 followup + 12 新回归测试）已全部 merge 到 `main`**（HEAD `499e702`，1067 tests passed）。hybrid mode / `SessionDataSource` trait / `db` 子命令家族 / 3 全局 flag / id-namespace hotfix 全部 ship；详见 [ADR-0017](internals/adr-0017-unify-session-id-namespace.md) / [ADR-0018](internals/adr-0018-session-datasource-trait.md) / [ADR-0019](internals/adr-0019-hybrid-storage-mode.md)。**当前位置**：post-M2.1 doc sweep on `docs/post-audit-sweep`，下一站 **v0.2.0 tag** → **M2.2 OTLP receiver**（Phase 2 第二条腿）。
 
 **当前位置**：
 - ✅ M1.7 v0.1.0 release（2026-06-08，cargo-dist 多平台 binary）
@@ -197,11 +197,11 @@ playwright.click   |   1240        |   0   |     ∞ (waste)   | ✗ kill
 - ✅ M1.6.6 MCP waste token-cost view + tiktoken-rs 接入（[ADR-0016](internals/adr-0016-mcp-token-cost-architecture.md)）
 - ✅ Audit followup（A1 `WasteComputeContext::with_bpe` 性能 + B1-B4 正确性 + Windows CI cfg(unix)）
 - ✅ v0.1.x 文档全量同步（2026-06-09 doc sweep wave）
-- 🟡 **M2.1 SQLite 持久化** — nearly complete（branch `feat/m2.1-sqlite-persistence`）
+- ✅ **M2.1 SQLite 持久化** — merged to `main` (HEAD `499e702`): T1–T8 main wave + P0 id-namespace hotfix + audit P1/P2 followup + 7 regression-test commits (12 new tests). Branch `feat/m2.1-sqlite-persistence` archived; pending **v0.2.0 tag**.
 
 **下一步推荐**（按 ROI 排序）：
 
-1. **M2.1 合并 + v0.2.0 tag**（小事，merge + 1 tag）：M2.1 文档同步完成 (T8.2) 后合 main，CHANGELOG `[Unreleased]` → `[0.2.0] - 2026-MM-DD`，cargo-dist 自动出 binary，走 [`github-release`](../.github/skills/github-release/SKILL.md) skill
+1. **v0.2.0 tag**（小事，1 tag）：CHANGELOG `[Unreleased]` → `[0.2.0] - 2026-MM-DD`，cargo-dist 自动出 binary，走 [`github-release`](../.github/skills/github-release/SKILL.md) skill
 2. **M2.1.1 follow-up** — aggregate dual-path 接入（hoist `Episodes` into `AnalysisReport`，让 `aggregate` 也走 SQLite 缓存）。是 M2.1 已知的 known limitation：当前 `agentprof aggregate ...` 不 benefit from cache，因为聚合需要 per-call durations / per-event timestamps 等 `Episodes` 数据，而 `AnalysisReport` 不携带。详见 [ADR-0018](internals/adr-0018-session-datasource-trait.md) "Consequences › Neutral"。
 3. **M2.2 OTLP receiver**（中期，~1 周，Phase 2 第二腿）：订阅 Claude Code telemetry endpoint。**已被 M2.1 trait 设计预留** —— `SessionDataSource` trait 在 [ADR-0018](internals/adr-0018-session-datasource-trait.md) 明确为 OTLP impl 留 slot，只需新增一个 trait impl 即可接入 cli。监听拓扑 + 认证策略走 brainstorming。
 4. **Phase 3 扩展适配**（每个 +3 天）：M3.1 ClaudeAdapter（覆盖最大用户群）+ M3.2 CodexAdapter；骨架已在，缺接入
