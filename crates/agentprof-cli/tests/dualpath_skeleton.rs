@@ -46,6 +46,13 @@ impl SessionDataSource for Fake {
     fn load_session(&self, id: &str) -> Result<AnalysisReport, DataSourceError> {
         Err(DataSourceError::NotFound { id: id.to_string() })
     }
+
+    fn load_episodes(
+        &self,
+        id: &str,
+    ) -> Result<agentprof_core::episode::Episodes, DataSourceError> {
+        Err(DataSourceError::NotFound { id: id.to_string() })
+    }
 }
 
 #[test]
@@ -150,5 +157,77 @@ fn diff_fields_treats_one_side_none_as_no_opinion() {
     assert!(
         warns.is_empty(),
         "None on either side must NOT trigger a divergence warning, got: {warns:?}"
+    );
+}
+
+/// Fake with configurable `load_episodes` behavior, for T4.1 (M2.1.1).
+struct EpFake {
+    name: &'static str,
+    episodes: Option<agentprof_core::episode::Episodes>,
+}
+
+impl SessionDataSource for EpFake {
+    fn name(&self) -> &'static str {
+        self.name
+    }
+
+    fn discover(&self, _since: Duration) -> Result<Vec<SessionRef>, DataSourceError> {
+        Ok(vec![])
+    }
+
+    fn load_session(&self, _id: &str) -> Result<AnalysisReport, DataSourceError> {
+        Err(DataSourceError::NotFound { id: "x".into() })
+    }
+
+    fn load_episodes(
+        &self,
+        id: &str,
+    ) -> Result<agentprof_core::episode::Episodes, DataSourceError> {
+        self.episodes.as_ref().map_or_else(
+            || Err(DataSourceError::NotFound { id: id.to_owned() }),
+            |e| Ok(e.clone()),
+        )
+    }
+}
+
+#[test]
+fn dualpath_load_episodes_tries_storage_first() {
+    let adapter = EpFake {
+        name: "adapter:test",
+        episodes: None,
+    };
+    let storage = EpFake {
+        name: "sqlite",
+        episodes: Some(agentprof_core::episode::Episodes::default()),
+    };
+    let dp = DualPathDataSource::new(Box::new(adapter), Some(Box::new(storage)));
+    let eps = dp.load_episodes("anything").expect("storage hit");
+    assert!(eps.tools.is_empty());
+}
+
+#[test]
+fn dualpath_load_episodes_falls_back_to_adapter_when_storage_missing_id() {
+    let mut sentinel = agentprof_core::episode::Episodes::default();
+    sentinel.tools.insert(
+        "sentinel".to_owned(),
+        agentprof_core::episode::ToolEpisode::new(
+            "sentinel".to_owned(),
+            agentprof_core::model::ToolSource::Builtin,
+        ),
+    );
+
+    let adapter = EpFake {
+        name: "adapter:test",
+        episodes: Some(sentinel),
+    };
+    let storage = EpFake {
+        name: "sqlite",
+        episodes: None,
+    };
+    let dp = DualPathDataSource::new(Box::new(adapter), Some(Box::new(storage)));
+    let eps = dp.load_episodes("anything").expect("fall back to adapter");
+    assert!(
+        eps.tools.contains_key("sentinel"),
+        "adapter branch should have been hit"
     );
 }

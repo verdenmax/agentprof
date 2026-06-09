@@ -263,6 +263,18 @@ impl SessionDataSource for DualPathDataSource {
         }
         self.adapter.load_session(id)
     }
+
+    fn load_episodes(
+        &self,
+        id: &str,
+    ) -> Result<agentprof_core::episode::Episodes, DataSourceError> {
+        if let Some(storage) = self.storage.as_deref() {
+            if let Ok(eps) = storage.load_episodes(id) {
+                return Ok(eps);
+            }
+        }
+        self.adapter.load_episodes(id)
+    }
 }
 
 /// Merge `adapter_refs` over `storage_refs` by session id.
