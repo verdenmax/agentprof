@@ -209,6 +209,127 @@ impl AnalysisReport {
             model_metrics: None,
         }
     }
+
+    /// Sum of `input_tokens` across every entry in
+    /// [`Self::model_metrics`], saturating at [`u64::MAX`] and clamped to
+    /// [`i64::MAX`] for `SQLite` storage. Returns `None` when
+    /// `model_metrics` is `None` or empty.
+    ///
+    /// Used by [`agentprof-storage`] when populating
+    /// `sessions.total_input_tokens` so the column reflects the same
+    /// session-level rollup that the markdown / TUI renderers display.
+    ///
+    /// [`agentprof-storage`]: https://docs.rs/agentprof-storage
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::adapter::AgentKind;
+    /// use agentprof_core::analyzer::{AnalysisReport, ModelUsage};
+    /// use agentprof_core::model::SessionMeta;
+    /// use chrono::Utc;
+    /// use std::collections::BTreeMap;
+    ///
+    /// let mut report = AnalysisReport::new(
+    ///     SessionMeta::new("s".into(), AgentKind::Copilot, Utc::now(), false),
+    /// );
+    /// let mut m = BTreeMap::new();
+    /// let mut u = ModelUsage::new();
+    /// u.input_tokens = 1_000;
+    /// m.insert("gpt-5".into(), u);
+    /// report.model_metrics = Some(m);
+    /// assert_eq!(report.total_input_tokens(), Some(1_000));
+    /// ```
+    #[must_use]
+    pub fn total_input_tokens(&self) -> Option<i64> {
+        sum_model_tokens(self, |u| u.input_tokens)
+    }
+
+    /// Sum of `output_tokens` across every entry in
+    /// [`Self::model_metrics`]. Same shape and rationale as
+    /// [`Self::total_input_tokens`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::analyzer::AnalysisReport;
+    /// use agentprof_core::adapter::AgentKind;
+    /// use agentprof_core::model::SessionMeta;
+    /// use chrono::Utc;
+    ///
+    /// let report = AnalysisReport::new(
+    ///     SessionMeta::new("s".into(), AgentKind::Copilot, Utc::now(), false),
+    /// );
+    /// assert_eq!(report.total_output_tokens(), None);
+    /// ```
+    #[must_use]
+    pub fn total_output_tokens(&self) -> Option<i64> {
+        sum_model_tokens(self, |u| u.output_tokens)
+    }
+
+    /// Sum of `cache_read_tokens` across every entry in
+    /// [`Self::model_metrics`]. Same shape and rationale as
+    /// [`Self::total_input_tokens`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::analyzer::AnalysisReport;
+    /// use agentprof_core::adapter::AgentKind;
+    /// use agentprof_core::model::SessionMeta;
+    /// use chrono::Utc;
+    ///
+    /// let report = AnalysisReport::new(
+    ///     SessionMeta::new("s".into(), AgentKind::Copilot, Utc::now(), false),
+    /// );
+    /// assert_eq!(report.total_cache_read(), None);
+    /// ```
+    #[must_use]
+    pub fn total_cache_read(&self) -> Option<i64> {
+        sum_model_tokens(self, |u| u.cache_read_tokens)
+    }
+
+    /// Sum of `cache_write_tokens` across every entry in
+    /// [`Self::model_metrics`] (named `total_cache_creation` to mirror
+    /// the `SQLite` column / Anthropic API terminology — cache *creation*
+    /// is the write side). Same shape and rationale as
+    /// [`Self::total_input_tokens`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::analyzer::AnalysisReport;
+    /// use agentprof_core::adapter::AgentKind;
+    /// use agentprof_core::model::SessionMeta;
+    /// use chrono::Utc;
+    ///
+    /// let report = AnalysisReport::new(
+    ///     SessionMeta::new("s".into(), AgentKind::Copilot, Utc::now(), false),
+    /// );
+    /// assert_eq!(report.total_cache_creation(), None);
+    /// ```
+    #[must_use]
+    pub fn total_cache_creation(&self) -> Option<i64> {
+        sum_model_tokens(self, |u| u.cache_write_tokens)
+    }
+}
+
+#[allow(clippy::cast_possible_wrap)]
+fn sum_model_tokens<F: Fn(&ModelUsage) -> u64>(
+    report: &AnalysisReport,
+    pick: F,
+) -> Option<i64> {
+    let m = report.model_metrics.as_ref()?;
+    if m.is_empty() {
+        return None;
+    }
+    let total_u64 = m
+        .values()
+        .map(&pick)
+        .fold(0_u64, u64::saturating_add);
+    // Clamp at i64::MAX for SQLite (it's a signed 64-bit integer column).
+    let clamped = total_u64.min(i64::MAX as u64);
+    Some(clamped as i64)
 }
 
 /// Compute all 3 analyzer rollups for a session.
