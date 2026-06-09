@@ -22,6 +22,7 @@ for the M1.2 design.
 - [`copilot::paths::discover_sessions`] — walk session-state directory，按 mtime 倒序
 - [`registry::adapter_for`] — `AgentKind → Option<Adapter>` resolver
 - [`registry::supported_agents`] — static list of supported agents
+- [`AdapterDataSource`] — wraps any [`copilot::CopilotAdapter`] (or future adapter) as an `agentprof_core::datasource::SessionDataSource`, running the `discover → load → derive_episodes → analyze` pipeline inline (M2.1 T3.1)
 - [`copilot::tool_sidecar::load_sidecar`] / [`copilot::tool_sidecar::Sidecar`] — optional MCP tool-description sidecar for M1.6.6 token-cost; implements `agentprof_core::analyzer::waste::SidecarLookup` (ADR-0016 D-2)
 
 ## Modules
@@ -36,6 +37,7 @@ for the M1.2 design.
 | `copilot::mcp_config` | best-effort `~/.copilot/mcp.json` loader → `ParsedMcpConfig` (recognizes VSCode `mcpServers` + self-describing `servers` schemas; degrades to empty on unknown; M1.6.5 T2.2; ADR-0015 spec §6.2) |
 | `copilot::tool_sidecar` | optional MCP `tools/list` sidecar loader → `Sidecar` impl of `agentprof_core::analyzer::waste::SidecarLookup`; auto-detects file (global JSON) vs dir (per-server `*.json`, both `{"tools":[…]}` and bare-array shapes); per-file parse failures are skipped with `tracing::warn!` (M1.6.6 T2.1; ADR-0016 D-2) |
 | `registry` | `AgentKind` → adapter resolver |
+| `datasource` | `AdapterDataSource<A>` — bridge any `Adapter` impl into `agentprof_core::datasource::SessionDataSource`, runs full `discover → load → derive_episodes → analyze` pipeline inline (M2.1 T3.1) |
 
 ## Supported agents
 

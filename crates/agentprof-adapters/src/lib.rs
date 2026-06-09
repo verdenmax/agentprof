@@ -13,4 +13,7 @@
 //! See `docs/adapters.md` for the contribution guide.
 
 pub mod copilot;
+pub mod datasource;
 pub mod registry;
+
+pub use datasource::AdapterDataSource;

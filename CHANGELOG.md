@@ -73,6 +73,20 @@ prefix used in commit messages).
 
 ### Added
 
+- **adapters (M2.1 T3.1):** new `agentprof_adapters::AdapterDataSource<A>`
+  wrapper bridges any `Adapter` impl into the
+  `agentprof_core::datasource::SessionDataSource` trait introduced in T1.
+  Stores `(Arc<A>, PathBuf root)` and runs the full
+  `discover_sessions → load_session → episode::derive_episodes →
+  analyzer::analyze` pipeline inline on `load_session(id)`; `discover`
+  filters by `modified_at` against the supplied `since` window and maps
+  each `adapter::SessionRef` to a `datasource::SessionRef` tagged with
+  `source = "adapter:{kind}"`. Adapter errors are surfaced as
+  `DataSourceError::Adapter { source, underlying }`; unknown ids as
+  `DataSourceError::NotFound`. The `Adapter` trait is unchanged — this
+  keeps existing impls (and `CopilotAdapter`'s unit-struct shape)
+  intact. Unblocks the dual-path composer (T4).
+
 - **M1.6.6 MCP tool token-cost view** (extends M1.6.5; Phase 2 of the
   original "View C" brainstorm). Surfaces "how many *tokens* of my
   context budget were wasted on tool descriptions the agent never
