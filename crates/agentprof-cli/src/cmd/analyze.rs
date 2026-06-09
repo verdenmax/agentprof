@@ -166,6 +166,12 @@ pub use crate::cmd::exit::ExitKind;
 
 /// Wire the analyze pipeline.
 ///
+/// After the in-memory `AnalysisReport` is produced, the report is
+/// write-through-cached into the `SQLite` store via
+/// [`agentprof_storage::upsert::upsert_report`] unless `no_cache` is set
+/// (M2.1 T5.3). Persistence failures are logged at `warn` and do **not**
+/// affect the command's exit status — stdout output stays unchanged.
+///
 /// # Errors
 ///
 /// Returns an `anyhow::Error` whose downcast target is `ExitKind`,
@@ -175,6 +181,8 @@ pub fn run(
     cmd: AnalyzeCmd,
     cfg: &crate::cmd::LogConfig,
     tracing_handle: &crate::cmd::TracingHandle,
+    no_cache: bool,
+    storage_path: Option<PathBuf>,
 ) -> Result<()> {
     // Compute a redacted span field for the session selector. The `Path`
     // variant otherwise Display-formats the raw filesystem path, which
@@ -215,6 +223,14 @@ pub fn run(
 
     let episodes = derive_episodes(&raw.events, &raw.meta);
     let report = analyze(&episodes, &raw.meta, &raw.parse_warnings);
+
+    // M2.1 T5.3 — write-through the freshly-computed `AnalysisReport`
+    // into the SQLite cache. Side-effect only: failures are downgraded
+    // to `warn` so a broken cache never blocks the user-facing render
+    // and exit code stays driven by the analyzer pipeline.
+    if !no_cache {
+        write_through_report(&report, &sref.path, storage_path);
+    }
 
     // M1.6.5 T3.2 + T5.3 — compute MCP waste when:
     //   - explicitly opted in via `--section mcp-waste` (md / json / html
@@ -313,6 +329,37 @@ pub fn run(
     let rendered = render_report(&report, &episodes, &raw.meta, &cmd, waste.as_ref())?;
     write_output(&rendered, cmd.output.as_deref())?;
     Ok(())
+}
+
+/// Write the freshly-computed `AnalysisReport` into the `SQLite` cache.
+///
+/// Pure side effect: every error path is downgraded to a `tracing::warn!`
+/// so a broken cache never blocks the user-facing render. Called only
+/// when `--no-cache` is unset (gate lives in the caller).
+fn write_through_report(report: &AnalysisReport, raw_path: &Path, storage_path: Option<PathBuf>) {
+    let storage_cfg = match agentprof_cli::config::resolve_storage_config(
+        agentprof_storage::config::PartialStorageConfig::default(),
+        storage_path,
+    ) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            tracing::warn!(error = %e, "storage config resolution failed; skipping write-through");
+            return;
+        }
+    };
+    match agentprof_storage::Db::open_and_migrate(&storage_cfg.path) {
+        Ok(mut db) => {
+            let now_secs = chrono::Utc::now().timestamp();
+            if let Err(e) =
+                agentprof_storage::upsert::upsert_report(&mut db, report, raw_path, now_secs)
+            {
+                tracing::warn!(error = %e, "write-through upsert failed (non-fatal)");
+            }
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "storage open failed; skipping write-through");
+        }
+    }
 }
 
 fn run_tui(

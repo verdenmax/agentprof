@@ -446,6 +446,20 @@ path            = "/custom/db.sqlite"  # omit to use XDG default
 auto_prune_days = 30                 # 0 disables auto-pruning
 ```
 
+### Write-through & long-lived storage handles (M2.1 T5.3)
+
+- `analyze` runs the in-memory pipeline first, then write-through-caches
+  the resulting `AnalysisReport` into the SQLite store via
+  `agentprof_storage::upsert::upsert_report`. The write is a pure side
+  effect: failures are logged at `tracing::warn` and **never** alter the
+  command's exit status or stdout. Suppress with the global `--no-cache`.
+- `watch` (single-session) opens **one** `agentprof_storage::Db` handle
+  at session start and holds it for the watch lifetime (spec §10.2 —
+  long-lived conn, never re-opened per refresh). The initial report is
+  flushed once on entry; per spec §8 there is **no** automatic write per
+  refresh tick to avoid high-freq disk churn. `watch aggregate` ignores
+  these flags (no per-session report to persist).
+
 ### Env vars
 
 | Var | Effect |

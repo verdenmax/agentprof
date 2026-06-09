@@ -110,12 +110,15 @@ pub enum WatchSub {
         agent = "copilot",
         sub = if cmd.sub.is_some() { "aggregate" } else { "single" },
         debounce_ms = cmd.debounce_ms,
+        no_cache = no_cache,
     )
 )]
 pub fn run(
     cmd: WatchCmd,
     cfg: &crate::cmd::LogConfig,
     tracing_handle: &crate::cmd::TracingHandle,
+    no_cache: bool,
+    storage_path: Option<PathBuf>,
 ) -> Result<()> {
     // Validate sub-mode arguments BEFORE the TTY check so users get a
     // crisp UserError (exit 1) instead of an environment error (exit 3)
@@ -158,8 +161,22 @@ pub fn run(
     let debounce = Duration::from_millis(debounce_ms);
 
     match sub {
-        None => run_single(adapter, root, &session, debounce, cfg, tracing_handle),
+        None => run_single(
+            adapter,
+            root,
+            &session,
+            debounce,
+            cfg,
+            tracing_handle,
+            no_cache,
+            storage_path,
+        ),
         Some(WatchSub::Aggregate(agg)) => {
+            // Cross-aggregate watch has no `AnalysisReport` to flush;
+            // storage write-through is a per-session concept (M2.1 spec
+            // §8). The `no_cache` / `storage_path` flags are accepted at
+            // the CLI level for uniformity but ignored here.
+            let _ = (no_cache, storage_path);
             run_cross(adapter, agg, &session, debounce, cfg, tracing_handle)
         }
     }
@@ -178,6 +195,7 @@ fn validate_watch_aggregate(agg: &AggregateCmd) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)] // M2.1 T5.3 threaded no_cache + storage_path
 fn run_single(
     adapter: CopilotAdapter,
     root: Option<PathBuf>,
@@ -185,6 +203,8 @@ fn run_single(
     debounce: Duration,
     cfg: &crate::cmd::LogConfig,
     tracing_handle: &crate::cmd::TracingHandle,
+    no_cache: bool,
+    storage_path: Option<PathBuf>,
 ) -> Result<()> {
     let sref = resolve_session(&adapter, root, session)?;
     let events_jsonl = sref.path.clone();
@@ -192,6 +212,55 @@ fn run_single(
     // Initial load.
     let initial = load_single(&adapter, &sref)
         .map_err(|e| ExitKind::DataError.into_anyhow(format!("initial load: {e:#}")))?;
+
+    // M2.1 T5.3 — open ONE `Db` connection for the whole watch session
+    // (per spec §10.2: long-lived handle, NOT per-refresh re-open) and
+    // hold it as `_db_guard` so it stays alive until `run_single`
+    // returns. Per spec §8 we do NOT write on every refresh tick (would
+    // cause high-freq disk churn); instead we flush the initial report
+    // exactly once so the session id is persisted at watch start.
+    //
+    // Failures are downgraded to `tracing::warn!`: storage hiccups must
+    // never block the interactive TUI.
+    let _db_guard = if no_cache {
+        None
+    } else {
+        match agentprof_cli::config::resolve_storage_config(
+            agentprof_storage::config::PartialStorageConfig::default(),
+            storage_path,
+        ) {
+            Ok(cfg) => match agentprof_storage::Db::open_and_migrate(&cfg.path) {
+                Ok(mut db) => {
+                    if let WatchData::Single { report, .. } = &initial {
+                        let now_secs = chrono::Utc::now().timestamp();
+                        if let Err(e) = agentprof_storage::upsert::upsert_report(
+                            &mut db, report, &sref.path, now_secs,
+                        ) {
+                            tracing::warn!(
+                                error = %e,
+                                "watch initial write-through failed (non-fatal)"
+                            );
+                        }
+                    }
+                    Some(db)
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "watch storage open failed; long-lived conn skipped"
+                    );
+                    None
+                }
+            },
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "watch storage config resolution failed; long-lived conn skipped"
+                );
+                None
+            }
+        }
+    };
 
     // mpsc channel between debouncer-thread → runner.
     let (tx, rx) = channel::<RefreshKind>();
