@@ -256,3 +256,74 @@ fn dominant_model(report: &AnalysisReport) -> Option<String> {
             .map(|(name, _)| name.clone())
     })
 }
+
+use agentprof_core::episode::Episodes;
+
+/// Persist a session's [`Episodes`] into the `episodes_json` column.
+///
+/// Independent from [`upsert_report`] — callers must invoke both to
+/// fully populate a session (see `cmd::analyze`'s write-through and
+/// `cmd::db::ingest::run` for the canonical pairing). [`upsert_report`]
+/// MUST run first; this function UPDATEs an existing row by `id` and
+/// returns 0 if no row matched (silently — callers should pair the
+/// two calls).
+///
+/// `_ingested_at_secs` is currently unused (the timestamp already lives
+/// in `sessions.ingested_at` via the matching [`upsert_report`] call)
+/// but kept as a positional parameter for symmetry with [`upsert_report`]
+/// and to ease future "episodes-changed-but-report-didn't" cache
+/// invalidation logic.
+///
+/// # Errors
+///
+/// - [`SqliteError::Serde`] if `Episodes` JSON encoding fails (would
+///   only happen on a serde derive bug — `Episodes` is fully serializable
+///   in M2.1).
+/// - [`SqliteError::Rusqlite`] on any DB write error.
+///
+/// # Examples
+///
+/// ```no_run
+/// use agentprof_storage::{Db, upsert::{upsert_report, upsert_episodes}};
+/// use agentprof_core::analyzer::AnalysisReport;
+/// use agentprof_core::episode::Episodes;
+/// use agentprof_core::model::SessionMeta;
+/// use agentprof_core::adapter::AgentKind;
+/// use chrono::{TimeZone, Utc};
+///
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let mut db = Db::open_in_memory()?;
+/// let meta = SessionMeta::new(
+///     "abc".into(),
+///     AgentKind::Copilot,
+///     Utc.timestamp_millis_opt(0).unwrap(),
+///     false,
+/// );
+/// let report = AnalysisReport::new(meta);
+/// let raw_path = std::path::PathBuf::from("/tmp/x.jsonl");
+/// upsert_report(&mut db, &report, &raw_path, 1_700_000_000)?;
+/// upsert_episodes(&mut db, &report.meta.id, &Episodes::default(), 1_700_000_000)?;
+/// # Ok(()) }
+/// ```
+pub fn upsert_episodes(
+    db: &mut Db,
+    id: &str,
+    episodes: &Episodes,
+    _ingested_at_secs: i64,
+) -> Result<usize, SqliteError> {
+    let json = serde_json::to_string(episodes).map_err(|source| SqliteError::Serde {
+        context: "serialize Episodes".to_owned(),
+        source,
+    })?;
+    let n = db
+        .conn_mut()
+        .execute(
+            "UPDATE sessions SET episodes_json = ?1 WHERE id = ?2",
+            params![json, id],
+        )
+        .map_err(|source| SqliteError::Rusqlite {
+            context: "UPDATE sessions.episodes_json".to_owned(),
+            source,
+        })?;
+    Ok(n)
+}

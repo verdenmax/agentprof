@@ -180,3 +180,45 @@ fn parse_agent(s: &str) -> AgentKind {
         }
     }
 }
+
+use agentprof_core::episode::Episodes;
+
+/// Load the per-session [`Episodes`] from the `episodes_json` column.
+///
+/// Returns `Episodes::default()` (empty) for sessions ingested before
+/// migration 002 (column defaults to `'{}'`). Distinguishable from a
+/// real un-ingested session by [`load_session`]`(id)` being `Ok` while
+/// `load_episodes(id)` returns an empty `Episodes`.
+///
+/// # Errors
+///
+/// - [`SqliteError::Rusqlite`] with `QueryReturnedNoRows` if id is unknown.
+/// - [`SqliteError::Serde`] if the stored JSON cannot be parsed (would
+///   indicate `Episodes` schema drift after a future M2.x bump).
+///
+/// # Examples
+///
+/// ```no_run
+/// use agentprof_storage::{Db, query::load_episodes};
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let db = Db::open_in_memory()?;
+/// let _eps = load_episodes(&db, "abc-123").ok();
+/// # Ok(()) }
+/// ```
+pub fn load_episodes(db: &Db, id: &str) -> Result<Episodes, SqliteError> {
+    let json: String = db
+        .conn()
+        .query_row(
+            "SELECT episodes_json FROM sessions WHERE id = ?1",
+            [id],
+            |r| r.get(0),
+        )
+        .map_err(|source| SqliteError::Rusqlite {
+            context: "load_episodes SELECT".to_owned(),
+            source,
+        })?;
+    serde_json::from_str(&json).map_err(|source| SqliteError::Serde {
+        context: "deserialize Episodes".to_owned(),
+        source,
+    })
+}
