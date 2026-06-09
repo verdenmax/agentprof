@@ -1,4 +1,4 @@
-//! Round-trip tests for the M2.1.1 episodes_json column + helpers.
+//! Round-trip tests for the M2.1.1 `episodes_json` column + helpers.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

@@ -187,7 +187,7 @@ use agentprof_core::episode::Episodes;
 ///
 /// Returns `Episodes::default()` (empty) for sessions ingested before
 /// migration 002 (column defaults to `'{}'`). Distinguishable from a
-/// real un-ingested session by [`load_session`]`(id)` being `Ok` while
+/// real un-ingested session by [`load_session`] being `Ok` while
 /// `load_episodes(id)` returns an empty `Episodes`.
 ///
 /// # Errors

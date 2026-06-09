@@ -30,18 +30,25 @@ use crate::episode::{
 #[non_exhaustive]
 pub struct Episodes {
     /// All assistant turns in event order.
+    #[serde(default)]
     pub turns: Vec<Turn>,
     /// Per-tool-name aggregation, keyed by tool name.
+    #[serde(default)]
     pub tools: BTreeMap<String, ToolEpisode>,
     /// Per-hook-name aggregation, keyed by hook name.
+    #[serde(default)]
     pub hooks: BTreeMap<String, HookEpisode>,
     /// Per-skill-name aggregation, keyed by skill name.
+    #[serde(default)]
     pub skills: BTreeMap<String, SkillEpisode>,
     /// Mode-segment timeline, in event order.
+    #[serde(default)]
     pub mode_segments: Vec<ModeSegment>,
     /// `abort` events that could not be attributed to an open Turn.
+    #[serde(default)]
     pub aborts: Vec<AbortInfo>,
     /// Data-quality observations made while deriving.
+    #[serde(default)]
     pub warnings: Vec<DeriveWarning>,
     /// Per-model token-usage rollup, populated from
     /// [`crate::adapter::Event::payload_model_metrics`] during the

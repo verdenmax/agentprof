@@ -128,4 +128,19 @@ impl SessionDataSource for SqliteDataSource {
             Err(other) => Err(map_storage(other)),
         }
     }
+
+    fn load_episodes(
+        &self,
+        id: &str,
+    ) -> Result<agentprof_core::episode::Episodes, DataSourceError> {
+        let guard = self.db.lock().unwrap_or_else(PoisonError::into_inner);
+        match crate::query::load_episodes(&guard, id) {
+            Ok(eps) => Ok(eps),
+            Err(SqliteError::Rusqlite {
+                source: rusqlite::Error::QueryReturnedNoRows,
+                ..
+            }) => Err(DataSourceError::NotFound { id: id.to_owned() }),
+            Err(other) => Err(map_storage(other)),
+        }
+    }
 }
