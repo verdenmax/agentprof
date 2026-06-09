@@ -93,7 +93,7 @@ pub type ReUpsertFn = Arc<dyn Fn(String) + Send + Sync>;
 pub struct DualPathDataSource {
     adapter: Box<dyn SessionDataSource>,
     storage: Option<Box<dyn SessionDataSource>>,
-    warnings: Mutex<Vec<DualPathWarning>>,
+    warnings: Arc<Mutex<Vec<DualPathWarning>>>,
     re_upsert: Option<ReUpsertFn>,
 }
 
@@ -206,9 +206,81 @@ impl DualPathDataSource {
         Self {
             adapter,
             storage,
+            warnings: Arc::new(warnings),
+            re_upsert,
+        }
+    }
+
+    /// Construct a new dual-path source sharing a caller-owned
+    /// warnings buffer.
+    ///
+    /// Identical to [`Self::new_with_reupsert`] except the warnings
+    /// buffer is passed in as a pre-built `Arc<Mutex<…>>` so callers
+    /// (e.g. [`crate::data_source_factory::build_data_source`]) can
+    /// retain a handle and drain warnings without going through the
+    /// trait object. This is the preferred constructor when the
+    /// composer is type-erased behind `Box<dyn SessionDataSource>`
+    /// and downcasting is undesirable.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::{Arc, Mutex};
+    /// use std::path::PathBuf;
+    /// use agentprof_adapters::{AdapterDataSource, copilot::CopilotAdapter};
+    /// use agentprof_cli::data_source::{DualPathDataSource, DualPathWarning};
+    ///
+    /// let adapter = AdapterDataSource::new(Arc::new(CopilotAdapter), PathBuf::from("/tmp/none"));
+    /// let warnings: Arc<Mutex<Vec<DualPathWarning>>> = Arc::new(Mutex::new(Vec::new()));
+    /// let dual = DualPathDataSource::new_with_shared_warnings(
+    ///     Box::new(adapter),
+    ///     None,
+    ///     Arc::clone(&warnings),
+    ///     None,
+    /// );
+    /// # let _ = dual;
+    /// assert!(warnings.lock().unwrap().is_empty());
+    /// ```
+    #[must_use]
+    pub fn new_with_shared_warnings(
+        adapter: Box<dyn SessionDataSource>,
+        storage: Option<Box<dyn SessionDataSource>>,
+        warnings: Arc<Mutex<Vec<DualPathWarning>>>,
+        re_upsert: Option<ReUpsertFn>,
+    ) -> Self {
+        Self {
+            adapter,
+            storage,
             warnings,
             re_upsert,
         }
+    }
+
+    /// Return a cloned `Arc` handle to the internal warnings buffer.
+    ///
+    /// Lets callers that constructed the source via
+    /// [`Self::new`] / [`Self::new_with_reupsert`] (i.e. without
+    /// providing their own buffer) still drain the warnings out-of-
+    /// band — useful when the composer is type-erased behind
+    /// `Box<dyn SessionDataSource>` and [`Self::drain_warnings`] is
+    /// not reachable.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// use std::path::PathBuf;
+    /// use agentprof_adapters::{AdapterDataSource, copilot::CopilotAdapter};
+    /// use agentprof_cli::data_source::DualPathDataSource;
+    ///
+    /// let adapter = AdapterDataSource::new(Arc::new(CopilotAdapter), PathBuf::from("/tmp/none"));
+    /// let dual = DualPathDataSource::new(Box::new(adapter), None);
+    /// let handle = dual.warnings_handle();
+    /// assert!(handle.lock().unwrap().is_empty());
+    /// ```
+    #[must_use]
+    pub fn warnings_handle(&self) -> Arc<Mutex<Vec<DualPathWarning>>> {
+        Arc::clone(&self.warnings)
     }
 
     /// Drain accumulated [`DualPathWarning`]s, returning them and
@@ -244,7 +316,7 @@ impl SessionDataSource for DualPathDataSource {
         Ok(merge_refs(
             adapter_refs,
             storage_refs,
-            &self.warnings,
+            self.warnings.as_ref(),
             self.re_upsert.as_ref(),
         ))
     }

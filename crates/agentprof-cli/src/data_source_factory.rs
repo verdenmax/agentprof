@@ -30,7 +30,14 @@ use agentprof_core::datasource::SessionDataSource;
 use agentprof_storage::config::StorageConfig;
 use agentprof_storage::{Db, SqliteDataSource};
 
-use crate::data_source::DualPathDataSource;
+use crate::data_source::{DualPathDataSource, DualPathWarning};
+
+/// Shared handle to dual-path divergence warnings collected during a
+/// `discover`/`load_session` round.
+///
+/// Returned as the second element of [`build_data_source`]; callers drain
+/// it and forward each entry to stderr (suppressed by `--quiet`).
+pub type WarningsHandle = Arc<Mutex<Vec<DualPathWarning>>>;
 
 /// Build the appropriate [`SessionDataSource`] given the resolved
 /// agent name, log root, storage config, and `--no-cache` flag.
@@ -44,6 +51,13 @@ use crate::data_source::DualPathDataSource;
 /// - The returned trait object's [`SessionDataSource::name`] is one of
 ///   `"dual"` or `"adapter:<agent>"` and is intended for diagnostic
 ///   logging only.
+/// - The second tuple element is an `Arc<Mutex<Vec<DualPathWarning>>>`
+///   handle. For dual-path returns it is shared with the inner
+///   [`DualPathDataSource`] and accumulates per-session divergences
+///   that the caller should drain (and emit to stderr) after the
+///   `discover` / `load_session` round. For adapter-only returns it is
+///   an empty buffer that will stay empty; draining it is a no-op,
+///   which lets callers use a single code path regardless of dispatch.
 ///
 /// # Errors
 ///
@@ -60,8 +74,8 @@ use crate::data_source::DualPathDataSource;
 /// use agentprof_storage::config::StorageConfig;
 ///
 /// let cfg = StorageConfig::default();
-/// let ds = build_data_source("copilot", Path::new("/tmp/none"), &cfg, true)?;
-/// # let _ = ds;
+/// let (ds, warnings) = build_data_source("copilot", Path::new("/tmp/none"), &cfg, true)?;
+/// # let _ = (ds, warnings);
 /// # Ok::<(), anyhow::Error>(())
 /// ```
 pub fn build_data_source(
@@ -69,7 +83,9 @@ pub fn build_data_source(
     root: &Path,
     storage: &StorageConfig,
     no_cache: bool,
-) -> anyhow::Result<Box<dyn SessionDataSource>> {
+) -> anyhow::Result<(Box<dyn SessionDataSource>, WarningsHandle)> {
+    let warnings: WarningsHandle = Arc::new(Mutex::new(Vec::new()));
+
     let adapter: Box<dyn SessionDataSource> = match agent {
         "copilot" => Box::new(AdapterDataSource::new(
             Arc::new(CopilotAdapter),
@@ -82,7 +98,7 @@ pub fn build_data_source(
     };
 
     if no_cache {
-        return Ok(adapter);
+        return Ok((adapter, warnings));
     }
 
     let storage_box: Option<Box<dyn SessionDataSource>> = match Db::open_and_migrate(&storage.path)
@@ -99,8 +115,14 @@ pub fn build_data_source(
     };
 
     if storage_box.is_none() {
-        return Ok(adapter);
+        return Ok((adapter, warnings));
     }
 
-    Ok(Box::new(DualPathDataSource::new(adapter, storage_box)))
+    let dual = DualPathDataSource::new_with_shared_warnings(
+        adapter,
+        storage_box,
+        Arc::clone(&warnings),
+        None,
+    );
+    Ok((Box::new(dual), warnings))
 }

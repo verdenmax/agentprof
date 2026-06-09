@@ -107,9 +107,12 @@ fn run(
     cfg: &observability::LogConfig,
     tracing_handle: &observability::TracingHandle,
 ) -> Result<()> {
+    let no_cache = cli.no_cache;
+    let storage_path = cli.storage_path.clone();
+    let quiet = cli.quiet;
     match cli.cmd {
         SubCmd::Analyze(c) => cmd::analyze::run(c, cfg, tracing_handle),
-        SubCmd::List(c) => cmd::list::run(c, cfg, tracing_handle),
+        SubCmd::List(c) => cmd::list::run(c, cfg, tracing_handle, no_cache, storage_path, quiet),
         SubCmd::Aggregate(c) => cmd::aggregate::run(c, cfg, tracing_handle),
         SubCmd::Watch(c) => cmd::watch::run(c, cfg, tracing_handle),
         SubCmd::McpWaste(c) => cmd::mcp_waste::run(c, cfg, tracing_handle),
