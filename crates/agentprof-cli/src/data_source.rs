@@ -20,6 +20,21 @@
 //! See `docs/superpowers/specs/2026-06-09-m2.1-sqlite-persistence-design.md`
 //! §3.2 for the design rationale.
 //!
+//! ## Async re-upsert: prototyped, then deleted
+//!
+//! An earlier draft (commit `e14842f`) shipped a `ReUpsertFn` callback
+//! that, on detected divergence, spawned a detached `std::thread` to
+//! re-ingest the session into the storage layer in the background.
+//! The M2.1 audit (2026-06-10) flagged it as dead production code:
+//! [`crate::data_source_factory::build_data_source`] never wired any
+//! callback through, and even if it had, a `std::thread::spawn` at the
+//! tail of a one-shot CLI invocation gets **killed** when the process
+//! exits — so the cache refresh almost never lands. Proper async
+//! refresh (`join`-on-exit, or in-process synchronous flush after
+//! `discover`) is deferred to **M2.1.1**. The constructor, type alias,
+//! field, and test were removed in the audit-followup PR to eliminate
+//! the false-confidence surface.
+//!
 //! ## Adapter-name aliasing
 //!
 //! [`SessionRef`] exists in two namespaces inside `agentprof-core`:
@@ -34,38 +49,6 @@ use std::time::Duration;
 
 use agentprof_core::analyzer::AnalysisReport;
 use agentprof_core::datasource::{DataSourceError, SessionDataSource, SessionRef};
-
-/// Type-erased re-upsert callback.
-///
-/// Invoked by [`DualPathDataSource`] on a background `std::thread`
-/// whenever a session id appears in both the adapter and the storage
-/// and the adapter wins on at least one diverging metadata field
-/// (see [`DualPathWarning`]).
-///
-/// The callback receives the diverging `session_id` (owned `String`)
-/// so the CLI can re-run analysis and upsert the fresh
-/// [`AnalysisReport`] into the storage layer behind the scenes — a
-/// "best-effort cache refresh". The callback is fire-and-forget: any
-/// errors must be logged by the callback itself (typically via
-/// `tracing`); the dual-path source never observes the outcome and
-/// will not block, retry, or report failures.
-///
-/// `Arc<dyn Fn + Send + Sync>` lets the callback be cheaply cloned
-/// per spawned thread, captured by closures, and shared between many
-/// [`DualPathDataSource`] instances.
-///
-/// # Examples
-///
-/// ```
-/// use std::sync::Arc;
-/// use agentprof_cli::data_source::ReUpsertFn;
-///
-/// let cb: ReUpsertFn = Arc::new(|id: String| {
-///     tracing::debug!(session_id = %id, "would re-upsert");
-/// });
-/// # let _ = cb;
-/// ```
-pub type ReUpsertFn = Arc<dyn Fn(String) + Send + Sync>;
 
 /// Composer that queries an [`Adapter`]-backed
 /// [`SessionDataSource`] **and** (optionally) a `SQLite`-backed
@@ -94,7 +77,6 @@ pub struct DualPathDataSource {
     adapter: Box<dyn SessionDataSource>,
     storage: Option<Box<dyn SessionDataSource>>,
     warnings: Arc<Mutex<Vec<DualPathWarning>>>,
-    re_upsert: Option<ReUpsertFn>,
 }
 
 /// A single metadata divergence detected between the adapter and the
@@ -157,70 +139,23 @@ impl DualPathDataSource {
         adapter: Box<dyn SessionDataSource>,
         storage: Option<Box<dyn SessionDataSource>>,
     ) -> Self {
-        Self::new_with_reupsert(adapter, storage, Mutex::new(Vec::new()), None)
-    }
-
-    /// Construct a new dual-path source with a re-upsert callback.
-    ///
-    /// Same as [`Self::new`] but additionally accepts:
-    ///
-    /// - a pre-built `warnings` [`Mutex`] (lets callers share the
-    ///   buffer across constructions / tests),
-    /// - an optional [`ReUpsertFn`] invoked on a detached
-    ///   `std::thread` whenever the adapter wins on a diverging
-    ///   session id. The callback fires **after** the warning is
-    ///   recorded; passing `None` makes the source behave exactly
-    ///   like [`Self::new`].
-    ///
-    /// The callback runs on its own thread (one per diverging
-    /// session) so a slow re-ingest can never block `discover()`.
-    /// Errors inside the callback are the callback's responsibility
-    /// to log — the dual-path source neither joins nor inspects the
-    /// thread.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::sync::{Arc, Mutex};
-    /// use std::path::PathBuf;
-    /// use agentprof_adapters::{AdapterDataSource, copilot::CopilotAdapter};
-    /// use agentprof_cli::data_source::{DualPathDataSource, ReUpsertFn};
-    ///
-    /// let adapter = AdapterDataSource::new(Arc::new(CopilotAdapter), PathBuf::from("/tmp/none"));
-    /// let cb: ReUpsertFn = Arc::new(|_id| {});
-    /// let dual = DualPathDataSource::new_with_reupsert(
-    ///     Box::new(adapter),
-    ///     None,
-    ///     Mutex::new(Vec::new()),
-    ///     Some(cb),
-    /// );
-    /// # let _ = dual;
-    /// ```
-    #[must_use]
-    pub fn new_with_reupsert(
-        adapter: Box<dyn SessionDataSource>,
-        storage: Option<Box<dyn SessionDataSource>>,
-        warnings: Mutex<Vec<DualPathWarning>>,
-        re_upsert: Option<ReUpsertFn>,
-    ) -> Self {
         Self {
             adapter,
             storage,
-            warnings: Arc::new(warnings),
-            re_upsert,
+            warnings: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
     /// Construct a new dual-path source sharing a caller-owned
     /// warnings buffer.
     ///
-    /// Identical to [`Self::new_with_reupsert`] except the warnings
-    /// buffer is passed in as a pre-built `Arc<Mutex<…>>` so callers
-    /// (e.g. [`crate::data_source_factory::build_data_source`]) can
-    /// retain a handle and drain warnings without going through the
-    /// trait object. This is the preferred constructor when the
-    /// composer is type-erased behind `Box<dyn SessionDataSource>`
-    /// and downcasting is undesirable.
+    /// Identical to [`Self::new`] except the warnings buffer is passed
+    /// in as a pre-built `Arc<Mutex<…>>` so callers (e.g.
+    /// [`crate::data_source_factory::build_data_source`]) can retain a
+    /// handle and drain warnings without going through the trait
+    /// object. This is the preferred constructor when the composer is
+    /// type-erased behind `Box<dyn SessionDataSource>` and
+    /// downcasting is undesirable.
     ///
     /// # Examples
     ///
@@ -236,7 +171,6 @@ impl DualPathDataSource {
     ///     Box::new(adapter),
     ///     None,
     ///     Arc::clone(&warnings),
-    ///     None,
     /// );
     /// # let _ = dual;
     /// assert!(warnings.lock().unwrap().is_empty());
@@ -246,24 +180,21 @@ impl DualPathDataSource {
         adapter: Box<dyn SessionDataSource>,
         storage: Option<Box<dyn SessionDataSource>>,
         warnings: Arc<Mutex<Vec<DualPathWarning>>>,
-        re_upsert: Option<ReUpsertFn>,
     ) -> Self {
         Self {
             adapter,
             storage,
             warnings,
-            re_upsert,
         }
     }
 
     /// Return a cloned `Arc` handle to the internal warnings buffer.
     ///
-    /// Lets callers that constructed the source via
-    /// [`Self::new`] / [`Self::new_with_reupsert`] (i.e. without
-    /// providing their own buffer) still drain the warnings out-of-
-    /// band — useful when the composer is type-erased behind
-    /// `Box<dyn SessionDataSource>` and [`Self::drain_warnings`] is
-    /// not reachable.
+    /// Lets callers that constructed the source via [`Self::new`]
+    /// (i.e. without providing their own buffer) still drain the
+    /// warnings out-of-band — useful when the composer is type-erased
+    /// behind `Box<dyn SessionDataSource>` and [`Self::drain_warnings`]
+    /// is not reachable.
     ///
     /// # Examples
     ///
@@ -317,7 +248,6 @@ impl SessionDataSource for DualPathDataSource {
             adapter_refs,
             storage_refs,
             self.warnings.as_ref(),
-            self.re_upsert.as_ref(),
         ))
     }
 
@@ -342,11 +272,8 @@ impl SessionDataSource for DualPathDataSource {
 /// 1. Seed a `HashMap<id, SessionRef>` with every storage entry.
 /// 2. For each adapter entry, look up the same id in the map.
 ///    - **Match found**: compute `diff_fields`. If non-empty, push a
-///      [`DualPathWarning`] (`adapter_won = true`) **and**, when
-///      `re_upsert` is `Some`, spawn a detached `std::thread` that
-///      invokes the callback with the session id (best-effort cache
-///      refresh — failures are the callback's responsibility to log).
-///      Then overwrite the map entry with the adapter ref.
+///      [`DualPathWarning`] (`adapter_won = true`). Then overwrite
+///      the map entry with the adapter ref (adapter-wins policy).
 ///    - **No match**: insert the adapter ref.
 /// 3. Collect the map values and sort by `started_at_ms` descending
 ///    (entries with `None` sort last).
@@ -357,7 +284,6 @@ fn merge_refs(
     adapter_refs: Vec<SessionRef>,
     storage_refs: Vec<SessionRef>,
     warnings: &Mutex<Vec<DualPathWarning>>,
-    re_upsert: Option<&ReUpsertFn>,
 ) -> Vec<SessionRef> {
     let mut by_id: HashMap<String, SessionRef> =
         HashMap::with_capacity(adapter_refs.len().saturating_add(storage_refs.len()));
@@ -376,12 +302,6 @@ fn merge_refs(
                     differing_fields: diffs,
                     adapter_won: true,
                 });
-                drop(guard);
-                if let Some(cb) = re_upsert {
-                    let id = adapter_ref.id.clone();
-                    let cb = Arc::clone(cb);
-                    std::thread::spawn(move || cb(id));
-                }
             }
         }
         by_id.insert(adapter_ref.id.clone(), adapter_ref);
@@ -466,7 +386,7 @@ mod tests {
             make_ref("b", Some(300), "adapter:copilot"),
         ];
         let storage = vec![make_ref("c", Some(200), "sqlite")];
-        let merged = merge_refs(adapter, storage, &warnings, None);
+        let merged = merge_refs(adapter, storage, &warnings);
         let ids: Vec<&str> = merged.iter().map(|r| r.id.as_str()).collect();
         assert_eq!(ids, vec!["b", "c", "a"]);
     }

@@ -27,7 +27,10 @@ adapter and storage so it can:
 2. Warn the user when the storage entry has drifted from the on-disk
    source (e.g. file was re-edited after the last `db ingest`).
 3. Opportunistically re-upsert the storage entry in the background so the
-   next read is hot.
+   next read is hot. *(Note: prototyped in M2.1 T4.2, removed in the
+   M2.1 audit followup — see the "Behaviour" subsection below and
+   `crates/agentprof-cli/src/data_source.rs` module docs.
+   Re-instating this safely is deferred to M2.1.1.)*
 
 Without a single abstraction every command (`list`, `mcp-waste`, future
 ones) would have to switch on the data-source kind inline, duplicate the
@@ -62,8 +65,11 @@ A new `SessionDataSource` trait in **`agentprof-core::datasource`**
    - the **adapter-wins** conflict resolution policy;
    - the per-divergence **warning sink** (drained to stderr unless
      `--quiet`);
-   - the async **re-upsert** background fan-out;
-   - the freshness compare (`diff_fields`) that drives both of the above.
+   - the freshness compare (`diff_fields`) that drives the warning.
+
+   (An async **re-upsert** background fan-out was prototyped and
+   removed in the M2.1 audit followup; see the rolled-back note
+   under "Behaviour" below.)
 
 The trait surface itself is intentionally minimal — `name`, `discover`,
 `load_session` — matching the read shape every subcommand actually uses.
@@ -125,14 +131,20 @@ The cli composer (`DualPathDataSource`) encodes the following invariants:
   `agentprof: warn: session <id>: N fields differ (adapter newer)`),
   suppressed wholesale by the global `--quiet` flag. Structured
   `tracing` events at `WARN` level fire regardless of `--quiet`.
-- **Async re-upsert via `std::thread::spawn`.** When divergence is
-  detected and storage is writable, the composer hands off the freshly
-  re-analyzed `AnalysisReport` + `raw_path` to a background OS thread
-  that calls `upsert_report` and exits. We deliberately do **not**
-  reach for tokio here — there is no I/O concurrency benefit in a CLI
-  pipeline that lives for ~100 ms per invocation, and pulling tokio
-  into `agentprof-cli` would force every other subcommand into the
-  async ecosystem too. See spec §10.3.
+- **Async re-upsert via `std::thread::spawn`** *(prototyped, then
+  removed in M2.1 audit followup, 2026-06-10).* The original design
+  spawned a detached background thread to refresh the storage entry
+  after divergence. The audit caught two problems: (a) the CLI
+  factory never wired any callback through, leaving the surface as
+  dead production code, and (b) a `std::thread::spawn` at the tail
+  of a one-shot CLI invocation is killed when the process exits —
+  the cache refresh almost never lands. Proper async refresh
+  (`join`-on-exit, or in-process synchronous flush after `discover`)
+  is deferred to **M2.1.1**. The `ReUpsertFn` type alias,
+  `new_with_reupsert` constructor, `re_upsert` field, callback fan-
+  out in `merge_refs`, and accompanying test were removed in the
+  audit-followup PR. The dual-path source still records divergence
+  warnings to stderr; only the background-rewrite path was deleted.
 - **Id-namespace unification (ADR-0017) is the prerequisite.** Without
   matching `SessionRef.id` between adapter discovery and storage rows,
   the inner join in `merge_refs` is always empty and the entire

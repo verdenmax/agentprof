@@ -118,11 +118,7 @@ pub fn build_data_source(
         return Ok((adapter, warnings));
     }
 
-    let dual = DualPathDataSource::new_with_shared_warnings(
-        adapter,
-        storage_box,
-        Arc::clone(&warnings),
-        None,
-    );
+    let dual =
+        DualPathDataSource::new_with_shared_warnings(adapter, storage_box, Arc::clone(&warnings));
     Ok((Box::new(dual), warnings))
 }

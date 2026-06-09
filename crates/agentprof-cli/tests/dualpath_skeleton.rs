@@ -14,7 +14,7 @@
 use std::sync::Mutex;
 use std::time::Duration;
 
-use agentprof_cli::data_source::{DualPathDataSource, ReUpsertFn};
+use agentprof_cli::data_source::DualPathDataSource;
 use agentprof_core::adapter::AgentKind;
 use agentprof_core::analyzer::AnalysisReport;
 use agentprof_core::datasource::{DataSourceError, SessionDataSource, SessionRef};
@@ -108,57 +108,4 @@ fn merge_records_warning_on_diverging_mtime() {
 
     // drain is idempotent — second call is empty
     assert!(dual.drain_warnings().is_empty());
-}
-
-#[test]
-fn re_upsert_callback_fires_on_diverging_session() {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Arc;
-
-    let counter = Arc::new(AtomicUsize::new(0));
-    let counter_cb = Arc::clone(&counter);
-    let cb: ReUpsertFn = Arc::new(move |_id: String| {
-        counter_cb.fetch_add(1, Ordering::SeqCst);
-    });
-
-    let storage_ref = SessionRef::new(
-        "s1".to_string(),
-        AgentKind::Copilot,
-        Some(1000),
-        None,
-        Some(1000),
-        "sqlite",
-    );
-    let adapter_ref = SessionRef::new(
-        "s1".to_string(),
-        AgentKind::Copilot,
-        Some(2000),
-        None,
-        Some(2000),
-        "adapter:copilot",
-    );
-
-    let adapter = Fake::new("adapter:copilot", vec![adapter_ref]);
-    let storage = Fake::new("sqlite", vec![storage_ref]);
-    let dual = DualPathDataSource::new_with_reupsert(
-        Box::new(adapter),
-        Some(Box::new(storage)),
-        Mutex::new(Vec::new()),
-        Some(cb),
-    );
-
-    let _ = dual
-        .discover(Duration::from_secs(7 * 86_400))
-        .expect("discover");
-
-    // Callback runs on a detached thread — give it a moment, then poll.
-    let deadline = std::time::Instant::now() + Duration::from_millis(500);
-    while counter.load(Ordering::SeqCst) == 0 && std::time::Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert_eq!(
-        counter.load(Ordering::SeqCst),
-        1,
-        "re-upsert callback should fire exactly once for one diverging session",
-    );
 }
