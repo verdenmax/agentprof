@@ -63,6 +63,38 @@ pub trait SessionDataSource: Send + Sync {
     /// - [`DataSourceError::Adapter`] / [`DataSourceError::Storage`] when
     ///   the underlying parse or query fails.
     fn load_session(&self, id: &str) -> Result<AnalysisReport, DataSourceError>;
+
+    /// Load the per-session [`Episodes`](crate::episode::Episodes) (raw
+    /// per-call durations + per-turn timestamps + mode segments) needed
+    /// by aggregate's percentile recomputation. Added in M2.1.1.
+    ///
+    /// Implementations MAY return an empty
+    /// [`Episodes`](crate::episode::Episodes) if the underlying source
+    /// has no per-call data (e.g. a pre-M2.1.1 `SQLite` row whose
+    /// `episodes_json` column still holds the migration-default empty
+    /// blob and was never re-ingested). Aggregate callers MUST tolerate
+    /// empty values (no-op skip in percentile pool).
+    ///
+    /// # Errors
+    ///
+    /// Same shape as [`Self::load_session`]:
+    ///
+    /// - [`DataSourceError::NotFound`] if the id is unknown to this source.
+    /// - [`DataSourceError::Adapter`] / [`DataSourceError::Storage`] on
+    ///   backend failure (I/O, malformed JSONL, serde drift, etc.).
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use agentprof_core::SessionDataSource;
+    /// fn print_tool_count(src: &dyn SessionDataSource, id: &str) {
+    ///     match src.load_episodes(id) {
+    ///         Ok(eps) => println!("{} tools", eps.tools.len()),
+    ///         Err(e) => eprintln!("load failed: {e}"),
+    ///     }
+    /// }
+    /// ```
+    fn load_episodes(&self, id: &str) -> Result<crate::episode::Episodes, DataSourceError>;
 }
 
 /// Lightweight summary of a session — used by

@@ -28,6 +28,13 @@ impl SessionDataSource for Stub {
     ) -> Result<agentprof_core::analyzer::AnalysisReport, DataSourceError> {
         Err(DataSourceError::NotFound { id: id.to_owned() })
     }
+
+    fn load_episodes(
+        &self,
+        id: &str,
+    ) -> Result<agentprof_core::episode::Episodes, DataSourceError> {
+        Err(DataSourceError::NotFound { id: id.to_owned() })
+    }
 }
 
 fn accepts_datasource<T: SessionDataSource>(_: T) {}
