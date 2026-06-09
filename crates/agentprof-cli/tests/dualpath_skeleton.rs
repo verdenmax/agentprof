@@ -109,3 +109,46 @@ fn merge_records_warning_on_diverging_mtime() {
     // drain is idempotent — second call is empty
     assert!(dual.drain_warnings().is_empty());
 }
+
+#[test]
+fn diff_fields_treats_one_side_none_as_no_opinion() {
+    // Regression guard for the M2.1 audit M2 finding: when one side
+    // (typically the adapter on a fresh discover) hasn't computed a
+    // value yet, the diff must treat that as "no opinion" rather
+    // than disagreement. Otherwise every fresh scan would emit a
+    // spurious divergence warning.
+    //
+    // We exercise diff_fields indirectly through the DualPathDataSource
+    // pipeline because diff_fields itself is module-private.
+    let storage_ref = SessionRef::new(
+        "shared-id".to_string(),
+        AgentKind::Copilot,
+        Some(5000), // storage has a real started_at_ms
+        None,
+        Some(5000), // and a real raw_mtime_ms
+        "sqlite",
+    );
+    let adapter_ref = SessionRef::new(
+        "shared-id".to_string(),
+        AgentKind::Copilot,
+        None, // adapter hasn't bothered to parse startTime
+        None,
+        None, // …and not bothered to stat() the file either
+        "adapter:copilot",
+    );
+
+    let adapter = Fake::new("adapter:copilot", vec![adapter_ref]);
+    let storage = Fake::new("sqlite", vec![storage_ref]);
+    let dual = DualPathDataSource::new(Box::new(adapter), Some(Box::new(storage)));
+
+    let refs = dual
+        .discover(Duration::from_secs(86_400))
+        .expect("discover");
+    assert_eq!(refs.len(), 1, "merge dedupes by id");
+
+    let warns = dual.drain_warnings();
+    assert!(
+        warns.is_empty(),
+        "None on either side must NOT trigger a divergence warning, got: {warns:?}"
+    );
+}
