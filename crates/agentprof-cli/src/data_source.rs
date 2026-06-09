@@ -387,7 +387,7 @@ fn merge_refs(
         by_id.insert(adapter_ref.id.clone(), adapter_ref);
     }
     let mut out: Vec<SessionRef> = by_id.into_values().collect();
-    out.sort_by(|a, b| b.started_at_ms.cmp(&a.started_at_ms));
+    out.sort_by_key(|r| std::cmp::Reverse(r.started_at_ms));
     out
 }
 
