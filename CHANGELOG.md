@@ -22,6 +22,21 @@ prefix used in commit messages).
 
 ### Added
 
+- **M2.1.1 aggregate dual-path** (closes the M2.1 dual-path story).
+  `cmd::aggregate` now SQLite-cache-accelerated via new
+  `SessionDataSource::load_episodes(id) -> Result<Episodes, _>` trait
+  method backed by a separate `episodes_json` column on `sessions`
+  (migration 002, additive `ALTER`, default `'{}'` for backward-compat).
+  Three impls (`AdapterDataSource` / `SqliteDataSource` /
+  `DualPathDataSource`) override. `cmd::aggregate` rewired to
+  `build_data_source(...)` matching the `list` / `mcp-waste` pattern from
+  M2.1; `cmd::analyze` write-through and `cmd::db::ingest` per-session
+  loop both extended to pair `upsert_report` with new `upsert_episodes`.
+  Aggregate gracefully skips empty `Episodes` (pre-M2.1.1 rows) in the
+  percentile pool. `AdapterDataSource::load_episodes_by_ref` bypass keeps
+  ingest O(N). Also adds `#[serde(default)]` to `Episodes` required
+  fields (forward-compat improvement bundled in the same wave). See
+  [ADR-0020](docs/internals/adr-0020-aggregate-dualpath.md).
 - **M2.1 SQLite persistence layer** (Phase 2 entry). Activates the
   previously-stub `agentprof-storage` crate. Hybrid mode: default
   `cache` at `$XDG_CACHE_HOME/agentprof/cache.sqlite` (auto-prune
@@ -473,6 +488,22 @@ prefix used in commit messages).
 
 ### Tests
 
+- **M2.1.1 (aggregate dual-path):** 13 new tests across 4 files —
+  4 in `crates/agentprof-cli/tests/cli_aggregate_dualpath.rs` (silent /
+  warn / no-cache parity / empty-episodes), 4 in
+  `crates/agentprof-storage/tests/episodes_smoke.rs` (round-trip /
+  default-for-unmigrated-row / NotFound / idempotent overwrite), 2 in
+  `crates/agentprof-storage/tests/sqlite_datasource_trait.rs` (impl of
+  `load_episodes`), 3 in `crates/agentprof-adapters/tests/adapter_datasource.rs`
+  (`load_episodes` + `load_episodes_by_ref`), 1 in
+  `crates/agentprof-core/tests/datasource_load_episodes.rs` (trait
+  surface compile-check), 2 in
+  `crates/agentprof-cli/tests/dualpath_skeleton.rs` (dual-path
+  `load_episodes` storage-hit + adapter-fallback). Also: existing
+  `crates/agentprof-core/tests/datasource_reexport.rs` `Stub` patched to
+  satisfy the 4-method trait; existing `crates/agentprof-cli/tests/aggregate.rs`
+  cases prepended with `--no-cache` (matching the M2.1 list-test pattern)
+  so they don't see the user's home cache.
 - **agentprof-cli (M2.1 audit P2-5):** Renamed
   `tests/cli_nocache_compat.rs` → `tests/cli_nocache_regression.rs`
   (and the two `insta` snapshot files alongside). The previous name
