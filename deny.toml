@@ -24,6 +24,21 @@ ignore = [
     #       paste dependency (any ratatui 0.30+ candidate; remove this
     #       ignore when our Cargo.lock no longer lists paste 1.0.x).
     "RUSTSEC-2024-0436",
+    # RUSTSEC-2025-0119: `number_prefix` 0.4.0 is no longer maintained
+    # (https://github.com/ogham/rust-number-prefix/pull/8). Reaches us
+    # transitively via `indicatif` 0.17.11 → `number_prefix` 0.4.0.
+    #
+    # - (a) advisory: https://rustsec.org/advisories/RUSTSEC-2025-0119
+    # - (b) cannot fix: indicatif 0.17.x depends on number_prefix; no
+    #       upstream release migrating to `unit-prefix` yet. Replacing
+    #       indicatif is a CLI UX rewrite for `db ingest` progress.
+    # - (c) upstream: https://github.com/console-rs/indicatif (tracking
+    #       depends on indicatif 0.18+ adopting unit-prefix).
+    # - (d) re-evaluate: when indicatif ships a release that drops the
+    #       number_prefix dependency (likely indicatif 0.18+; remove
+    #       this ignore when our Cargo.lock no longer lists
+    #       number_prefix 0.4.x).
+    "RUSTSEC-2025-0119",
 ]
 
 [licenses]
