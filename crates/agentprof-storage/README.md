@@ -35,8 +35,10 @@ and §15.4 (feature flags).
 | [`config::PartialStorageConfig`] | Lossless deserialisation target for the `[storage]` TOML block (all fields `Option`). cli merges this into `StorageConfig`. | `#[non_exhaustive]`, additive |
 | [`Db`] | SQLite handle. `Db::open(path)` runs the embedded migrations (`migrations/001_initial.sql`) and applies pragmas `journal_mode=WAL` / `synchronous=NORMAL` / `foreign_keys=ON`. Idempotent on re-open. `Db::open_in_memory()` for tests. | Stable |
 | [`upsert::upsert_report`] | `fn upsert_report(db, report, raw_path, ingested_at_secs)` — atomic write of one session's three rows (`sessions` + per-row `tools_loaded` + per-row `turn_buckets`) inside a single transaction. Explicit `DELETE` of child rows before `INSERT` to make re-upsert idempotent (parent `INSERT OR REPLACE` does **not** cascade in SQLite). | Stable |
+| [`upsert::upsert_episodes`] | `fn upsert_episodes(db, id, &Episodes, _ingested_at_secs)` — UPDATE the `episodes_json` column. Pairs with `upsert_report` (which must run first to insert the session row); returns 0 if no row matched (caller MUST pair the two). M2.1.1. | Stable |
 | [`query::query_sessions_since`] | Enumerate `agentprof_core::datasource::SessionRef`s with `started_at >= cutoff`, newest first. Backs `list --since`. | Stable |
 | [`query::load_session`] | Hydrate a full `AnalysisReport` from `sessions.analysis_report_json` by id. `QueryReturnedNoRows` → `SqliteError::NotFound`. | Stable |
+| [`query::load_episodes`] | SELECT the `episodes_json` column, deserialize to `Episodes`. Returns `Episodes::default()` for pre-M2.1.1 rows whose column holds the migration-default `'{}'` blob (backed by `#[serde(default)]` on `Episodes`' required fields). `QueryReturnedNoRows` for unknown id. M2.1.1. | Stable |
 | [`SqliteDataSource`] | Implements [`agentprof_core::datasource::SessionDataSource`]. Wraps an `Arc<Mutex<Db>>`; maps `NotFound` → `DataSourceError::NotFound`, other `SqliteError`s → `DataSourceError::Storage { source: "sqlite", … }`. Consumed by the cli's `DualPathDataSource` composer per [ADR-0018](../../docs/internals/adr-0018-session-datasource-trait.md). | Stable |
 | [`admin::stats`] | `DbStats { mode, path, file_size_bytes, sessions_count, tools_loaded_count, turn_buckets_count, oldest_started_at, newest_started_at }` for `agentprof db stats`. | Stable |
 | [`admin::prune_before`] | Cascading delete by `started_at`. Cache mode honours `auto_prune_days`; store mode never auto-prunes. Backs `agentprof db prune`. | Stable |
@@ -83,6 +85,12 @@ Final DDL is in `migrations/001_initial.sql` and reproduced in
 Indexes: `idx_sessions_started`, `idx_sessions_agent_started`,
 `idx_tools_call_count`.
 
+**Migration 002 (M2.1.1)**: additive `ALTER TABLE sessions ADD COLUMN
+episodes_json TEXT NOT NULL DEFAULT '{}'` for the per-call `Episodes`
+blob that aggregate's percentile pool needs. Default `'{}'` keeps
+pre-M2.1.1 rows queryable as `Episodes::default()`. See
+[ADR-0020](../../docs/internals/adr-0020-aggregate-dualpath.md).
+
 See `docs/superpowers/specs/2026-06-09-m2.1-sqlite-persistence-design.md`
 §5 for the column-level design rationale and
 [ADR-0019](../../docs/internals/adr-0019-hybrid-storage-mode.md) for the
@@ -94,8 +102,8 @@ cache-vs-store policy.
 |---|---|
 | `config`     | `StorageConfig` / `StorageMode` / `PartialStorageConfig` + XDG path resolution |
 | `db`         | `Db` handle + embedded migrations (`include_str!("../migrations/001_initial.sql")`) + pragmas |
-| `upsert`     | `upsert_report(db, &AnalysisReport, &Path, secs)` atomic 3-table write |
-| `query`      | `query_sessions_since(db, since) → Vec<SessionRef>` / `load_session(db, id) → AnalysisReport` |
+| `upsert`     | `upsert_report(db, &AnalysisReport, &Path, secs)` atomic 3-table write; `upsert_episodes(db, id, &Episodes, secs)` UPDATE `episodes_json` (M2.1.1) |
+| `query`      | `query_sessions_since(db, since) → Vec<SessionRef>` / `load_session(db, id) → AnalysisReport` / `load_episodes(db, id) → Episodes` (M2.1.1) |
 | `datasource` | `SqliteDataSource` impl of `agentprof_core::datasource::SessionDataSource` (M2.1 T2.6) |
 | `admin`      | `stats` / `prune_before` / `vacuum` / `export_session_json` (M2.1 T2.7) backing the `agentprof db` family |
 | `error`      | `SqliteError` for every fallible API |

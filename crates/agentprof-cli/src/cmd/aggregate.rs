@@ -608,7 +608,7 @@ fn compute_phase2(
 /// Dual-path variant of [`compute_aggregate`] (M2.1.1 T5.1).
 ///
 /// Constructs the data source via
-/// [`crate::data_source_factory::build_data_source`] (same code path
+/// `agentprof_cli::data_source_factory::build_data_source` (same code path
 /// as `list` / `mcp-waste` / `analyze`), discovers + sorts refs, then
 /// for each ref calls both `load_session` (for the rollup report) and
 /// `load_episodes` (for the per-call vec aggregate's percentile pool

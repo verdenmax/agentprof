@@ -536,6 +536,14 @@ opportunistic re-upsert。详见 [ADR-0018](internals/adr-0018-session-datasourc
 > against this section. See [ADR-0019](internals/adr-0019-hybrid-storage-mode.md)
 > for the cache-vs-store decision and M2.1 spec §5 for the column-level
 > design rationale.
+>
+> **Status (M2.1.1)**: additive migration 002
+> (`crates/agentprof-storage/migrations/002_episodes_column.sql`) adds
+> `ALTER TABLE sessions ADD COLUMN episodes_json TEXT NOT NULL DEFAULT '{}'`.
+> The default `'{}'` keeps pre-M2.1.1 rows queryable as
+> `Episodes::default()` (empty); aggregate gracefully skips empty
+> `Episodes` in the percentile pool. Cache-mode users get full coverage
+> on next ingest. See [ADR-0020](internals/adr-0020-aggregate-dualpath.md).
 
 文件路径默认按 mode 派生：
 - **cache mode** (default): `${XDG_CACHE_HOME:-~/.cache}/agentprof/cache.sqlite`
@@ -893,6 +901,7 @@ pub fn compute_roi(/* ... */) -> Result<Vec<RoiRow>, CoreError> {
 | 0017 | Unify session id namespace across adapter and storage (M2.1 hotfix — P0) | Accepted | 2026-06-10 |
 | 0018 | `SessionDataSource` trait abstraction + dual-path semantics (warn + adapter-wins + async re-upsert) (M2.1) | Accepted | 2026-06-10 |
 | 0019 | Hybrid storage mode — cache (default, `$XDG_CACHE_HOME`) vs store (opt-in, `$XDG_DATA_HOME`) (M2.1) | Accepted | 2026-06-10 |
+| 0020 | aggregate dual-path via separate `Episodes` storage (`episodes_json` column + `load_episodes` trait method) (M2.1.1) | Accepted | 2026-06-09 |
 
 ### 14.5 文档同步的 CI 强制
 

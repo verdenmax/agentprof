@@ -3,11 +3,11 @@
 > **本文件是项目总入口。** 如果你是第一次进入本仓库（或时隔一段时间回来），**先读这里**，再去任何其他文档。
 >
 > **文件名**：`tasks/ROADMAP.md`
-> **版本**：1.7
+> **版本**：1.8
 > **最后更新**：2026-06-09
-> **当前 commit**：`main` HEAD `4dec8f0`（M2.1 wave + P0 hotfix + audit P1/P2 followup + 7 regression-test commits + post-audit doc sweep + CI 1.96 fix + deterministic-ordering fix all merged; CI run #27 ✅ on 4dec8f0）。
-> **当前阶段**：**Phase 2 — M2.1 SQLite 持久化 ✅ shipped on `main`**：hybrid cache/store mode ([ADR-0019](../docs/internals/adr-0019-hybrid-storage-mode.md))，`SessionDataSource` trait + dual-path ([ADR-0018](../docs/internals/adr-0018-session-datasource-trait.md))，id-namespace 统一 hotfix ([ADR-0017](../docs/internals/adr-0017-unify-session-id-namespace.md))，`agentprof db {init,stats,ingest,prune,vacuum,export}` 子命令家族，3 全局 flag（`--no-cache` / `--storage-path` / `--quiet`），analyze write-through + watch 长持连接，audit P1/P2 followup（ingest exit-2-on-full-fail / O(N) hot loop fix / mutex poison recovery / ReUpsertFn 删除），CI 1.96 fix + deterministic ordering by `started_at_ms` with `id` tiebreak；`list` + `mcp-waste` dual-path 接入；`aggregate` dual-path 推迟到 **M2.1.1**（需 Episodes hoist）。Phase 0 + 1 (MVP) ✅ 已 release v0.1.0。**1068 tests passing**。**117 commits since v0.1.0**。
-> **下一步入口**：**v0.2.0 tag**（`github-release` skill）→ **M2.1.1 aggregate dual-path** → **M2.2 OTLP receiver**（详见 [`docs/plan.md`](../docs/plan.md) §8）
+> **当前 commit**：`main` HEAD `<filled-in-after-T7-merge>` (M2.1.1 aggregate dual-path merged)
+> **当前阶段**：**Phase 2 — M2.1.1 aggregate dual-path ✅ shipped on `main`**：separate `episodes_json` column（migration 002，additive ALTER，default `'{}'`）+ `SessionDataSource::load_episodes(id)` trait method + 3 impls（`AdapterDataSource` / `SqliteDataSource` / `DualPathDataSource`）。`cmd::aggregate` rewires to `build_data_source(...)` matching the `list` / `mcp-waste` pattern; `cmd::analyze` write-through 和 `cmd::db::ingest` per-session loop 都扩展为 pair `upsert_report` + `upsert_episodes`。`AdapterDataSource::load_episodes_by_ref` bypass 保持 ingest 在 O(N)。详见 [ADR-0020](../docs/internals/adr-0020-aggregate-dualpath.md)。Prior wave: M2.1 SQLite 持久化 ([ADR-0017](../docs/internals/adr-0017-unify-session-id-namespace.md) / [ADR-0018](../docs/internals/adr-0018-session-datasource-trait.md) / [ADR-0019](../docs/internals/adr-0019-hybrid-storage-mode.md))。
+> **下一步入口**：**v0.2.0 tag**（`github-release` skill）→ **M2.2 OTLP receiver**（详见 [`docs/plan.md`](../docs/plan.md) §8）
 >
 > **重大 pivot**（ADR-0001 events-first，详见 §4.1 / §4.2）：M1.2 不再做 ClaudeAdapter，改做 **CopilotAdapter**（real wire data 直接可得）；tokenizer / ROI / waste / aggregate 全部从 M1.3 推迟到 M1.5+。Claude / Codex / Gemini 适配器推迟到 Phase 2 / 3。
 
