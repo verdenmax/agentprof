@@ -547,6 +547,43 @@ mod tests {
     }
 
     #[test]
+    fn analysis_report_deserializes_pre_m2_1_json_without_loaded_mcp_tools() {
+        // v0.1.x storage blobs were written before the M2.1 T5.2.5
+        // `loaded_mcp_tools` field existed. They must keep deserializing
+        // cleanly (and surface as an empty set) so that an in-place
+        // upgrade does not invalidate the existing SQLite store.
+        //
+        // The serde contract that protects this is the
+        // `#[serde(default)]` on `loaded_mcp_tools`; this test pins it
+        // so a future refactor that drops the attribute breaks loudly
+        // here rather than silently on every user's DB.
+        let v01x_json = r#"{
+            "meta": {
+                "id": "pre-m2-1-session",
+                "agent": "copilot",
+                "started_at": "2026-05-01T00:00:00Z",
+                "is_live": false
+            },
+            "turn_summary": [],
+            "tool_rank": [],
+            "hook_rank": [],
+            "warnings": []
+        }"#;
+
+        let report: AnalysisReport =
+            serde_json::from_str(v01x_json).expect("v0.1.x blob must still deserialize");
+        assert_eq!(report.meta.id, "pre-m2-1-session");
+        assert!(
+            report.loaded_mcp_tools.is_empty(),
+            "missing field defaults to empty set"
+        );
+        // Spot-check the other #[serde(default)] fields still default
+        // correctly so this test catches a regression on any of them.
+        assert!(report.parse_warnings.is_empty());
+        assert!(report.model_metrics.is_none());
+    }
+
+    #[test]
     fn analysis_report_json_round_trip_is_lossless() {
         // Build a non-trivial report exercising all rollup vec types +
         // warnings + parse_warnings + a non-empty meta. Round-trip through
