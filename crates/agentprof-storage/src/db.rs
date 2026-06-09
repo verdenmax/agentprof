@@ -141,18 +141,27 @@ impl Db {
     }
 
     /// Borrow the underlying connection (read-only access for sibling modules).
+    ///
+    /// **In-crate** callers (admin / query / datasource) use this. For
+    /// raw SQL access from **integration tests** (outside the crate
+    /// boundary, where `pub(crate)` is not reachable) see
+    /// [`Self::conn_for_test`].
     #[allow(dead_code)]
     pub(crate) const fn conn(&self) -> &Connection {
         &self.conn
     }
 
     /// Test-only helper: borrow the underlying [`Connection`] for raw SQL
-    /// `SELECT`s in integration tests (e.g. `COUNT(*)` assertions in
+    /// `SELECT`s in **integration tests** under
+    /// `crates/agentprof-storage/tests/` (e.g. `COUNT(*)` assertions in
     /// `tests/upsert_smoke.rs`).
     ///
-    /// Hidden from public rustdoc. Production callers must go through the
-    /// crate's typed APIs (M2.1 T2.4 [`crate::upsert::upsert_report`],
-    /// later tasks for queries).
+    /// Production / in-crate code must NOT call this — use
+    /// [`Self::conn`] (`pub(crate)`) instead. The M2.1 audit (P2-2)
+    /// caught \`admin\` / \`query\` reaching for this helper despite
+    /// being in the same crate; they were migrated to \`conn()\`.
+    ///
+    /// Hidden from public rustdoc.
     ///
     /// # Examples
     ///

@@ -186,6 +186,19 @@ The cli composer (`DualPathDataSource`) encodes the following invariants:
   cache yet — they go through the adapter path on every invocation.
   This limitation is documented in `docs/architecture.md` §8 and
   `crates/agentprof-cli/README.md`.
+- **Known issue (M2.1 audit P2-6, deferred to M2.1.1):**
+  `SessionRef::new` in `agentprof-core::datasource` takes 6
+  positional arguments (`id`, `agent`, `started_at_ms`, `raw_path`,
+  `raw_mtime_ms`, `source`). All three middle arguments are
+  `Option<…>`, so a caller silently swapping two of them
+  compiles cleanly and produces wrong data. The fix is a builder
+  pattern or `..Default::default()` once `Default` is feasible
+  (today blocked by `#[non_exhaustive]` plus the `&'static str source`
+  field having no obvious default). This was deliberately **not**
+  addressed in the M2.1 audit followup because it is an API design
+  change that needs its own brainstorm + ADR; the existing
+  `# Examples` rustdoc on `SessionRef::new` is the current
+  mitigation.
 
 ## References
 

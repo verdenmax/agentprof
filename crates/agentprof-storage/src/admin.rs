@@ -71,7 +71,7 @@ pub struct DbStats {
 /// assert_eq!(s.session_count, 0);
 /// ```
 pub fn stats(db: &Db) -> Result<DbStats, SqliteError> {
-    let conn = db.conn_for_test();
+    let conn = db.conn();
 
     let session_count: i64 = conn
         .query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0))
@@ -212,7 +212,7 @@ pub fn prune_before(
 /// ```
 pub fn vacuum(db: &Db) -> Result<(u64, u64), SqliteError> {
     let before = stats(db)?.size_bytes;
-    db.conn_for_test()
+    db.conn()
         .execute("VACUUM", [])
         .map_err(|source| SqliteError::Rusqlite {
             context: "VACUUM".to_owned(),
@@ -240,7 +240,7 @@ pub fn vacuum(db: &Db) -> Result<(u64, u64), SqliteError> {
 /// let _ = export_session_json(&db, "missing");
 /// ```
 pub fn export_session_json(db: &Db, id: &str) -> Result<String, SqliteError> {
-    db.conn_for_test()
+    db.conn()
         .query_row(
             "SELECT analysis_report_json FROM sessions WHERE id = ?1",
             params![id],

@@ -8,7 +8,7 @@
 //! - **Store** (opt-in): user-owned long-lived data (annotated runs, custom
 //!   tags); lives under `$XDG_DATA_HOME`.
 //!
-//! See `docs/internals/adr-0018-storage-hybrid.md` for the design rationale.
+//! See `docs/internals/adr-0019-hybrid-storage-mode.md` for the design rationale.
 //!
 //! # Examples
 //!

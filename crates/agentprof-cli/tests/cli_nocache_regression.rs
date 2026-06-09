@@ -1,10 +1,16 @@
-//! Backward-compat snapshot lock: `--no-cache` must produce stdout
-//! byte-identical to the v0.1.x single-path (adapter-only) baseline.
+//! Regression lock: `--no-cache` (single-path / adapter-only) stdout
+//! is snapshotted via `insta`. Any future change to the bytes
+//! `agentprof list --no-cache` / `agentprof aggregate --no-cache`
+//! emit on the canonical fixture will trip a snapshot diff and
+//! force an **explicit snapshot review** (`cargo insta review`).
 //!
-//! Any future regression in the single-path code path (the path taken
-//! when storage is disabled via `--no-cache`) will flag as an `insta`
-//! snapshot diff. This locks the M2.1 invariant that dual-path adoption
-//! never alters legacy adapter-only output (M2.1 T7.1).
+//! These snapshots are **not** a "v0.1.x baseline lock" (the audit
+//! corrected the earlier framing) — they were captured during M2.1
+//! T7.1 as the reference for the current single-path output and
+//! exist to catch accidental regressions in that path, e.g. while
+//! refactoring the dual-path composer. Intentional UX changes are
+//! fine — just re-record the snapshot with `cargo insta review`
+//! and explain in the commit / PR.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

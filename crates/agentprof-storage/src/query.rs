@@ -64,7 +64,7 @@ pub fn query_sessions_since(
     let cutoff_ms = now_ms.saturating_sub(since_ms);
 
     let mut stmt = db
-        .conn_for_test()
+        .conn()
         .prepare(
             "SELECT id, agent, started_at, raw_path, raw_mtime
              FROM sessions
@@ -131,7 +131,7 @@ pub fn query_sessions_since(
 /// ```
 pub fn load_session(db: &Db, id: &str) -> Result<AnalysisReport, SqliteError> {
     let json: String = db
-        .conn_for_test()
+        .conn()
         .query_row(
             "SELECT analysis_report_json FROM sessions WHERE id = ?1",
             [id],
@@ -149,17 +149,33 @@ pub fn load_session(db: &Db, id: &str) -> Result<AnalysisReport, SqliteError> {
 
 /// Parse a stored agent string into [`AgentKind`].
 ///
-/// The closed set mirrors [`AgentKind`]'s `FromStr` impl. Unknown strings
-/// are tolerated (logged at `warn` and defaulted to
-/// [`AgentKind::Copilot`]) so that a single corrupt row never crashes a
-/// listing query — surfacing the broken row is the caller's job.
+/// The closed set mirrors [`AgentKind`]'s `FromStr` impl. Unknown
+/// strings are tolerated (logged at `error` and defaulted to
+/// [`AgentKind::Copilot`]) so that a single corrupt row never
+/// crashes a listing query — surfacing the broken row to the user is
+/// the caller's job.
+///
+/// The audit (M2.1 audit P2-4) flagged this silent fallback as a
+/// reliability footgun: a future Claude / Codex row in a Copilot-only
+/// build would silently be re-labelled `copilot` in `list` output.
+/// We deliberately keep the soft-fail (better than panicking a list
+/// query mid-iteration) but elevated the log level to `error` so it
+/// shows up in default tracing and is impossible to miss. A proper
+/// `AgentKind::Unknown(String)` variant is deferred to M2.1.1 because
+/// it is a breaking change to the core `AgentKind` enum used across
+/// every adapter and view.
 fn parse_agent(s: &str) -> AgentKind {
     match s {
         "copilot" => AgentKind::Copilot,
         "claude" => AgentKind::Claude,
         "codex" => AgentKind::Codex,
         other => {
-            tracing::warn!(agent = %other, "unknown agent string in sessions row; defaulting to Copilot");
+            // TODO(M2.1.1): surface as AgentKind::Unknown(String) once
+            // the breaking core enum change is scoped + ADR'd.
+            tracing::error!(
+                agent = %other,
+                "unknown agent string in sessions row; defaulting to Copilot (data may be mislabelled)"
+            );
             AgentKind::Copilot
         }
     }
