@@ -229,7 +229,7 @@ pub fn run(
     // to `warn` so a broken cache never blocks the user-facing render
     // and exit code stays driven by the analyzer pipeline.
     if !no_cache {
-        write_through_report(&report, &sref.path, storage_path);
+        write_through_report(&report, &episodes, &sref.path, storage_path);
     }
 
     // M1.6.5 T3.2 + T5.3 — compute MCP waste when:
@@ -331,12 +331,23 @@ pub fn run(
     Ok(())
 }
 
-/// Write the freshly-computed `AnalysisReport` into the `SQLite` cache.
+/// Write the freshly-computed `AnalysisReport` and `Episodes` into the
+/// `SQLite` cache.
 ///
 /// Pure side effect: every error path is downgraded to a `tracing::warn!`
 /// so a broken cache never blocks the user-facing render. Called only
 /// when `--no-cache` is unset (gate lives in the caller).
-fn write_through_report(report: &AnalysisReport, raw_path: &Path, storage_path: Option<PathBuf>) {
+///
+/// `upsert_report` runs first; on success `upsert_episodes` is called
+/// to populate the M2.1.1 `episodes_json` column. If `upsert_report`
+/// fails the session row never exists, so `upsert_episodes` would
+/// silently no-op — skipped via the `else if` chain.
+fn write_through_report(
+    report: &AnalysisReport,
+    episodes: &Episodes,
+    raw_path: &Path,
+    storage_path: Option<PathBuf>,
+) {
     let storage_cfg = match agentprof_cli::config::resolve_storage_config(
         agentprof_storage::config::PartialStorageConfig::default(),
         storage_path,
@@ -354,6 +365,13 @@ fn write_through_report(report: &AnalysisReport, raw_path: &Path, storage_path: 
                 agentprof_storage::upsert::upsert_report(&mut db, report, raw_path, now_secs)
             {
                 tracing::warn!(error = %e, "write-through upsert failed (non-fatal)");
+            } else if let Err(e) = agentprof_storage::upsert::upsert_episodes(
+                &mut db,
+                &report.meta.id,
+                episodes,
+                now_secs,
+            ) {
+                tracing::warn!(error = %e, "write-through upsert_episodes failed (non-fatal)");
             }
         }
         Err(e) => {
