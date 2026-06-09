@@ -47,6 +47,12 @@ prefix used in commit messages).
   debug a phantom missing file. Now only `ErrorKind::NotFound`
   returns `NotFound`; everything else propagates through
   `SidecarError::Io { path, source }`.
+- **agentprof-adapters (CI portability):** the B3 regression test
+  `load_sidecar_permission_denied_returns_io_err_not_not_found` is
+  now gated behind `#[cfg(unix)]`. `std::os::unix::fs::PermissionsExt`
+  is Unix-only, so Windows CI failed to compile the test (E0433:
+  `cannot find unix in os`). The Io-branch coverage stays Unix-only;
+  the lib itself builds and tests on Windows.
 
 ### Documentation
 
