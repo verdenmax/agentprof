@@ -2,15 +2,26 @@
 //!
 //! Selects sessions via mutually-exclusive `--since DUR` / `--all` /
 //! `--session ID`, calls
-//! [`SessionDataSource::load_session`] for each, and upserts the
-//! resulting
+//! [`AdapterDataSource::load_session_by_ref`] for each, and upserts
+//! the resulting
 //! [`AnalysisReport`](agentprof_core::analyzer::AnalysisReport) into
 //! the `SQLite` store via
 //! [`agentprof_storage::upsert::upsert_report`].
 //!
 //! Per-session failures are logged via `tracing` and counted; the
-//! overall command always exits `0` unless argument resolution
-//! itself fails (`ExitKind::UserError`).
+//! overall command exits `0` on partial success and **`2`
+//! ([`ExitKind::DataError`])** when 100% of the discovered sessions
+//! fail to ingest (M2.1 audit P1-4).
+//!
+//! ## Why `load_session_by_ref` and not the trait route
+//!
+//! `SessionDataSource::load_session(id)` re-runs
+//! `Adapter::discover_sessions` and linearly searches for `id` —
+//! O(N²) for an `ingest --all` over N sessions. The CLI already
+//! holds the full [`AdapterRef`] list from its single up-front
+//! `discover` call, so it calls
+//! [`AdapterDataSource::load_session_by_ref`] to skip the rescan
+//! (M2.1 audit P1-3).
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -22,7 +33,7 @@ use clap::{ArgGroup, Args};
 use agentprof_adapters::copilot::CopilotAdapter;
 use agentprof_adapters::AdapterDataSource;
 use agentprof_cli::config::resolve_storage_config;
-use agentprof_core::datasource::SessionDataSource;
+use agentprof_core::adapter::{Adapter as _, SessionRef as AdapterRef};
 use agentprof_storage::config::PartialStorageConfig;
 use agentprof_storage::upsert::upsert_report;
 use agentprof_storage::Db;
@@ -67,7 +78,10 @@ pub struct IngestArgs {
 ///
 /// - [`ExitKind::UserError`] for unknown agent, bad `--since`, missing
 ///   root, or none of `--since` / `--all` / `--session` supplied.
-/// - [`ExitKind::DataError`] if the storage layer cannot be opened.
+/// - [`ExitKind::DataError`] if the storage layer cannot be opened,
+///   or if every single discovered session fails to ingest
+///   (100 % failure rate; M2.1 audit P1-4). Partial failures still
+///   exit `0` with the per-session counts logged to stderr.
 #[allow(clippy::needless_pass_by_value)]
 pub fn run(args: IngestArgs, storage_path: Option<PathBuf>) -> Result<()> {
     if args.agent != "copilot" {
@@ -78,10 +92,10 @@ pub fn run(args: IngestArgs, storage_path: Option<PathBuf>) -> Result<()> {
     }
 
     let adapter = Arc::new(CopilotAdapter);
-    let root = args.root.clone().or_else(|| {
-        use agentprof_core::adapter::Adapter as _;
-        CopilotAdapter.default_session_root()
-    });
+    let root = args
+        .root
+        .clone()
+        .or_else(|| CopilotAdapter.default_session_root());
     let root = root.ok_or_else(|| {
         ExitKind::UserError
             .into_anyhow("could not determine session root (set --root or HOME)".to_owned())
@@ -92,7 +106,7 @@ pub fn run(args: IngestArgs, storage_path: Option<PathBuf>) -> Result<()> {
         );
     }
 
-    let ds = AdapterDataSource::new(adapter, root.clone());
+    let ds = AdapterDataSource::new(Arc::clone(&adapter), root.clone());
 
     let cfg = resolve_storage_config(PartialStorageConfig::default(), storage_path)
         .map_err(|e| ExitKind::UserError.into_anyhow(format!("storage config: {e}")))?;
@@ -100,14 +114,17 @@ pub fn run(args: IngestArgs, storage_path: Option<PathBuf>) -> Result<()> {
         ExitKind::DataError.into_anyhow(format!("open {}: {e}", cfg.path.display()))
     })?;
 
-    let targets: Vec<(String, PathBuf)> = if let Some(id) = &args.session {
-        let refs = ds.discover(Duration::MAX).map_err(|e| {
+    // M2.1 audit P1-3: discover ONCE, hold the `AdapterRef`s, and
+    // pass each by reference into `load_session_by_ref` to skip the
+    // O(N²) rescan that the generic trait route would incur.
+    let targets: Vec<AdapterRef> = if let Some(id) = &args.session {
+        let refs = adapter.discover_sessions(root.as_path()).map_err(|e| {
             ExitKind::DataError.into_anyhow(format!("discover {}: {e}", root.display()))
         })?;
         let hit = refs.into_iter().find(|r| r.id == *id).ok_or_else(|| {
             ExitKind::UserError.into_anyhow(format!("session id not found: {id}"))
         })?;
-        vec![(hit.id, hit.raw_path.unwrap_or_default())]
+        vec![hit]
     } else {
         let window = if args.all {
             Duration::MAX
@@ -119,12 +136,14 @@ pub fn run(args: IngestArgs, storage_path: Option<PathBuf>) -> Result<()> {
                 ExitKind::UserError.into_anyhow("must specify --since, --all, or --session".into())
             );
         };
-        ds.discover(window)
+        let cutoff = std::time::SystemTime::now().checked_sub(window);
+        adapter
+            .discover_sessions(root.as_path())
             .map_err(|e| {
                 ExitKind::DataError.into_anyhow(format!("discover {}: {e}", root.display()))
             })?
             .into_iter()
-            .map(|r| (r.id, r.raw_path.unwrap_or_default()))
+            .filter(|sref| cutoff.map_or(true, |c| sref.modified_at >= c))
             .collect()
     };
 
@@ -136,8 +155,10 @@ pub fn run(args: IngestArgs, storage_path: Option<PathBuf>) -> Result<()> {
     );
     let mut ok = 0usize;
     let mut fail = 0usize;
-    for (idx, (id, raw_path)) in targets.iter().enumerate() {
-        match ds.load_session(id) {
+    for (idx, sref) in targets.iter().enumerate() {
+        let id = &sref.id;
+        let raw_path = &sref.path;
+        match ds.load_session_by_ref(sref) {
             Ok(report) => {
                 let now_secs = chrono::Utc::now().timestamp();
                 match upsert_report(&mut db, &report, raw_path, now_secs) {
@@ -158,5 +179,15 @@ pub fn run(args: IngestArgs, storage_path: Option<PathBuf>) -> Result<()> {
         }
     }
     eprintln!("agentprof: ingested {ok} ok, {fail} failed");
+
+    // M2.1 audit P1-4: a 100% failure rate is a data error, not a
+    // success. Partial failures (some ok, some fail) keep exit 0 —
+    // the user got *some* of what they asked for and per-session
+    // errors are already on stderr.
+    if total > 0 && ok == 0 {
+        return Err(ExitKind::DataError.into_anyhow(format!(
+            "all {total} session(s) failed to ingest; check stderr for per-session errors"
+        )));
+    }
     Ok(())
 }

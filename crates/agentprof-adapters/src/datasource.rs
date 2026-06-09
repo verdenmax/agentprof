@@ -112,6 +112,65 @@ impl<A: Adapter> AdapterDataSource<A> {
     pub fn root(&self) -> &std::path::Path {
         self.root.as_path()
     }
+
+    /// Load + analyze a single session given a pre-built [`AdapterRef`].
+    ///
+    /// Identical to [`SessionDataSource::load_session`] **except** it
+    /// skips the up-front `discover_sessions` scan: the caller is
+    /// expected to have obtained `sref` from a previous `discover`
+    /// (cheap; one pass over the root) and now just wants to run the
+    /// load → derive → analyze pipeline on that one session.
+    ///
+    /// This avoids the O(N²) hot loop in `db ingest --all` where the
+    /// naïve trait route re-scans the entire root for every session
+    /// id (M2.1 audit P1-3): for 100 sessions that meant 10,000
+    /// first-line reads instead of 100. The CLI's ingest loop already
+    /// has the [`AdapterRef`] in hand from its single up-front
+    /// `discover` call, so it can pay the per-session cost exactly
+    /// once via this method.
+    ///
+    /// The dual-path read code path (`SessionDataSource::load_session`)
+    /// is **not** affected — there N is small (one session at a time)
+    /// and re-discover is a deliberate freshness check.
+    ///
+    /// # Errors
+    ///
+    /// - [`DataSourceError::Adapter`] if the underlying adapter's
+    ///   `load_session` fails (I/O, malformed JSONL beyond recovery).
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use std::sync::Arc;
+    /// use std::path::PathBuf;
+    /// use agentprof_adapters::{AdapterDataSource, copilot::CopilotAdapter};
+    /// use agentprof_core::adapter::Adapter as _;
+    /// use agentprof_core::datasource::SessionDataSource;
+    ///
+    /// let ds = AdapterDataSource::new(
+    ///     Arc::new(CopilotAdapter),
+    ///     PathBuf::from("/home/me/.copilot/session-state"),
+    /// );
+    /// let refs = CopilotAdapter
+    ///     .discover_sessions(ds.root())
+    ///     .expect("discover");
+    /// for sref in &refs {
+    ///     let report = ds.load_session_by_ref(sref).expect("load");
+    ///     let _ = report;
+    /// }
+    /// ```
+    pub fn load_session_by_ref(
+        &self,
+        sref: &AdapterRef,
+    ) -> Result<agentprof_core::analyzer::AnalysisReport, DataSourceError> {
+        let raw = self
+            .adapter
+            .load_session(sref)
+            .map_err(|e| wrap_adapter_err(self.name, e))?;
+        let episodes = derive_episodes(&raw.events, &raw.meta);
+        let report = analyze(&episodes, &raw.meta, &raw.parse_warnings);
+        Ok(report)
+    }
 }
 
 const fn name_for(kind: AgentKind) -> &'static str {
