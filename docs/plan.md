@@ -167,30 +167,45 @@ playwright.click   |   1240        |   0   |     ∞ (waste)   | ✗ kill
 
 ---
 
-## 7. 决策点 / 待回答的问题
+## 7. 决策点 / 已解答 + 待回答
 
-- [ ] **要不要做产品**？还是只为自己用一次就够？
-- [ ] 包名 / 项目名定？候选：`agentprof`、`tool-roi`、`ctxprof`
-- [ ] 技术栈：Python（数据生态好）还是 Node/TS（和 ccusage 一致）？
-- [ ] 火焰图渲染：terminal TUI、HTML、还是直接接 Perfetto / Speedscope？
-- [ ] 是否做成 OTLP receiver，让 Claude Code 直接推数据进来？
+### 7.1 已解答（v0.1.x 实际答案 — 2026-06-09 整理）
+
+- [x] **要不要做产品**？→ **做**。v0.1.0 已 release（M1.7，2026-06-08），cargo-dist 多平台 binary + GitHub Release 流程跑通；v0.1.x 持续迭代（M1.6.5 MCP waste + M1.6.6 token-cost + 性能/正确性 audit followup）。
+- [x] **包名 / 项目名**？→ **`agentprof`**（v0.1.0 release 时已定，cargo workspace 5 个 crate 全部统一前缀）。
+- [x] **技术栈**？→ **Rust 2021，MSRV 1.78**（详见 [`architecture.md`](architecture.md) §2）。`ccusage` 路线（Node/TS）和 Python 路线均放弃 —— Rust 更适合本地 CLI + binary 分发 + TUI 性能 + tokenizer 接入。
+- [x] **火焰图渲染**？→ **TUI + HTML + Speedscope 三栖**：terminal `ratatui` TUI（M1.5）+ HTML 静态报告（M1.6.4，`askama` 模板）+ Speedscope JSON（M1.6.4，`analyze --export speedscope` 可直接拖 speedscope.app）。Perfetto 暂不做（Speedscope 对 flame 场景更合适）。
+- [x] **是否做 OTLP receiver**？→ **是**，作为 **M2.2** 列入 Phase 2 工程化（详见 §6 Phase 2 + [`tasks/001-mvp-agent-token-profiler.md`](../tasks/001-mvp-agent-token-profiler.md) §11.2）。
+
+### 7.2 待回答（v0.2.0+ 范围）
+
+- [ ] SQLite schema 演进策略：单表 `analysis_reports` JSONB 还是规范化的 sessions/turns/tools 多表？（M2.1 brainstorming 入口决定）
+- [ ] OTLP receiver 监听拓扑：gRPC only（4317）还是 HTTP/protobuf 也开（4318）？认证策略？（M2.2 brainstorming 入口决定）
+- [ ] Web dashboard：纯静态 HTML 报告（已有）够用，还是要做 server 模式（实时刷新 + SQLite 后端）？（如做则 M2.3）
+- [ ] 是否要内置定价表，把 token-cost 翻译成 actual $？（M3.3 在 Phase 3 已列出，需先确定 SLA：每月手动 sync 还是 cron 自动）
+- [ ] `crates.io` 公开发布时机：等 v1.0.0 API 冻结，还是 v0.2.0 / v0.3.0 就开始 publish 占坑？
 
 ---
 
 ## 8. 下一步行动
 
-> **2026-06-03 更新**：MVP 8/8 shippable surface ≈ 98% (M1.1–M1.6.4 ✅; 剩 M1.7 v0.1.0 release) 已交付。MVP feature work 已完成；2026-06-03 M1.6.4 follow-up wave（8 cleanup commits `d87adec` → `766b8f0`）落地。剩 M1.7 v0.1.0 release。M1.6.5（MCP waste counts）+ M1.6.6（MCP waste token cost）属于增量增强，已在 0.1.x 内 ship。
+> **2026-06-09 更新**：v0.1.0 已 release，v0.1.x 增量（M1.6.5 + M1.6.6 + audit + docs sweep）累积 73 个 commit on main；M1.6.x 故事完整闭环。**当前位置**：v0.1.x main HEAD `d3467be`，下一站推 **v0.2.0 tag 或直接进 Phase 2 M2.1 SQLite**。
 
-**当前位置**：M1.6.4 ✅ ship 2026-06-02（tracing 基础设施）；M1.6.5 ✅ ship 2026-06-08（MCP server waste analysis, Phase 1 counts-only，ADR-0015）；**M1.6.6 ✅ ship 2026-06-08**（MCP waste token-cost view：`--tokens-per-tool` heuristic + `--tool-descriptions` sidecar 走 tiktoken 精确计数；3 个子命令 `analyze` / `aggregate` / `mcp-waste` 统一接入；TUI 5th view banner 2 行 + Tokens 列；[ADR-0016](internals/adr-0016-mcp-token-cost-architecture.md)）→ 下一步推荐：
+**当前位置**：
+- ✅ M1.7 v0.1.0 release（2026-06-08，cargo-dist 多平台 binary）
+- ✅ M1.6.5 MCP server waste analysis（[ADR-0015](internals/adr-0015-mcp-waste-architecture.md)）
+- ✅ M1.6.6 MCP waste token-cost view + tiktoken-rs 接入（[ADR-0016](internals/adr-0016-mcp-token-cost-architecture.md)）
+- ✅ Audit followup（A1 `WasteComputeContext::with_bpe` 性能 + B1-B4 正确性 + Windows CI cfg(unix)）
+- ✅ v0.1.x 文档全量同步（2026-06-09 doc sweep wave）
 
-> **2026-06-08 更新**：M1.6.5 + M1.6.6 ✅ ship. v0.1.x MCP waste 故事
-> （counts + token cost）已闭环；下一步推 v0.1.0 cut (M1.7) 或 v0.2.0
-> (OTLP / SQLite / Web dashboard) 或继续 Phase 3 (Claude / Codex
-> adapters)。
+**下一步推荐**（按 ROI 排序）：
 
-- **M1.7 v0.1.0 release**（推荐）：cargo-dist 多平台 binary + GitHub Release + CHANGELOG cut。走 `github-release` skill。
+1. **打 v0.2.0 tag**（小事，1 commit + 1 tag）：73 commits 已累积，cargo-dist 自动出 binary，CHANGELOG `[Unreleased]` → `[0.2.0] - 2026-MM-DD`，走 [`github-release`](../.github/skills/github-release/SKILL.md) skill
+2. **Phase 2 工程化**（中期，~2 周）：M2.1 SQLite 持久化 → M2.2 OTLP receiver；详见 [`tasks/001-mvp-agent-token-profiler.md`](../tasks/001-mvp-agent-token-profiler.md) §11.1–§11.2
+3. **Phase 3 扩展适配**（中期，每个 +3 天）：M3.1 ClaudeAdapter（覆盖最大用户群）+ M3.2 CodexAdapter；骨架已在，缺接入
 
-**进入下一个 milestone 入口**：走 9 阶段 pipeline 的 Stage 1（brainstorming）。在 `docs/superpowers/specs/` 写 `2026-XX-XX-m1.7-<topic>-design.md`。
+**进入下一个 milestone 入口**：走 9 阶段 pipeline 的 Stage 1（brainstorming）。在 `docs/superpowers/specs/` 写 `2026-XX-XX-m2.x-<topic>-design.md` 或 `2026-XX-XX-m3.x-<topic>-design.md`。
+
 
 **已 ship 里程碑的关键问题答复（历史档案）**：
 - ratatui 火焰图组件 → M1.5 选择手写 `Block + Paragraph + Constraint` 组合（ADR-0006）。
