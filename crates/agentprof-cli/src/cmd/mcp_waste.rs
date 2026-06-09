@@ -8,8 +8,14 @@
 //! `load_session → derive_episodes → analyze → compute_waste`
 //! (M2.1 T5.2.5: ever-loaded MCP tools now hang off `analyze`'s
 //! `AnalysisReport.loaded_mcp_tools`, so the previous explicit
-//! `extract_loaded_set_from_session` step is folded into `analyze`)
+//! `extract_loaded_set_from_session` step is folded into `analyze`;
+//! M2.1 T5.2.6: discovery + per-session analyze now flow through
+//! [`build_data_source`] so the `SQLite` cache short-circuits
+//! re-parsing when available — dual-path divergence warnings are
+//! drained to stderr after the loop unless `--quiet` is set)
 //! → `aggregate_waste` → render → stdout/file.
+//!
+//! [`build_data_source`]: agentprof_cli::data_source_factory::build_data_source
 //! T4.3 fills in the three renderers (`render_md`, `render_json`,
 //! `render_html`) — the HTML output is a self-contained document built
 //! from `templates/mcp_waste_full.html.jinja`.
@@ -151,25 +157,30 @@ fn expand_tilde(p: &std::path::Path) -> PathBuf {
 ///
 /// Implements the 7-stage `mcp-waste` pipeline:
 ///
-/// 1. Discover sessions via [`agentprof_adapters::copilot::CopilotAdapter`]
-///    under `--root` (defaults to `~/.copilot/session-state`).
-/// 2. Filter by `--since` window using `SessionRef::modified_at`
-///    (mirrors `aggregate`'s mtime-based filter).
-/// 3. Load `mcp.json` once (resolved via [`resolve_mcp_config_path`]);
+/// 1. Build a [`SessionDataSource`] via
+///    [`agentprof_cli::data_source_factory::build_data_source`]; on `--no-cache`
+///    or storage-open failure this degrades to an adapter-only source.
+///    Discover sessions under `--root` (defaults to
+///    `~/.copilot/session-state`) and filter by the `--since` window
+///    via [`SessionDataSource::discover`].
+/// 2. Load `mcp.json` once (resolved via [`resolve_mcp_config_path`]);
 ///    parse failures degrade silently to `None` so the CLI stays usable
 ///    on hosts without a Copilot MCP config.
-/// 4. For each surviving session, run
-///    `load_session → derive_episodes → analyze → compute_waste`
-///    (M2.1 T5.2.5: the ever-loaded MCP tool set is now carried by
-///    `AnalysisReport.loaded_mcp_tools`, populated by `analyze` via
-///    `Event::payload_loaded_mcp_tools` — the previous explicit
-///    `extract_loaded_set_from_session` step is no longer needed
-///    here). Per-session failures are warned to stderr (via
-///    `tracing::warn!`) and skipped, matching `aggregate`'s policy.
-/// 5. Cross-session aggregation via
+/// 3. For each surviving session, ask the data source for an
+///    [`agentprof_core::analyzer::AnalysisReport`] (the source either
+///    re-parses the live file or returns a cached row) then run
+///    `compute_waste` against it. The ever-loaded MCP tool set comes
+///    from `AnalysisReport.loaded_mcp_tools` (M2.1 T5.2.5), so no
+///    separate `Episodes`/raw-event pass is needed here. Per-session
+///    failures are warned to stderr (via `tracing::warn!`) and skipped,
+///    matching `aggregate`'s policy.
+/// 4. Cross-session aggregation via
 ///    [`agentprof_core::analyzer::aggregate_waste`].
-/// 6. Render (md / json / html — implemented in T4.3).
-/// 7. Write to `--output` or stdout.
+/// 5. Render (md / json / html).
+/// 6. Write to `--output` or stdout.
+/// 7. Drain accumulated dual-path divergence warnings to stderr (one
+///    line per affected session) unless `--quiet` is set — same
+///    contract as `cmd::list` (M2.1 T5.2).
 ///
 /// `_cfg` and `_tracing_handle` are accepted for signature uniformity
 /// with the other `cmd::*::run` entry points and are unused here today.
@@ -182,59 +193,74 @@ fn expand_tilde(p: &std::path::Path) -> PathBuf {
 /// #     root: Some("crates/agentprof-adapters/tests/fixtures/copilot".into()),
 /// #     since: "all".into(), top: 20, mcp_config: None,
 /// #     export: McpWasteExport::Md, output: None,
+/// #     tokens_per_tool: 200, tool_descriptions: None,
 /// # };
-/// // run(args, &cfg, &handle)?;
+/// // run(args, &cfg, &handle, /* no_cache */ false, /* storage_path */ None, /* quiet */ false)?;
 /// ```
 ///
 /// # Errors
 ///
 /// Returns an `anyhow::Error` whose downcast target is [`ExitKind`]:
 ///
-/// - [`ExitKind::UserError`] — invalid `--since`, or `mcp.json` override
-///   path that cannot be resolved.
+/// - [`ExitKind::UserError`] — invalid `--since`, `mcp.json` override
+///   path that cannot be resolved, or `build_data_source` rejected the
+///   agent name / storage config.
 /// - [`ExitKind::DataError`] — session discovery failed, no sessions
 ///   matched `--since`, or every discovered session failed to parse.
 /// - [`ExitKind::OutputError`] — writing to `--output` failed.
-#[allow(clippy::too_many_lines)] // single linear pipeline: discover → load → compute → render
+///
+/// [`SessionDataSource`]: agentprof_core::datasource::SessionDataSource
+/// [`SessionDataSource::discover`]: agentprof_core::datasource::SessionDataSource::discover
+#[allow(clippy::too_many_lines, clippy::needless_pass_by_value)] // single linear pipeline: discover → load → compute → render; sig mirrors `cmd::list::run`
 pub fn run(
     args: McpWasteArgs,
     _cfg: &LogConfig,
     _tracing_handle: &TracingHandle,
+    no_cache: bool,
+    storage_path: Option<PathBuf>,
+    quiet: bool,
 ) -> anyhow::Result<()> {
     use agentprof_adapters::copilot::{load_mcp_config, CopilotAdapter};
-    use agentprof_core::adapter::Adapter;
-    use agentprof_core::analyzer::{aggregate_waste, analyze, compute_waste};
-    use agentprof_core::episode::derive_episodes;
+    use agentprof_core::adapter::Adapter as _;
+    use agentprof_core::analyzer::{aggregate_waste, compute_waste};
 
-    // 1. Discover sessions (Copilot is the only adapter with MCP wire
-    //    data today; see spec §7.3).
-    let adapter = CopilotAdapter;
-    let root = args.root.unwrap_or_else(|| {
-        directories::BaseDirs::new().map_or_else(
-            || PathBuf::from(".copilot/session-state"),
-            |b| b.home_dir().join(".copilot").join("session-state"),
-        )
+    // 1. Discover sessions through the dual-path factory (M2.1 T5.2.6).
+    //    Copilot is still the only supported agent (spec §7.3); resolve
+    //    the default session-state root via `CopilotAdapter` so the
+    //    `~/.copilot/...` convention is owned by exactly one crate.
+    let root = args.root.clone().unwrap_or_else(|| {
+        CopilotAdapter
+            .default_session_root()
+            .unwrap_or_else(|| PathBuf::from(".copilot/session-state"))
     });
-    let sessions = adapter.discover_sessions(&root).map_err(|e| {
-        ExitKind::DataError.into_anyhow(format!(
-            "discovering sessions under {}: {e}",
-            root.display()
-        ))
-    })?;
+    let storage_cfg = agentprof_cli::config::resolve_storage_config(
+        agentprof_storage::config::PartialStorageConfig::default(),
+        storage_path,
+    )
+    .map_err(|e| ExitKind::UserError.into_anyhow(format!("storage config: {e}")))?;
+    let (ds, warnings_handle) = agentprof_cli::data_source_factory::build_data_source(
+        "copilot",
+        &root,
+        &storage_cfg,
+        no_cache,
+    )
+    .map_err(|e| ExitKind::UserError.into_anyhow(format!("{e}")))?;
 
-    // 2. Filter by --since mtime window (mirrors aggregate.rs).
+    // 2. Filter by --since via the data source (the underlying
+    //    AdapterDataSource still uses mtime; SqliteDataSource uses the
+    //    persisted `started_at`).
     let since_dur = parse_since(&args.since)
         .map_err(|msg| ExitKind::UserError.into_anyhow(format!("invalid --since: {msg}")))?;
-    let now = SystemTime::now();
-    let filtered: Vec<_> = sessions
-        .into_iter()
-        .filter(|s| {
-            now.duration_since(s.modified_at)
-                .map_or(true, |elapsed| elapsed <= since_dur)
-        })
-        .collect();
+    let filtered: Vec<agentprof_core::datasource::SessionRef> =
+        ds.discover(since_dur).map_err(|e| {
+            ExitKind::DataError.into_anyhow(format!(
+                "discovering sessions under {}: {e}",
+                root.display()
+            ))
+        })?;
 
     if filtered.is_empty() {
+        drain_and_emit_warnings(&warnings_handle, quiet);
         return Err(ExitKind::DataError.into_anyhow(format!(
             "no sessions matched --since {} under {}",
             args.since,
@@ -279,20 +305,20 @@ pub fn run(
         agentprof_core::analyzer::waste::build_bpe(agentprof_core::model::TokenizerKind::O200kBase)
             .map(std::sync::Arc::new);
 
-    // 4. Per session: load, derive episodes, analyze, compute_waste.
+    // 4. Per session: load (via data source — adapter or SQLite cache),
+    //    compute_waste. Episodes are NOT needed downstream here because
+    //    `compute_waste` only consumes `AnalysisReport`; the per-session
+    //    `loaded_mcp_tools` came along on the report itself (T5.2.5).
     let mut per_session: Vec<(
-        agentprof_core::adapter::SessionRef,
+        agentprof_core::datasource::SessionRef,
         agentprof_core::model::WasteReport,
     )> = Vec::with_capacity(filtered.len());
     let mut failed: usize = 0;
     for sref in &filtered {
         let result: Result<agentprof_core::model::WasteReport, anyhow::Error> = (|| {
-            let raw = adapter.load_session(sref)?;
-            let episodes = derive_episodes(&raw.events, &raw.meta);
-            let report = analyze(&episodes, &raw.meta, &raw.parse_warnings);
+            let report = ds.load_session(&sref.id)?;
             // M2.1 T5.2.5: ever-loaded MCP tool set now hangs off the
-            // analyzer report, so we no longer need to re-walk
-            // raw.events here. Borrowing keeps WasteComputeContext's
+            // analyzer report. Borrowing keeps WasteComputeContext's
             // &BTreeSet contract intact.
             let wire = &report.loaded_mcp_tools;
             // M1.6.6 T1.4 + T4.1 + audit B1: assemble the
@@ -335,6 +361,7 @@ pub fn run(
         }
     }
     if per_session.is_empty() {
+        drain_and_emit_warnings(&warnings_handle, quiet);
         return Err(
             ExitKind::DataError.into_anyhow(format!("all {failed} session(s) failed to parse"))
         );
@@ -349,7 +376,37 @@ pub fn run(
     }
 
     // 5. Cross-session aggregation.
-    let agg = aggregate_waste(&per_session);
+    //
+    //    `aggregate_waste` is keyed on the per-session `WasteReport`
+    //    alone; the `SessionRef` companion is only used for tagging
+    //    per-session provenance. Both the legacy
+    //    `agentprof_core::adapter::SessionRef` and the dual-path
+    //    `agentprof_core::datasource::SessionRef` expose a stable
+    //    `id` field, which is all `aggregate_waste` reads.
+    let agg = {
+        // Build the legacy `(adapter::SessionRef, WasteReport)` pairs
+        // that `aggregate_waste` expects. The synthesised ref carries
+        // only the id + a placeholder path; `aggregate_waste` does
+        // not read `path`/`modified_at`.
+        let pairs: Vec<(
+            agentprof_core::adapter::SessionRef,
+            agentprof_core::model::WasteReport,
+        )> = per_session
+            .iter()
+            .map(|(sref, w)| {
+                let legacy_ref = agentprof_core::adapter::SessionRef::new(
+                    sref.id.clone(),
+                    sref.agent,
+                    sref.raw_path.clone().unwrap_or_default(),
+                    SystemTime::UNIX_EPOCH,
+                    0,
+                    false,
+                );
+                (legacy_ref, w.clone())
+            })
+            .collect();
+        aggregate_waste(&pairs)
+    };
 
     // M1.6.6 T4.1 — build a tool_name → description_tokens lookup from
     // per-session WasteReports so the rendered "Always unused" table
@@ -384,7 +441,41 @@ pub fn run(
     } else {
         print!("{rendered}");
     }
+
+    // 8. Drain accumulated dual-path warnings (T5.2 contract).
+    drain_and_emit_warnings(&warnings_handle, quiet);
+
     Ok(())
+}
+
+/// Drain accumulated dual-path warnings from the shared handle and
+/// emit each one as a single `agentprof: warn: …` line on stderr.
+///
+/// Mirrors [`crate::cmd::list`]'s implementation so both commands
+/// surface divergences in the same format (M2.1 spec §7.3). A no-op
+/// when `quiet` is `true` or no divergences were collected (the typical
+/// `--no-cache` case).
+fn drain_and_emit_warnings(
+    handle: &agentprof_cli::data_source_factory::WarningsHandle,
+    quiet: bool,
+) {
+    let warnings = {
+        let mut guard = handle
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        std::mem::take(&mut *guard)
+    };
+    if quiet || warnings.is_empty() {
+        return;
+    }
+    for w in &warnings {
+        eprintln!(
+            "agentprof: warn: session {}: {} fields differ ({}); using adapter; will re-upsert",
+            w.session_id,
+            w.differing_fields.len(),
+            w.differing_fields.join(", "),
+        );
+    }
 }
 
 /// Render the aggregate waste report as Markdown.

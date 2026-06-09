@@ -302,14 +302,23 @@ agentprof mcp-waste --mcp-config ./mcp.json --export html --output waste.html
 | `--tokens-per-tool` | `200` | M1.6.6 — heuristic token cost per MCP tool when no sidecar covers a tool. Folded into Summary `≈X wasted tokens`, per-tool, and per-server columns. |
 | `--tool-descriptions` | _(none)_ | M1.6.6 — sidecar path (file or dir) with per-tool descriptions for exact token counts. Same on-disk schema as `analyze --tool-descriptions`. Loaded once outside the per-session loop. |
 
-Pipeline: `cmd::mcp_waste::run()` → load every session in the window via
-the adapter → per-session `agentprof_core::analyzer::compute_waste` →
-cross-session reduce via `aggregate_waste` → renderer dispatch
-(`md` / `json` / `html`). Failed sessions are surfaced as a stderr
-summary; the command still emits a report for the successful subset
-and exits `0`. The shared `resolve_mcp_config_path` helper is also
-consumed by `analyze --section mcp-waste` so the two surfaces agree
-on `~/` expansion and default path.
+Pipeline: `cmd::mcp_waste::run()` → build a
+[`SessionDataSource`](../agentprof-core/src/datasource.rs) via
+`crate::data_source_factory::build_data_source` (dual-path `adapter +
+SQLite` when storage opens cleanly and `--no-cache` is not set;
+adapter-only otherwise) → `ds.discover(since)` → per-session
+`ds.load_session(id)` (cache hit short-circuits adapter re-parse) →
+per-session `agentprof_core::analyzer::compute_waste` (reads
+`AnalysisReport.loaded_mcp_tools` directly per M2.1 T5.2.5; no separate
+`Episodes`/raw-event pass needed) → cross-session reduce via
+`aggregate_waste` → renderer dispatch (`md` / `json` / `html`). Failed
+sessions are surfaced as a stderr summary; the command still emits a
+report for the successful subset and exits `0`. Accumulated dual-path
+divergence warnings are drained to stderr after the loop unless the
+global `--quiet` flag is set (M2.1 T5.2.6). The shared
+`resolve_mcp_config_path` helper is also consumed by
+`analyze --section mcp-waste` so the two surfaces agree on `~/`
+expansion and default path.
 
 See spec
 [`docs/superpowers/specs/2026-06-08-m1.6.5-mcp-waste-design.md`](../../docs/superpowers/specs/2026-06-08-m1.6.5-mcp-waste-design.md)

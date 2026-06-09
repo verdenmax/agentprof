@@ -115,7 +115,9 @@ fn run(
         SubCmd::List(c) => cmd::list::run(c, cfg, tracing_handle, no_cache, storage_path, quiet),
         SubCmd::Aggregate(c) => cmd::aggregate::run(c, cfg, tracing_handle),
         SubCmd::Watch(c) => cmd::watch::run(c, cfg, tracing_handle),
-        SubCmd::McpWaste(c) => cmd::mcp_waste::run(c, cfg, tracing_handle),
+        SubCmd::McpWaste(c) => {
+            cmd::mcp_waste::run(c, cfg, tracing_handle, no_cache, storage_path, quiet)
+        }
     }
 }
 
