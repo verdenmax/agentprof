@@ -2,18 +2,36 @@
 //!
 //! `SQLite` persistence and (optional) OTLP telemetry receiver for **agentprof**.
 //!
-//! Depends only on [`agentprof-core`](../agentprof_core/index.html). The `SQLite`
-//! schema is normative in [`docs/architecture.md`](https://github.com/agentprof/agentprof/blob/main/docs/architecture.md#9-sqlite-schema)
-//! (§9); migrations under `src/sqlite/migrations/` must keep that schema in sync.
+//! Depends only on [`agentprof-core`](../agentprof_core/index.html). The
+//! `SQLite` schema is normative in
+//! [`docs/architecture.md`](https://github.com/agentprof/agentprof/blob/main/docs/architecture.md#9-sqlite-schema)
+//! §9; migrations under `src/sqlite/migrations/` must keep that schema in sync.
 //!
-//! ## Modules (planned)
+//! ## Modules
 //!
-//! - `sqlite::schema`     — DDL constants
-//! - `sqlite::migrations` — idempotent migrations executed on `Db::open`
-//! - `sqlite::queries`    — typed accessors
-//! - `otlp` (feature `otlp`) — Tonic-based OpenTelemetry receiver
+//! - [`config`] — [`StorageConfig`](config::StorageConfig) /
+//!   [`StorageMode`](config::StorageMode) (M2.1 T2.2)
+//! - [`error`]  — [`SqliteError`] for all fallible APIs in this crate
+//! - `sqlite::*` (planned, M2.1 T2.3+) — `Db` handle, migrations, typed queries
+//! - `otlp` (planned, feature `otlp`) — Tonic-based OpenTelemetry receiver
 //!
 //! ## Features
 //!
 //! - `otlp` (off by default) — enables the OTLP receiver used by
 //!   `agentprof ingest-otlp`.
+//! - `progress` (off by default) — enables the CLI ingest progress bar.
+//!
+//! ## Examples
+//!
+//! ```
+//! use agentprof_storage::config::StorageConfig;
+//! let cfg = StorageConfig::default();
+//! println!("DB will live at {}", cfg.path.display());
+//! ```
+
+#![warn(missing_docs)]
+
+pub mod config;
+pub mod error;
+
+pub use error::SqliteError;

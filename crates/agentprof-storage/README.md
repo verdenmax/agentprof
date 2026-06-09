@@ -11,6 +11,20 @@
 > dependency wiring (`rusqlite` bundled + optional OTLP stack) compiles end-to-end
 > and so the `storage:` CHANGELOG prefix is reserved.
 
+## Status — M2.1 in progress (v0.2.0)
+
+Phase 2 SQLite work has begun. As of M2.1 T2.2 the crate exposes its first
+real public surface:
+
+- [`config::StorageConfig`] / [`config::StorageMode`] — hybrid `cache` vs
+  `store` configuration with XDG-aware path resolution.
+- [`SqliteError`] — `thiserror`-based error type covering `rusqlite`,
+  migrations, I/O, config-path and serde failures.
+
+Subsequent T2.x tasks will land the `Db` handle, migrations and typed query
+modules. A full README rewrite is scheduled for **T8.2** at the end of M2.1;
+the "STUB CRATE" notice above will be removed then.
+
 ## Position in the agentprof architecture
 
 Depends only on `agentprof-core`. *Will* provide durable storage for analysis
