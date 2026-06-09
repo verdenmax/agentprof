@@ -35,7 +35,7 @@ use agentprof_adapters::AdapterDataSource;
 use agentprof_cli::config::resolve_storage_config;
 use agentprof_core::adapter::{Adapter as _, SessionRef as AdapterRef};
 use agentprof_storage::config::PartialStorageConfig;
-use agentprof_storage::upsert::upsert_report;
+use agentprof_storage::upsert::{upsert_episodes, upsert_report};
 use agentprof_storage::Db;
 
 use crate::cmd::exit::ExitKind;
@@ -82,7 +82,7 @@ pub struct IngestArgs {
 ///   or if every single discovered session fails to ingest
 ///   (100 % failure rate; M2.1 audit P1-4). Partial failures still
 ///   exit `0` with the per-session counts logged to stderr.
-#[allow(clippy::needless_pass_by_value)]
+#[allow(clippy::needless_pass_by_value, clippy::too_many_lines)]
 pub fn run(args: IngestArgs, storage_path: Option<PathBuf>) -> Result<()> {
     if args.agent != "copilot" {
         return Err(ExitKind::UserError.into_anyhow(format!(
@@ -161,8 +161,32 @@ pub fn run(args: IngestArgs, storage_path: Option<PathBuf>) -> Result<()> {
         match ds.load_session_by_ref(sref) {
             Ok(report) => {
                 let now_secs = chrono::Utc::now().timestamp();
+                // M2.1.1 T5.3: also load + upsert episodes per session.
+                // load_episodes_by_ref keeps the loop O(N) (the T3.2
+                // bypass mirror of load_session_by_ref); failure is
+                // non-fatal — store empty Episodes so the row's
+                // episodes_json holds the migration-default '{}' blob.
+                let episodes = ds.load_episodes_by_ref(sref).unwrap_or_else(|e| {
+                    tracing::warn!(
+                        session = %id,
+                        error = %e,
+                        "load_episodes_by_ref failed; storing empty Episodes"
+                    );
+                    agentprof_core::episode::Episodes::default()
+                });
                 match upsert_report(&mut db, &report, raw_path, now_secs) {
-                    Ok(_) => ok += 1,
+                    Ok(_) => {
+                        if let Err(e) =
+                            upsert_episodes(&mut db, &report.meta.id, &episodes, now_secs)
+                        {
+                            tracing::warn!(
+                                session = %report.meta.id,
+                                error = %e,
+                                "upsert_episodes failed; sessions row still written"
+                            );
+                        }
+                        ok += 1;
+                    }
                     Err(e) => {
                         tracing::error!(session = %id, error = %e, "upsert failed");
                         fail += 1;
