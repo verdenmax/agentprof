@@ -327,6 +327,36 @@ See spec
 for the architecture (data-source provenance, sort order, the
 "shipped without `tui` export" decision).
 
+## `db` subcommand family (M2.1 T6)
+
+Lifecycle and inspection commands for the SQLite cache introduced in
+M2.1. All six actions honor the global `--storage-path` flag so they
+can be pointed at a per-invocation DB file (essential for hermetic
+integration tests after the T5.x cache-pollution fix).
+
+```sh
+agentprof db init                                     # create + migrate
+agentprof db stats [--export table|json]              # default: table
+agentprof db ingest --agent copilot --all             # or --since 7d / --session ID
+agentprof db prune  --before 30d [--dry-run]          # FK CASCADE deletes children
+agentprof db vacuum                                   # reclaim free pages; prints before/after
+agentprof db export <SESSION_ID> [--format json|jsonl] [--output PATH]
+```
+
+| Action | Key flags | Notes |
+|---|---|---|
+| `init`   | — | Idempotent; creates parent dirs as needed. |
+| `stats`  | `--export {table,json}` | Reads `page_count * page_size` for size; `oldest_started`/`newest_started` rendered as RFC3339 / `-`. |
+| `ingest` | `--agent` + one of `--since`/`--all`/`--session` (required group) | Per-session failures logged via `tracing` + counted; overall exit `0`. Uses [`AdapterDataSource`](../agentprof-adapters/src/datasource.rs) directly (no dual-path read fan-out — this is a pure write). |
+| `prune`  | `--before <DUR>` `--dry-run` | Returns count matched/deleted. Cascades to `tools_loaded` / `turn_buckets` via FK `ON DELETE CASCADE`. |
+| `vacuum` | — | Prints `before=N bytes after=M bytes`. In-memory DBs always report `0/0` (SQLite quirk). |
+| `export` | `<SESSION_ID>` `--format` `--output` | `json` = single pretty-printed `AnalysisReport`; `jsonl` = one `{"<key>": <value>}` line per top-level report field. Unknown id → exit `1`. |
+
+Integration tests in [`tests/cli_db.rs`](tests/cli_db.rs) cover all
+six actions plus prune cascade and ingest arg-group validation.
+Every test pins `--storage-path <tempdir>/test.sqlite` per the
+post-T5.x hermeticity requirement.
+
 ## Public interface
 
 This crate produces a binary, not a library. The user-facing protocol is the CLI itself:

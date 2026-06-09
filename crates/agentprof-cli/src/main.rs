@@ -81,6 +81,9 @@ enum SubCmd {
     Watch(cmd::watch::WatchCmd),
     /// Cross-session MCP server waste analysis (M1.6.5).
     McpWaste(cmd::mcp_waste::McpWasteArgs),
+    /// Database lifecycle and inspection: `init` / `stats` / `ingest`
+    /// / `prune` / `vacuum` / `export` (M2.1 T6).
+    Db(cmd::db::DbArgs),
 }
 
 fn main() -> ExitCode {
@@ -118,6 +121,7 @@ fn run(
         SubCmd::McpWaste(c) => {
             cmd::mcp_waste::run(c, cfg, tracing_handle, no_cache, storage_path, quiet)
         }
+        SubCmd::Db(c) => cmd::db::run(c, storage_path),
     }
 }
 
