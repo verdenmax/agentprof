@@ -1,0 +1,17 @@
+---
+source: crates/agentprof-cli/tests/cli_nocache_compat.rs
+expression: stdout
+---
+ID                         Started               Model              Turns  Out-tokens  Duration  Size
+with-mcp-waste             2026-06-08 10:00 UTC  gpt-5-mini         1      3           0ms       2.6k
+with-session-shutdown      2026-06-03 10:00 UTC  -                  1      0           0ms       2.2k
+with-ask-user-mid-session  2026-06-03 10:00 UTC  gpt-5-mini         3      32          10.5m     6.0k
+orphan-skill-mix           2026-06-03 10:00 UTC  gpt-5-mini         1      10          0ms       3.3k
+two-skills-one-turn        2026-06-02 10:00 UTC  gpt-5-mini         1      18          0ms       4.0k
+tool-and-skill-same-turn   2026-06-01 10:00 UTC  gpt-5-mini         2      25          10.0s     4.6k
+multi-sess-c               2026-05-31 12:00 UTC  claude-sonnet-4.6  3      52          8.0s      6.2k
+multi-sess-b               2026-05-30 11:00 UTC  gpt-5              1      15          0ms       3.1k
+multi-sess-a               2026-05-29 10:00 UTC  gpt-5              2      30          5.0s      4.7k
+with-span-overlap          2026-05-31 13:00 UTC  gpt-5-mini         1      20          0ms       3.2k
+
+(10 of 22 sessions shown; --since=9999d --limit=10)

@@ -1,0 +1,26 @@
+---
+source: crates/agentprof-cli/tests/cli_nocache_compat.rs
+expression: stdout
+---
+# agentprof aggregate
+
+- By: tool
+- Window: 239976.0 h
+- Sessions: 22
+- Total wall-clock time: 14.5 min
+
+## By tool
+
+| Tool | Source | Calls | Success | Fail | Total | p50 | p95 | Sessions |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| `ask_user` | builtin | 1 | 1 | 0 | 10.0 min | 10.0 min | 10.0 min | 1 |
+| `bash` | builtin | 16 | 14 | 2 | 20.7 s | 1.0 s | 3.0 s | 12 |
+| `mcp__filesystem__read_file` | mcp:filesystem | 2 | 1 | 1 | 2.0 s | 1.0 s | 1.0 s | 2 |
+| `mcp__github__create_pr` | mcp:github | 1 | 1 | 0 | 2.0 s | 2.0 s | 2.0 s | 1 |
+| `mcp__github__list_pulls` | mcp:github | 1 | 1 | 0 | 2.0 s | 2.0 s | 2.0 s | 1 |
+| `skill__code-reviewer__run` | skill:code-reviewer | 2 | 2 | 0 | 2.0 s | 1.0 s | 1.0 s | 2 |
+| `str_replace_editor` | builtin | 2 | 2 | 0 | 2.0 s | 1.0 s | 1.0 s | 2 |
+| `mcp__github__search_issues` | mcp:github | 1 | 1 | 0 | 1.0 s | 1.0 s | 1.0 s | 1 |
+| `skill__git-flow__release` | skill:git-flow | 1 | 1 | 0 | 1.0 s | 1.0 s | 1.0 s | 1 |
+| `skill__synthetic__example` | skill:synthetic | 1 | 1 | 0 | 1.0 s | 1.0 s | 1.0 s | 1 |
+| `<orphan>` | builtin | 3 | 0 | 0 | 0 ms | 0 ms | 0 ms | 3 |
