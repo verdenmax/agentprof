@@ -448,9 +448,17 @@ db <SUBCOMMAND>                                # ✅ M2.1 (v0.2.0)
                                Show mode / path / file size / row counts / oldest+newest
       ingest --agent X (--all | --since DUR | --session ID)
                                Batch-import sessions into the DB; per-session
-                               failures logged via tracing + counted (exit 0).
-                               Uses AdapterDataSource directly (pure write — no
-                               dual-path read fan-out).
+                               failures logged via tracing + counted. Exits 0
+                               on partial success (at least one session
+                               upserted), **2 (DataError) on full failure**
+                               — all discovered sessions failed (M2.1 audit
+                               P1-4). Uses AdapterDataSource directly (pure
+                               write — no dual-path read fan-out); per
+                               P1-3 it calls
+                               `AdapterDataSource::load_session_by_ref` on
+                               the AdapterRefs already in hand from one
+                               up-front `discover`, so cost is O(N) not
+                               O(N²).
       prune --before DUR [--dry-run]
                                Delete sessions older than N days; FK CASCADE drops
                                tools_loaded / turn_buckets rows. --dry-run = preview.
