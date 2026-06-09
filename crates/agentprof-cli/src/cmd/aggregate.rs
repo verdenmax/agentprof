@@ -386,6 +386,19 @@ pub fn compute_aggregate(
             } else {
                 None
             };
+            // M1.6.6 audit A1: build each BPE encoder at most once per
+            // command (there are only two tokenizer variants), share via
+            // Arc so every per-session WasteComputeContext reuses the
+            // same encoder instead of re-parsing ~100–200k merge-table
+            // lines per session.
+            let bpe_cl100k = agentprof_core::analyzer::waste::build_bpe(
+                agentprof_core::model::TokenizerKind::Cl100kBase,
+            )
+            .map(std::sync::Arc::new);
+            let bpe_o200k = agentprof_core::analyzer::waste::build_bpe(
+                agentprof_core::model::TokenizerKind::O200kBase,
+            )
+            .map(std::sync::Arc::new);
             let waste_per_report: Vec<agentprof_core::model::WasteReport> = reports
                 .iter()
                 .zip(events_vec.iter())
@@ -406,6 +419,14 @@ pub fn compute_aggregate(
                         agentprof_core::analyzer::waste::WasteComputeContext::new(&wire)
                             .with_tokenizer(tokenizer)
                             .with_heuristic(cmd.tokens_per_tool);
+                    let shared_bpe = match tokenizer {
+                        agentprof_core::model::TokenizerKind::Cl100kBase => bpe_cl100k.as_ref(),
+                        agentprof_core::model::TokenizerKind::O200kBase => bpe_o200k.as_ref(),
+                        _ => None,
+                    };
+                    if let Some(b) = shared_bpe {
+                        waste_ctx = waste_ctx.with_bpe(b.clone());
+                    }
                     if let Some(c) = config_loaded.as_ref() {
                         waste_ctx = waste_ctx.with_config(c);
                     }

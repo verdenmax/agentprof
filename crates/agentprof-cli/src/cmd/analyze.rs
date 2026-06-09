@@ -259,9 +259,17 @@ pub fn run(
             None
         };
 
+        // M1.6.6 audit A1: build the tokenizer once per command, share via
+        // Arc so per-session contexts reuse the same encoder instead of
+        // re-parsing the embedded merge table each call.
+        let bpe = agentprof_core::analyzer::waste::build_bpe(tokenizer).map(std::sync::Arc::new);
+
         let mut waste_ctx = agentprof_core::analyzer::waste::WasteComputeContext::new(&wire_loaded)
             .with_tokenizer(tokenizer)
             .with_heuristic(cmd.tokens_per_tool);
+        if let Some(b) = bpe.as_ref() {
+            waste_ctx = waste_ctx.with_bpe(b.clone());
+        }
         if let Some(c) = config_loaded.as_ref() {
             waste_ctx = waste_ctx.with_config(c);
         }

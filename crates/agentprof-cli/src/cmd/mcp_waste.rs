@@ -262,6 +262,18 @@ pub fn run(
         None
     };
 
+    // M1.6.6 audit A1: build each BPE encoder at most once per command
+    // (only two variants) and share via Arc — re-parsing the embedded
+    // merge table for every session in a 100-session run was ~5 s + GBs
+    // of allocate-drop.
+    let bpe_cl100k = agentprof_core::analyzer::waste::build_bpe(
+        agentprof_core::model::TokenizerKind::Cl100kBase,
+    )
+    .map(std::sync::Arc::new);
+    let bpe_o200k =
+        agentprof_core::analyzer::waste::build_bpe(agentprof_core::model::TokenizerKind::O200kBase)
+            .map(std::sync::Arc::new);
+
     // 4. Per session: load, derive episodes, analyze, compute_waste.
     let mut per_session: Vec<(
         agentprof_core::adapter::SessionRef,
@@ -286,6 +298,14 @@ pub fn run(
             let mut waste_ctx = agentprof_core::analyzer::waste::WasteComputeContext::new(&wire)
                 .with_tokenizer(tokenizer)
                 .with_heuristic(args.tokens_per_tool);
+            let shared_bpe = match tokenizer {
+                agentprof_core::model::TokenizerKind::Cl100kBase => bpe_cl100k.as_ref(),
+                agentprof_core::model::TokenizerKind::O200kBase => bpe_o200k.as_ref(),
+                _ => None,
+            };
+            if let Some(b) = shared_bpe {
+                waste_ctx = waste_ctx.with_bpe(b.clone());
+            }
             if let Some(c) = cfg_map.as_ref() {
                 waste_ctx = waste_ctx.with_config(c);
             }

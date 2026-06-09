@@ -13,6 +13,7 @@
 //! (M1.6.6) for design decisions.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use tiktoken_rs::CoreBPE;
 
@@ -119,6 +120,16 @@ pub struct WasteComputeContext<'a> {
     pub heuristic_tokens_per_tool: u64,
     /// Which `tiktoken-rs` encoding to use for sidecar JSON.
     pub tokenizer: TokenizerKind,
+    /// Pre-built BPE encoder, shared across many `compute_waste` calls.
+    ///
+    /// When `Some`, [`compute_waste`] reuses this encoder rather than
+    /// re-building `cl100k_base()` / `o200k_base()` per call (~50 ms +
+    /// tens of MB allocate-drop each time). CLI driver code constructs
+    /// one [`Arc<CoreBPE>`] per invocation (via [`build_bpe`]) and
+    /// hands it to every per-session context via [`Self::with_bpe`].
+    /// When `None`, `compute_waste` falls back to per-call construction
+    /// (preserving the single-session ergonomic path).
+    pub bpe: Option<Arc<CoreBPE>>,
 }
 
 impl<'a> WasteComputeContext<'a> {
@@ -144,6 +155,7 @@ impl<'a> WasteComputeContext<'a> {
             sidecar: None,
             heuristic_tokens_per_tool: DEFAULT_HEURISTIC_TOKENS,
             tokenizer: TokenizerKind::Cl100kBase,
+            bpe: None,
         }
     }
 
@@ -176,6 +188,67 @@ impl<'a> WasteComputeContext<'a> {
     pub const fn with_tokenizer(mut self, tokenizer: TokenizerKind) -> Self {
         self.tokenizer = tokenizer;
         self
+    }
+
+    /// Attach a pre-built BPE encoder, shared across many sessions.
+    ///
+    /// Building `cl100k_base()` / `o200k_base()` parses ~100–200k lines
+    /// of embedded merge tables and compiles a regex — ~50 ms + tens
+    /// of MB allocate-drop per invocation. In aggregate / mcp-waste
+    /// workflows (N sessions in a loop) the CLI should call
+    /// [`build_bpe`] once per command, wrap the result in
+    /// [`Arc<CoreBPE>`], and pass `bpe.clone()` to every per-session
+    /// context. The encoder is referenced read-only inside
+    /// [`compute_waste`], so cloning the [`Arc`] is the cheap path.
+    ///
+    /// When this is *not* set, [`compute_waste`] falls back to
+    /// per-call construction — convenient for the single-session
+    /// `analyze` path, but quadratic for batch commands.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::BTreeSet;
+    /// use std::sync::Arc;
+    /// use agentprof_core::analyzer::waste::{build_bpe, WasteComputeContext};
+    /// use agentprof_core::model::TokenizerKind;
+    ///
+    /// let wire = BTreeSet::new();
+    /// if let Some(bpe) = build_bpe(TokenizerKind::Cl100kBase) {
+    ///     let bpe = Arc::new(bpe);
+    ///     let ctx = WasteComputeContext::new(&wire).with_bpe(bpe.clone());
+    ///     assert!(ctx.bpe.is_some());
+    /// }
+    /// ```
+    #[must_use]
+    pub fn with_bpe(mut self, bpe: Arc<CoreBPE>) -> Self {
+        self.bpe = Some(bpe);
+        self
+    }
+}
+
+/// Build a [`CoreBPE`] encoder for the given [`TokenizerKind`].
+///
+/// Returns `None` only on the unlikely embedded-asset failure (memory
+/// exhaustion in practice). Intended for CLI driver code that wants to
+/// build one encoder per invocation and share it across many
+/// [`WasteComputeContext`]s via [`WasteComputeContext::with_bpe`] —
+/// avoids the per-call ~50 ms + tens-of-MB reconstruction cost when
+/// looping over many sessions.
+///
+/// # Examples
+///
+/// ```
+/// use agentprof_core::analyzer::waste::build_bpe;
+/// use agentprof_core::model::TokenizerKind;
+///
+/// let _bpe = build_bpe(TokenizerKind::Cl100kBase);
+/// ```
+#[must_use]
+pub fn build_bpe(kind: TokenizerKind) -> Option<CoreBPE> {
+    match kind {
+        TokenizerKind::O200kBase => tiktoken_rs::o200k_base().ok(),
+        TokenizerKind::Cl100kBase => tiktoken_rs::cl100k_base().ok(),
     }
 }
 
@@ -353,16 +426,21 @@ pub fn compute_waste(report: &AnalysisReport, ctx: &WasteComputeContext) -> Wast
         }
     }
 
-    // Step 3: build the tokenizer once and compute per-tool token cost.
+    // Step 3: build (or reuse) the tokenizer and compute per-tool token cost.
     //
-    // `cl100k_base()` / `o200k_base()` load embedded constants and only
-    // fail on memory exhaustion in practice; on the unlikely error we
-    // fall back to heuristic-only mode (no sidecar lookups), which keeps
+    // Fast path: `ctx.bpe` carries an `Arc<CoreBPE>` pre-built by the
+    // CLI driver (one per command, shared across all sessions in a
+    // batch). Slow path: re-build per call — `cl100k_base()` /
+    // `o200k_base()` load embedded constants and only fail on memory
+    // exhaustion in practice; on the unlikely error we fall back to
+    // heuristic-only mode (no sidecar lookups), which keeps
     // `compute_waste` infallible while still producing meaningful counts.
-    let bpe = match ctx.tokenizer {
-        TokenizerKind::O200kBase => tiktoken_rs::o200k_base().ok(),
-        TokenizerKind::Cl100kBase => tiktoken_rs::cl100k_base().ok(),
+    let owned_bpe: Option<CoreBPE> = if ctx.bpe.is_none() {
+        build_bpe(ctx.tokenizer)
+    } else {
+        None
     };
+    let bpe: Option<&CoreBPE> = ctx.bpe.as_deref().or(owned_bpe.as_ref());
 
     let mut by_server: BTreeMap<String, Vec<McpToolWaste>> = BTreeMap::new();
     let mut sidecar_hits: usize = 0;
@@ -375,7 +453,7 @@ pub fn compute_waste(report: &AnalysisReport, ctx: &WasteComputeContext) -> Wast
             .and_then(|m| m.get(short))
             .copied()
             .unwrap_or(0);
-        let (description_tokens, token_source) = bpe.as_ref().map_or(
+        let (description_tokens, token_source) = bpe.map_or(
             (ctx.heuristic_tokens_per_tool, TokenSource::Heuristic),
             |b| {
                 compute_token_cost_for_tool(
@@ -1114,5 +1192,59 @@ mod tests {
             "exact count {n} should be smaller than heuristic 200"
         );
         assert_eq!(src, crate::model::TokenSource::SidecarExact);
+    }
+
+    // -- M1.6.6 audit A1: shared-BPE fast path matches per-call slow path --
+
+    #[test]
+    fn build_bpe_returns_some_for_both_kinds() {
+        assert!(build_bpe(TokenizerKind::Cl100kBase).is_some());
+        assert!(build_bpe(TokenizerKind::O200kBase).is_some());
+    }
+
+    #[test]
+    fn compute_waste_with_bpe_matches_without_bpe() {
+        // Construct a report with a sidecar hit so the BPE actually gets
+        // exercised (heuristic-only would never call `encode_ordinary`).
+        let wire: BTreeSet<String> = ["mcp__github__search"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let report = empty_report();
+
+        let mut entries = BTreeMap::new();
+        entries.insert(
+            "mcp__github__search".into(),
+            FakeEntry {
+                name: "search".into(),
+                description: "Find issues".into(),
+            },
+        );
+        let sidecar = FakeSidecar(entries);
+
+        // Slow path: ctx builds BPE inline per call.
+        let ctx_inline = WasteComputeContext::new(&wire).with_sidecar(&sidecar);
+        let r_inline = compute_waste(&report, &ctx_inline);
+
+        // Fast path: caller supplies a pre-built Arc<CoreBPE>.
+        let shared = Arc::new(build_bpe(TokenizerKind::Cl100kBase).unwrap());
+        let ctx_shared = WasteComputeContext::new(&wire)
+            .with_sidecar(&sidecar)
+            .with_bpe(shared);
+        let r_shared = compute_waste(&report, &ctx_shared);
+
+        assert_eq!(
+            r_inline.total_loaded_tokens, r_shared.total_loaded_tokens,
+            "shared-BPE fast path must produce identical token counts"
+        );
+        assert_eq!(r_inline.server_waste.len(), r_shared.server_waste.len());
+        assert_eq!(
+            r_inline.server_waste[0].tools[0].description_tokens,
+            r_shared.server_waste[0].tools[0].description_tokens
+        );
+        assert_eq!(
+            r_inline.server_waste[0].tools[0].token_source,
+            r_shared.server_waste[0].tools[0].token_source
+        );
     }
 }
