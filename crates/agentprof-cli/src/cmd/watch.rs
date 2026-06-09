@@ -213,18 +213,20 @@ fn run_single(
     let initial = load_single(&adapter, &sref)
         .map_err(|e| ExitKind::DataError.into_anyhow(format!("initial load: {e:#}")))?;
 
-    // M2.1 T5.3 — open ONE `Db` connection for the whole watch session
-    // (per spec §10.2: long-lived handle, NOT per-refresh re-open) and
-    // hold it as `_db_guard` so it stays alive until `run_single`
-    // returns. Per spec §8 we do NOT write on every refresh tick (would
-    // cause high-freq disk churn); instead we flush the initial report
-    // exactly once so the session id is persisted at watch start.
+    // M2.1 T5.3 — open ONE `Db` connection at watch start, write the
+    // initial report through it, and **drop it immediately**. Per spec
+    // §8 we do NOT write on every refresh tick (would cause high-freq
+    // disk churn), so once the initial upsert is flushed the long-
+    // lived handle has no further work — holding it would only keep
+    // the SQLite WAL lock alive for the rest of the watch session for
+    // no reason. The audit (M2.1 audit P1-2) caught the bug: an
+    // earlier draft bound the handle to `_db_guard` so it lived for
+    // the whole `run_single`, blocking concurrent `db ingest` from
+    // another shell.
     //
-    // Failures are downgraded to `tracing::warn!`: storage hiccups must
-    // never block the interactive TUI.
-    let _db_guard = if no_cache {
-        None
-    } else {
+    // Failures are downgraded to `tracing::warn!`: storage hiccups
+    // must never block the interactive TUI.
+    if !no_cache {
         match agentprof_cli::config::resolve_storage_config(
             agentprof_storage::config::PartialStorageConfig::default(),
             storage_path,
@@ -242,25 +244,24 @@ fn run_single(
                             );
                         }
                     }
-                    Some(db)
+                    // `db` drops here — release the WAL lock now that
+                    // the one and only write we owe is flushed.
                 }
                 Err(e) => {
                     tracing::warn!(
                         error = %e,
-                        "watch storage open failed; long-lived conn skipped"
+                        "watch storage open failed; initial write-through skipped"
                     );
-                    None
                 }
             },
             Err(e) => {
                 tracing::warn!(
                     error = %e,
-                    "watch storage config resolution failed; long-lived conn skipped"
+                    "watch storage config resolution failed; initial write-through skipped"
                 );
-                None
             }
         }
-    };
+    }
 
     // mpsc channel between debouncer-thread → runner.
     let (tx, rx) = channel::<RefreshKind>();
