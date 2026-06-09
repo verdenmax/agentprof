@@ -34,3 +34,5 @@ pub mod error;
 pub mod export;
 pub mod model;
 pub mod observability;
+
+pub use datasource::{DataSourceError, SessionDataSource, SessionRef};
