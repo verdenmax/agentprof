@@ -13,6 +13,88 @@ prefix used in commit messages).
 
 ## [Unreleased]
 
+### Removed
+
+- **agentprof-cli (M2.1 audit P1-1):** Deleted dead `ReUpsertFn` /
+  `DualPathDataSource::new_with_reupsert` / `re_upsert` field /
+  `merge_refs` callback fan-out / and the
+  `re_upsert_callback_fires_on_diverging_session` test. The async
+  re-upsert design shipped in M2.1 T4.2 was never wired up by the
+  data-source factory, and detached threads at the tail of a
+  one-shot CLI invocation are killed at process exit anyway. Proper
+  async refresh deferred to M2.1.1. See ADR-0018 §Behaviour
+  rolled-back note + `crates/agentprof-cli/src/data_source.rs`
+  module docs.
+
+### Fixed
+
+- **agentprof-cli, watch (M2.1 audit P1-2):** `cmd::watch` no longer
+  holds the SQLite `Db` connection open for the entire `run_single`
+  lifetime. The handle is now dropped immediately after the initial
+  upsert, releasing the WAL lock so concurrent `agentprof db
+  ingest` from another shell can write while a watch session is
+  attached. Per spec §8 watch performs no further writes after the
+  initial flush, so the long-lived handle was idle dead weight.
+- **agentprof-adapters, agentprof-cli (M2.1 audit P1-3):** `db
+  ingest` was O(N²) — `AdapterDataSource::load_session(id)`
+  re-scanned the entire session root on every call. New
+  `AdapterDataSource::load_session_by_ref(&AdapterRef)` skips the
+  rescan; the CLI's ingest loop now calls it directly with the
+  `AdapterRef`s it already holds from its one up-front `discover`.
+  For 100 sessions this cuts 10,000 first-line reads down to 100.
+- **agentprof-cli, db (M2.1 audit P1-4):** `db ingest` now exits **2
+  (`ExitKind::DataError`)** when 100 % of discovered sessions fail
+  to upsert, instead of silently exit 0. Partial failures (some ok)
+  still exit 0 — the user got *some* of what they asked for and
+  per-session errors are already on stderr.
+- **agentprof-storage (M2.1 audit P1-5 + P2-1):**
+  `SqliteDataSource::{discover, load_session}` recover from a
+  poisoned mutex via `PoisonError::into_inner` (matching the
+  `drain_warnings` style elsewhere in the codebase) instead of
+  synthesising a misleading `SqliteError::ConfigPath { kind:
+  "mutex", … }`. The `poisoned_mutex_err` helper is gone;
+  `SqliteError::ConfigPath` is no longer abused for non-config-path
+  failures.
+
+### Changed
+
+- **agentprof-storage (M2.1 audit P2-2):** `admin::*` and
+  `query::*` migrated from `Db::conn_for_test()` to the existing
+  `pub(crate) Db::conn()`. `conn_for_test` retained for external
+  integration tests (where `pub(crate)` isn't reachable) but its
+  rustdoc now spells out the contract and points production callers
+  at `conn()`.
+- **agentprof-storage (M2.1 audit P2-4):** `query::parse_agent`
+  elevated the "unknown agent string" fallback log from
+  `tracing::warn!` to `tracing::error!` (visible by default) and
+  added a TODO + rustdoc explaining why the soft-fail policy
+  (panicking mid-listing is worse) stays until M2.1.1 introduces a
+  proper `AgentKind::Unknown(String)` variant.
+
+### Tests
+
+- **agentprof-cli (M2.1 audit P2-5):** Renamed
+  `tests/cli_nocache_compat.rs` → `tests/cli_nocache_regression.rs`
+  (and the two `insta` snapshot files alongside). The previous name
+  implied a "v0.1.x baseline lock" which was never accurate — the
+  snapshots were captured in M2.1 T7.1. Module doc rewritten to
+  describe the actual purpose: catch accidental regressions in the
+  single-path `--no-cache` output during dual-path refactors.
+
+### Docs
+
+- **agentprof-storage (M2.1 audit P2-3):** Fixed broken ADR link in
+  `crates/agentprof-storage/src/config.rs` module doc —
+  `adr-0018-storage-hybrid.md` (does not exist) →
+  `adr-0019-hybrid-storage-mode.md` (correct ADR).
+- **ADR-0018 (M2.1 audit P2-6):** Added "Known issue" footer
+  documenting that `SessionRef::new`'s 6-positional-arg constructor
+  is typo-prone (three `Option<…>` middle args), why obvious fixes
+  (`Default` impl / builder) are blocked today, and that the proper
+  redesign is deferred to M2.1.1.
+- **ADR-0018**: 'Behaviour' rewritten to mark the async re-upsert
+  design as rolled-back per audit P1-1.
+
 ### Added
 
 - **M2.1 SQLite persistence layer** (Phase 2 entry). Activates the
