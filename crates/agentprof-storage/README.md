@@ -37,6 +37,9 @@ real public surface:
   `agentprof_core::datasource::SessionDataSource`; wraps a shared
   `Arc<Mutex<Db>>` and maps `QueryReturnedNoRows` → `DataSourceError::NotFound`,
   other `SqliteError`s → `DataSourceError::Storage { source: "sqlite", … }`.
+- [`admin::stats`] / [`admin::prune_before`] / [`admin::vacuum`] /
+  [`admin::export_session_json`] (M2.1 T2.7) — DB-admin helpers backing
+  the `agentprof db {stats|prune|vacuum|export}` subcommands.
 
 Subsequent T2.x tasks will land typed query modules on top of `Db`. A full README rewrite is scheduled for **T8.2** at the end of M2.1;
 the "STUB CRATE" notice above will be removed then.

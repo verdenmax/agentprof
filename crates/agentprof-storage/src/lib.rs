@@ -19,6 +19,10 @@
 //!   [`load_session`](query::load_session) read API (M2.1 T2.5)
 //! - [`datasource`] — [`SqliteDataSource`] impl of
 //!   [`agentprof_core::datasource::SessionDataSource`] (M2.1 T2.6)
+//! - [`admin`] — [`stats`](admin::stats) /
+//!   [`prune_before`](admin::prune_before) / [`vacuum`](admin::vacuum) /
+//!   [`export_session_json`](admin::export_session_json) helpers for the
+//!   `agentprof db` subcommand family (M2.1 T2.7)
 //! - `otlp` (planned, feature `otlp`) — Tonic-based OpenTelemetry receiver
 //!
 //! ## Features
@@ -37,6 +41,7 @@
 
 #![warn(missing_docs)]
 
+pub mod admin;
 pub mod config;
 pub mod datasource;
 pub mod db;
