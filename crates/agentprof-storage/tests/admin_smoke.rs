@@ -117,3 +117,115 @@ fn export_session_json_round_trip() {
         Some("s-export"),
     );
 }
+
+#[test]
+fn prune_cascades_to_tools_loaded_and_turn_buckets() {
+    // Locks the FK CASCADE contract: when prune_before deletes a
+    // sessions row, its dependent rows in tools_loaded and
+    // turn_buckets must vanish too (driven by `ON DELETE CASCADE`
+    // declared in schema.rs). The existing
+    // `prune_actual_deletes_and_cascades` test only checks
+    // sessions.session_count — it does not actually verify the
+    // cascade fires on the child tables. This test does.
+    use agentprof_core::analyzer::ToolRankRow;
+    use agentprof_core::analyzer::TurnSummaryRow;
+    use agentprof_core::episode::TurnStatus;
+    use agentprof_core::model::ToolSource;
+    use chrono::{Duration as ChronoDuration, TimeZone, Utc};
+
+    let mut db = Db::open_in_memory().unwrap();
+    let now_ms: i64 = 1_700_000_000_000;
+    let old_ms = now_ms - 60 * 24 * 3_600 * 1_000;
+
+    // Build an old report with one tool row + one turn row so both
+    // child tables get populated.
+    let mut report = minimal_report("s-cascade", old_ms);
+    report.tool_rank.push(ToolRankRow::new(
+        "bash".to_owned(),
+        ToolSource::Builtin,
+        1,
+        1,
+        0,
+        0,
+        0,
+        ChronoDuration::milliseconds(42),
+        ChronoDuration::milliseconds(42),
+        ChronoDuration::milliseconds(42),
+        ChronoDuration::milliseconds(42),
+    ));
+    report.turn_summary.push(TurnSummaryRow::new(
+        "t-1".to_owned(),
+        Utc.timestamp_millis_opt(old_ms).unwrap(),
+        Some(ChronoDuration::milliseconds(100)),
+        TurnStatus::Completed,
+        Some("claude-haiku-4.5".into()),
+        None,
+        Some(123),
+        1,
+        0,
+        0,
+    ));
+    upsert_report(&mut db, &report, raw(), 1).unwrap();
+
+    // Pre-condition: both child tables have rows for this session.
+    let n_tools_before: i64 = db
+        .conn_for_test()
+        .query_row(
+            "SELECT COUNT(*) FROM tools_loaded WHERE session_id = 's-cascade'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let n_turns_before: i64 = db
+        .conn_for_test()
+        .query_row(
+            "SELECT COUNT(*) FROM turn_buckets WHERE session_id = 's-cascade'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(n_tools_before, 1, "tools_loaded must contain the tool row");
+    assert_eq!(n_turns_before, 1, "turn_buckets must contain the turn row");
+
+    // Prune the old session for real.
+    let retention = Duration::from_secs(30 * 24 * 3_600);
+    let deleted = prune_before(&mut db, retention, now_ms, false).unwrap();
+    assert_eq!(deleted, 1);
+
+    // Post-condition: child rows are gone (CASCADE fired).
+    let n_tools_after: i64 = db
+        .conn_for_test()
+        .query_row(
+            "SELECT COUNT(*) FROM tools_loaded WHERE session_id = 's-cascade'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let n_turns_after: i64 = db
+        .conn_for_test()
+        .query_row(
+            "SELECT COUNT(*) FROM turn_buckets WHERE session_id = 's-cascade'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        n_tools_after, 0,
+        "FK CASCADE must clear tools_loaded for the deleted session"
+    );
+    assert_eq!(
+        n_turns_after, 0,
+        "FK CASCADE must clear turn_buckets for the deleted session"
+    );
+
+    // And the parent itself is gone.
+    let n_parent: i64 = db
+        .conn_for_test()
+        .query_row(
+            "SELECT COUNT(*) FROM sessions WHERE id = 's-cascade'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(n_parent, 0);
+}
