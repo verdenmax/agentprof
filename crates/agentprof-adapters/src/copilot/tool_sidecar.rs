@@ -268,6 +268,10 @@ mod tests {
     // the metadata() call succeeds — we skip the assertion in that
     // case so the test stays portable, but the Io branch is also
     // covered by manual review.
+    //
+    // Unix-only: Windows has no PermissionsExt::from_mode; the Io branch
+    // is covered there by manual review (and on other platforms by this test).
+    #[cfg(unix)]
     #[test]
     fn load_sidecar_permission_denied_returns_io_err_not_not_found() {
         use std::os::unix::fs::PermissionsExt;
