@@ -1504,6 +1504,9 @@ impl agentprof_core::adapter::Event for CopilotEvent {
     fn payload_error_message(&self) -> Option<&str> {
         self.payload_error_message()
     }
+    fn payload_loaded_mcp_tools(&self) -> std::collections::BTreeSet<String> {
+        crate::copilot::tools_changed::extract_loaded_set_from_event(self)
+    }
 }
 
 #[cfg(test)]

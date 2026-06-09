@@ -4,7 +4,7 @@
 //! rationale and `docs/superpowers/specs/2026-05-27-...-design.md` §7 for
 //! the state-machine pseudocode.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use chrono::{DateTime, Utc};
 
@@ -120,6 +120,7 @@ pub fn derive_episodes<E: Event>(events: &[E], meta: &SessionMeta) -> Episodes {
     let mut state = DeriveState::new(meta, args_by_call_id);
     for (idx, ev) in events.iter().enumerate() {
         state.observe_timestamp(ev);
+        state.accumulate_loaded_mcp_tools(ev);
         match ev.kind() {
             EventKind::TurnStart => state.on_turn_start(ev),
             EventKind::TurnEnd => state.on_turn_end(ev),
@@ -184,6 +185,12 @@ struct DeriveState {
     /// `Episodes` at end of derive. `None` when no shutdown event provided
     /// the data. See ADR-0012 D-3 + D-6.
     model_metrics: Option<BTreeMap<String, crate::analyzer::ModelUsage>>,
+    /// Cumulative "ever-loaded" MCP tool catalog, fed by per-event
+    /// [`Event::payload_loaded_mcp_tools`] across the entire event
+    /// stream. Moved into [`Episodes::loaded_mcp_tools`] at end of
+    /// derive. ADR-0015 D-2 semantics: removal notices do not
+    /// decrement.
+    loaded_mcp_tools: BTreeSet<String>,
 }
 
 struct OpenToolCall {
@@ -241,6 +248,7 @@ impl DeriveState {
             warnings: Vec::new(),
             args_by_call_id,
             model_metrics: None,
+            loaded_mcp_tools: BTreeSet::new(),
         }
     }
 
@@ -667,6 +675,19 @@ impl DeriveState {
         }
     }
 
+    /// Accumulate any MCP tool names announced by this event into the
+    /// running "ever-loaded" set. Called for every event in
+    /// `derive_episodes`'s main loop, regardless of [`EventKind`] — the
+    /// trait's default returns an empty set, so non-announcing events
+    /// (and adapters without tool-loading wire events) are a cheap no-op.
+    /// ADR-0015 D-2: a name remains in the set once added.
+    fn accumulate_loaded_mcp_tools<E: Event>(&mut self, ev: &E) {
+        let announced = ev.payload_loaded_mcp_tools();
+        if !announced.is_empty() {
+            self.loaded_mcp_tools.extend(announced);
+        }
+    }
+
     fn finalize(mut self) -> Episodes {
         let last_ts = self.last_event_ts;
 
@@ -735,6 +756,7 @@ impl DeriveState {
             aborts: self.aborts,
             warnings: self.warnings,
             model_metrics: self.model_metrics,
+            loaded_mcp_tools: self.loaded_mcp_tools,
         }
     }
 }

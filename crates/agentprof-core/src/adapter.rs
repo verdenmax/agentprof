@@ -454,6 +454,40 @@ pub trait Event {
     ) -> Option<std::collections::BTreeMap<String, crate::analyzer::ModelUsage>> {
         None
     }
+
+    /// Adapter-specific set of MCP tool names this event announces as
+    /// newly *loaded* into the session's tool catalog.
+    ///
+    /// Returned names are already filtered to the `mcp__*` namespace
+    /// (builtins like `bash` and `skill__*` plugin invocations are out
+    /// of scope for waste analysis per ADR-0015 D-1). Returns an empty
+    /// set for events that don't announce tool loads — most events.
+    ///
+    /// Accumulated by [`crate::episode::derive_episodes`] into
+    /// [`crate::episode::Episodes::loaded_mcp_tools`], which `analyze()`
+    /// then clones into
+    /// [`crate::analyzer::AnalysisReport::loaded_mcp_tools`].
+    /// Semantically "ever loaded" — once announced, a tool stays in the
+    /// loaded set even if a later notice removes it (ADR-0015 D-2).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::adapter::{Event, EventKind};
+    /// use chrono::Utc;
+    ///
+    /// struct StubEvent;
+    /// impl Event for StubEvent {
+    ///     fn id(&self) -> &str { "x" }
+    ///     fn kind(&self) -> EventKind { EventKind::Unknown }
+    ///     fn timestamp(&self) -> chrono::DateTime<Utc> { Utc::now() }
+    ///     fn parent_id(&self) -> Option<&str> { None }
+    /// }
+    /// assert!(StubEvent.payload_loaded_mcp_tools().is_empty());
+    /// ```
+    fn payload_loaded_mcp_tools(&self) -> std::collections::BTreeSet<String> {
+        std::collections::BTreeSet::new()
+    }
 }
 
 /// Reference to a single discoverable session.
@@ -781,5 +815,25 @@ mod tests {
             }
         }
         assert!(StubEvent.payload_model_metrics().is_none());
+    }
+
+    #[test]
+    fn payload_loaded_mcp_tools_default_returns_empty() {
+        struct StubEvent;
+        impl Event for StubEvent {
+            fn id(&self) -> &'static str {
+                "stub"
+            }
+            fn kind(&self) -> EventKind {
+                EventKind::Unknown
+            }
+            fn timestamp(&self) -> chrono::DateTime<chrono::Utc> {
+                chrono::Utc::now()
+            }
+            fn parent_id(&self) -> Option<&str> {
+                None
+            }
+        }
+        assert!(StubEvent.payload_loaded_mcp_tools().is_empty());
     }
 }

@@ -176,6 +176,17 @@ pub struct AnalysisReport {
     /// Skipped in JSON output when `None` for archive cleanliness.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_metrics: Option<std::collections::BTreeMap<String, ModelUsage>>,
+    /// Set of MCP tool names that were loaded into the session's tool
+    /// catalog (regardless of whether they were ever invoked).
+    ///
+    /// Populated by the analyzer during [`analyze`] from
+    /// [`crate::episode::Episodes::loaded_mcp_tools`]. Empty for sessions
+    /// pre-dating the M2.1 capture or for non-Copilot agents that don't
+    /// expose tool-loading events. `#[serde(default)]` keeps backward
+    /// compatibility with pre-M2.1 stored `AnalysisReport` JSON blobs
+    /// in `agentprof-storage`.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
+    pub loaded_mcp_tools: std::collections::BTreeSet<String>,
 }
 
 impl AnalysisReport {
@@ -207,6 +218,7 @@ impl AnalysisReport {
             warnings: Vec::new(),
             parse_warnings: Vec::new(),
             model_metrics: None,
+            loaded_mcp_tools: std::collections::BTreeSet::new(),
         }
     }
 
@@ -367,6 +379,7 @@ pub fn analyze(
         warnings: episodes.warnings.clone(),
         parse_warnings: parse_warnings.to_vec(),
         model_metrics: episodes.model_metrics.clone(),
+        loaded_mcp_tools: episodes.loaded_mcp_tools.clone(),
     };
     tracing::debug!(
         tool_count = report.tool_rank.len(),
@@ -499,6 +512,38 @@ mod tests {
         assert!(r.hook_rank.is_empty());
         assert!(r.warnings.is_empty());
         assert!(r.parse_warnings.is_empty());
+        assert!(
+            r.loaded_mcp_tools.is_empty(),
+            "loaded_mcp_tools defaults to empty on AnalysisReport::new"
+        );
+    }
+
+    #[test]
+    fn analyze_populates_loaded_mcp_tools_from_episodes() {
+        // Episodes carries the per-event-accumulated set (populated by
+        // derive_episodes via Event::payload_loaded_mcp_tools); analyze()
+        // must clone it into the report verbatim so downstream renderers
+        // and storage see exactly what the analyzer pipeline observed.
+        let mut ep = Episodes::new();
+        ep.loaded_mcp_tools.insert("mcp__github__search".into());
+        ep.loaded_mcp_tools.insert("mcp__github__create".into());
+        let report = analyze(&ep, &meta(), &[]);
+        assert_eq!(report.loaded_mcp_tools.len(), 2);
+        assert!(report.loaded_mcp_tools.contains("mcp__github__search"));
+        assert!(report.loaded_mcp_tools.contains("mcp__github__create"));
+    }
+
+    #[test]
+    fn analyze_empty_when_no_mcp_load_events() {
+        // Sessions without any tool-loading events (or adapters that
+        // don't expose them) must yield an empty loaded_mcp_tools set
+        // — not an Option::None — to keep downstream waste analysis
+        // and storage uniformly indexable.
+        let report = analyze(&Episodes::new(), &meta(), &[]);
+        assert!(
+            report.loaded_mcp_tools.is_empty(),
+            "no tool-load events → empty loaded_mcp_tools"
+        );
     }
 
     #[test]

@@ -13,12 +13,62 @@ const OPEN_TAG: &str = "<tools_changed_notice>";
 const CLOSE_TAG: &str = "</tools_changed_notice>";
 const NEW_TOOLS_PREFIX: &str = "New tools available:";
 
+/// Per-event MCP tool extraction: parse the `<tools_changed_notice>`
+/// blocks embedded in a single `user.message` event's
+/// `transformed_content` and return the announced (already MCP-filtered)
+/// tool names.
+///
+/// Returns an empty set for any non-`UserMessage` variant or a
+/// `UserMessage` whose `transformed_content` is `None` / contains no
+/// notice. Builtins (`bash`, `edit`) and skills (`skill__*`) are
+/// filtered out per ADR-0015 D-1.
+///
+/// Wired through [`agentprof_core::adapter::Event::payload_loaded_mcp_tools`]
+/// so the core analyzer pipeline accumulates the set into
+/// [`agentprof_core::analyzer::AnalysisReport::loaded_mcp_tools`]
+/// without callers needing the raw `CopilotEvent` stream
+/// (M2.1 T5.2.5; unblocks `SessionDataSource` integration).
+///
+/// # Examples
+///
+/// ```
+/// use agentprof_adapters::copilot::tools_changed::extract_loaded_set_from_event;
+/// use agentprof_adapters::copilot::CopilotEvent;
+/// assert!(extract_loaded_set_from_event(&CopilotEvent::Unknown).is_empty());
+/// ```
+#[must_use]
+pub fn extract_loaded_set_from_event(ev: &CopilotEvent) -> BTreeSet<String> {
+    let CopilotEvent::UserMessage(env) = ev else {
+        return BTreeSet::new();
+    };
+    let Some(content) = env.data.transformed_content.as_deref() else {
+        return BTreeSet::new();
+    };
+    let mut acc = BTreeSet::new();
+    for block in find_tools_changed_notices(content) {
+        acc.extend(parse_new_tools_line(block));
+    }
+    // Per spec §6.1 / ADR-0015 D-1, MCP-only filter (`mcp__<server>__<tool>`).
+    // Builtins (`bash`, `edit`, `exit_plan_mode`) and skills
+    // (`skill__<plugin>__<name>`) are out of scope for waste analysis.
+    acc.retain(|n| n.starts_with("mcp__"));
+    acc
+}
+
 /// Walk a session's events; extract every `<tools_changed_notice>` block
 /// from any `user.message.data.transformed_content`; accumulate the
 /// "ever-loaded" MCP tool set.
 ///
 /// Per ADR-0015 D-2, `Tools no longer available:` lines are parsed but
 /// do NOT decrement the loaded set — the M1.6.5 "ever-loaded" semantic.
+///
+/// Thin convenience wrapper over [`extract_loaded_set_from_event`].
+/// The same per-event extraction is now also exposed through
+/// [`agentprof_core::adapter::Event::payload_loaded_mcp_tools`] so the
+/// core analyzer pipeline can compute the result without callers
+/// retaining the raw `CopilotEvent` stream (M2.1 T5.2.5). Prefer reading
+/// [`agentprof_core::analyzer::AnalysisReport::loaded_mcp_tools`] in
+/// new code.
 ///
 /// # Examples
 ///
@@ -32,18 +82,8 @@ const NEW_TOOLS_PREFIX: &str = "New tools available:";
 pub fn extract_loaded_set_from_session(events: &[CopilotEvent]) -> BTreeSet<String> {
     let mut acc = BTreeSet::new();
     for ev in events {
-        if let CopilotEvent::UserMessage(env) = ev {
-            if let Some(content) = env.data.transformed_content.as_deref() {
-                for block in find_tools_changed_notices(content) {
-                    acc.extend(parse_new_tools_line(block));
-                }
-            }
-        }
+        acc.extend(extract_loaded_set_from_event(ev));
     }
-    // Per spec §6.1 / ADR-0015 D-1, MCP-only filter (`mcp__<server>__<tool>`).
-    // Builtins (`bash`, `edit`, `exit_plan_mode`) and skills
-    // (`skill__<plugin>__<name>`) are out of scope for waste analysis.
-    acc.retain(|n| n.starts_with("mcp__"));
     acc
 }
 

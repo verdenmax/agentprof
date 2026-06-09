@@ -27,4 +27,4 @@ pub use event::{
 };
 pub use mcp_config::{load_mcp_config, ParsedMcpConfig, ServerInfo};
 pub use tool_sidecar::{load_sidecar, Sidecar, SidecarError, ToolEntry};
-pub use tools_changed::extract_loaded_set_from_session;
+pub use tools_changed::{extract_loaded_set_from_event, extract_loaded_set_from_session};
