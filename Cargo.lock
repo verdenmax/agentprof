@@ -36,6 +36,7 @@ dependencies = [
  "insta",
  "notify-debouncer-mini",
  "predicates",
+ "rusqlite",
  "serde",
  "serde_json",
  "tempfile",
