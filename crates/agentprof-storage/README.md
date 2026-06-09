@@ -30,6 +30,9 @@ real public surface:
   `DELETE`+`INSERT` for the `tools_loaded` / `turn_buckets` children
   (the parent `OR REPLACE` does **not** cascade child deletes), all
   inside one transaction.
+- [`query::query_sessions_since`] / [`query::load_session`] (M2.1 T2.5) —
+  read API: enumerate `SessionRef`s within a time window (newest first),
+  and hydrate a full `AnalysisReport` from `analysis_report_json` by id.
 
 Subsequent T2.x tasks will land typed query modules on top of `Db`. A full README rewrite is scheduled for **T8.2** at the end of M2.1;
 the "STUB CRATE" notice above will be removed then.

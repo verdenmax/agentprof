@@ -15,7 +15,8 @@
 //! - [`db`]     — [`Db`] handle + embedded migrations (M2.1 T2.3)
 //! - [`upsert`] — [`upsert_report`](upsert::upsert_report) atomic 3-table
 //!   write for one session (M2.1 T2.4)
-//! - `sqlite::queries` (planned, M2.1 T2.5+) — typed accessors
+//! - [`query`]  — [`query_sessions_since`](query::query_sessions_since) /
+//!   [`load_session`](query::load_session) read API (M2.1 T2.5)
 //! - `otlp` (planned, feature `otlp`) — Tonic-based OpenTelemetry receiver
 //!
 //! ## Features
@@ -37,6 +38,7 @@
 pub mod config;
 pub mod db;
 pub mod error;
+pub mod query;
 pub mod upsert;
 
 pub use db::Db;

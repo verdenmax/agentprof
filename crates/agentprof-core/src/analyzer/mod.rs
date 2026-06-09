@@ -315,18 +315,12 @@ impl AnalysisReport {
 }
 
 #[allow(clippy::cast_possible_wrap)]
-fn sum_model_tokens<F: Fn(&ModelUsage) -> u64>(
-    report: &AnalysisReport,
-    pick: F,
-) -> Option<i64> {
+fn sum_model_tokens<F: Fn(&ModelUsage) -> u64>(report: &AnalysisReport, pick: F) -> Option<i64> {
     let m = report.model_metrics.as_ref()?;
     if m.is_empty() {
         return None;
     }
-    let total_u64 = m
-        .values()
-        .map(&pick)
-        .fold(0_u64, u64::saturating_add);
+    let total_u64 = m.values().map(&pick).fold(0_u64, u64::saturating_add);
     // Clamp at i64::MAX for SQLite (it's a signed 64-bit integer column).
     let clamped = total_u64.min(i64::MAX as u64);
     Some(clamped as i64)

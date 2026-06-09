@@ -110,6 +110,50 @@ pub struct SessionRef {
     pub source: &'static str,
 }
 
+impl SessionRef {
+    /// Construct a new [`SessionRef`] from its raw fields.
+    ///
+    /// Cross-crate callers (`agentprof-storage`, `agentprof-adapters`)
+    /// must go through this constructor because [`SessionRef`] is
+    /// `#[non_exhaustive]` and direct struct-literal construction is
+    /// forbidden outside this crate.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::adapter::AgentKind;
+    /// use agentprof_core::datasource::SessionRef;
+    ///
+    /// let r = SessionRef::new(
+    ///     "s1".into(),
+    ///     AgentKind::Copilot,
+    ///     Some(1_700_000_000_000),
+    ///     None,
+    ///     None,
+    ///     "adapter:copilot",
+    /// );
+    /// assert_eq!(r.id, "s1");
+    /// ```
+    #[must_use]
+    pub const fn new(
+        id: String,
+        agent: AgentKind,
+        started_at_ms: Option<i64>,
+        raw_path: Option<PathBuf>,
+        raw_mtime_ms: Option<i64>,
+        source: &'static str,
+    ) -> Self {
+        Self {
+            id,
+            agent,
+            started_at_ms,
+            raw_path,
+            raw_mtime_ms,
+            source,
+        }
+    }
+}
+
 /// Errors returned by [`SessionDataSource`] implementations.
 ///
 /// # Examples
