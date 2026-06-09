@@ -672,6 +672,128 @@ mod analyze_model_metrics_tests {
         assert!(report.model_metrics.is_none());
     }
 
+    /// Build a report with the supplied per-model usage rollups.
+    fn report_with_metrics(metrics: BTreeMap<String, ModelUsage>) -> AnalysisReport {
+        let mut r = AnalysisReport::new(fixture_meta());
+        r.model_metrics = Some(metrics);
+        r
+    }
+
+    #[test]
+    fn total_input_tokens_returns_none_when_model_metrics_absent() {
+        let r = AnalysisReport::new(fixture_meta());
+        assert!(r.model_metrics.is_none());
+        assert_eq!(r.total_input_tokens(), None);
+        assert_eq!(r.total_output_tokens(), None);
+        assert_eq!(r.total_cache_read(), None);
+        assert_eq!(r.total_cache_creation(), None);
+    }
+
+    #[test]
+    fn total_input_tokens_returns_none_when_model_metrics_empty() {
+        let r = report_with_metrics(BTreeMap::new());
+        assert_eq!(
+            r.total_input_tokens(),
+            None,
+            "empty BTreeMap is treated like no metrics — None, not Some(0)"
+        );
+        assert_eq!(r.total_output_tokens(), None);
+        assert_eq!(r.total_cache_read(), None);
+        assert_eq!(r.total_cache_creation(), None);
+    }
+
+    #[test]
+    fn total_input_tokens_sums_multi_model() {
+        let mut m = BTreeMap::new();
+        m.insert(
+            "claude-haiku-4.5".into(),
+            ModelUsage {
+                input_tokens: 100,
+                output_tokens: 11,
+                cache_read_tokens: 1,
+                cache_write_tokens: 2,
+            },
+        );
+        m.insert(
+            "gpt-5-mini".into(),
+            ModelUsage {
+                input_tokens: 200,
+                output_tokens: 22,
+                cache_read_tokens: 3,
+                cache_write_tokens: 4,
+            },
+        );
+        let r = report_with_metrics(m);
+        assert_eq!(r.total_input_tokens(), Some(300));
+        assert_eq!(r.total_output_tokens(), Some(33));
+        assert_eq!(r.total_cache_read(), Some(4));
+        assert_eq!(r.total_cache_creation(), Some(6));
+    }
+
+    #[test]
+    fn total_input_tokens_saturating_add_doesnt_panic_on_u64_max() {
+        // Two u64::MAX values — naive `+` panics in debug, our impl
+        // uses saturating_add and then clamps the u64 result to i64::MAX
+        // for storage. Lock the no-panic contract.
+        let mut m = BTreeMap::new();
+        m.insert(
+            "m-a".into(),
+            ModelUsage {
+                input_tokens: u64::MAX,
+                output_tokens: 0,
+                cache_read_tokens: 0,
+                cache_write_tokens: 0,
+            },
+        );
+        m.insert(
+            "m-b".into(),
+            ModelUsage {
+                input_tokens: u64::MAX,
+                output_tokens: 0,
+                cache_read_tokens: 0,
+                cache_write_tokens: 0,
+            },
+        );
+        let r = report_with_metrics(m);
+        assert_eq!(
+            r.total_input_tokens(),
+            Some(i64::MAX),
+            "u64 saturates at MAX, then clamps to i64::MAX for SQLite"
+        );
+    }
+
+    #[test]
+    fn total_input_tokens_clamps_to_i64_max() {
+        // Sum exceeds i64::MAX but fits in u64 — the clamp step must
+        // bring it down to i64::MAX so the SQLite write doesn't wrap.
+        // i64::MAX = 9_223_372_036_854_775_807; pick two values whose
+        // sum exceeds that but is well below u64::MAX.
+        const I64_MAX_U64: u64 = i64::MAX as u64;
+        let a = I64_MAX_U64 / 2 + 1;
+        let b = I64_MAX_U64 / 2 + 1; // a + b = i64::MAX + 2 (still in u64)
+        let mut m = BTreeMap::new();
+        m.insert(
+            "m-a".into(),
+            ModelUsage {
+                input_tokens: a,
+                ..ModelUsage::new()
+            },
+        );
+        m.insert(
+            "m-b".into(),
+            ModelUsage {
+                input_tokens: b,
+                ..ModelUsage::new()
+            },
+        );
+        let r = report_with_metrics(m);
+        assert_eq!(
+            r.total_input_tokens(),
+            Some(i64::MAX),
+            "values above i64::MAX must clamp at i64::MAX"
+        );
+    }
+
     #[test]
     fn analyze_clones_episodes_model_metrics_into_report() {
         let mut m = BTreeMap::new();
