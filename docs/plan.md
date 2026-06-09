@@ -84,7 +84,7 @@
 
 ---
 
-## 5. 可视化（四个关键视图）
+## 5. 可视化（五个关键视图）
 
 ### 5.1 单 session 火焰图
 - x 轴 = turn 序号
@@ -110,6 +110,13 @@ playwright.click   |   1240        |   0   |     ∞ (waste)   | ✗ kill
 ### 5.4 Schema 利用率时间序列
 - `called_tool_schema_tokens / total_schema_tokens` 按天/周
 - 指标降到 <20% 时告警："考虑精简 MCP"
+
+### 5.5 MCP Waste split-pane（✅ M1.6.5 + M1.6.6 ship）
+- TUI `[5] McpWaste` 视图（按 `5` 切换）：左 40% server 列表（loaded / unused 比 + Tokens 列 + `!` 标记 fully-unused server），右 60% 选中 server 的 per-tool 明细（call_count / Tokens / source）
+- Banner 2 行：第 1 行汇总 `Source: <data-source>   Loaded: <count>/<≈?><tokens>   Unused: <count>/<≈?><tokens>   Fully-unused servers: <n>`；第 2 行展示 `Tokenizer: <kind>   Token source: <provenance>`（启发式或 sidecar 精确，`≈` 前缀标识非精确）
+- 同时提供独立子命令 `agentprof mcp-waste`（md/json/html）+ `agentprof analyze --section mcp-waste` 嵌入到单 session 报告 + `agentprof aggregate --by mcp-server` 加 `Unused tools` / `Sessions w/0 calls` / `Wasted tokens` 列
+- M1.6.6 token-cost：`--tokens-per-tool <N>`（默认 200 启发式）+ `--tool-descriptions <path>`（sidecar 文件或目录，命中时走 tiktoken 精确计数），tokenizer 按 session 主导 model 自动推断（`gpt-5*` / `gpt-4o*` / `o1*` / `o3*` → `o200k_base`，否则 `cl100k_base`）
+- 设计文档：[ADR-0015](internals/adr-0015-mcp-waste-architecture.md)（架构）+ [ADR-0016](internals/adr-0016-mcp-token-cost-architecture.md)（token cost）
 
 ---
 
