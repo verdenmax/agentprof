@@ -23,7 +23,9 @@
 //!   [`prune_before`](admin::prune_before) / [`vacuum`](admin::vacuum) /
 //!   [`export_session_json`](admin::export_session_json) helpers for the
 //!   `agentprof db` subcommand family (M2.1 T2.7)
-//! - `otlp` (planned, feature `otlp`) — Tonic-based OpenTelemetry receiver
+//! - `otlp` (feature `otlp`) — Tonic-based OpenTelemetry receiver
+//!   ([`otlp::config`] + [`otlp::error`] land in M2.2 T2.1; transport
+//!   layers in subsequent tasks)
 //!
 //! ## Features
 //!
@@ -46,6 +48,8 @@ pub mod config;
 pub mod datasource;
 pub mod db;
 pub mod error;
+#[cfg(feature = "otlp")]
+pub mod otlp;
 pub mod query;
 pub mod upsert;
 
