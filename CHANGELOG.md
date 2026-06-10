@@ -18,233 +18,110 @@ prefix used in commit messages).
 > Tests. This block covers everything between v0.1.0 (2026-06-06) and
 > the planned v0.2.0 tag — M1.6.5 + M1.6.6 + audit followup + M2.1
 > SQLite persistence + M2.1 P0 + M2.1 audit P1/P2 followup + 12 new
-> regression tests.
+> regression tests + M2.1.1 aggregate dual-path + M2.2 OTLP receiver
+> (+ 118 new tests).
 
 ### Added
 
-- **M2.2 T9.1 (cli): 8 end-to-end OTLP receiver tests against the
-  real `agentprof ingest-otlp` binary** (gated on `otlp`). New
-  `crates/agentprof-cli/tests/cli_ingest_otlp_e2e.rs` spawns the
-  receiver on ephemeral `127.0.0.1` ports with a tempfile-backed
-  `SQLite` store, pushes OTLP envelopes via `opentelemetry-proto` +
-  `tonic` (gRPC) and `reqwest` (HTTP/protobuf), then asserts rows
-  appear in the resulting DB. Cases: gRPC logs `SessionStart`+`End`
-  → 1 row; HTTP metrics token usage → `total_input_tokens` rollup;
-  gRPC traces tool span → `tools_loaded` row; bearer-token rejection
-  bypasses the pipeline; `--max-session-events=3` OOM-flushes a
-  partial session; idle sweeper flushes an inactive session;
-  three interleaved session ids land in three distinct rows;
-  explicit `session.end` persists across `SIGKILL` (substitute for
-  `SIGTERM` since adding `nix` to the workspace is forbidden).
-  Total wall-clock ~2.1 s for the file (3 consecutive runs each
-  finished in 2.07 s). New CLI flag `--sweeper-interval-seconds`
-  (hidden from `--help`) overrides the production 30 s sweeper
-  tick so test #6 can fire the sweeper inside its budget; not
-  user-facing. New `agentprof-cli` dev-dependencies (all
-  workspace-pinned, no new entries in `[workspace.dependencies]`):
-  `opentelemetry-proto` (`gen-tonic`), `tonic`, `reqwest`, `prost`,
-  `tokio` (`rt-multi-thread`+`macros`+`time`+`net`), and
-  `agentprof-storage` with the `otlp` feature enabled for the test
-  view.
-- **M2.2 T8.2 (cli): `[otlp]` config-file block with CLI-override
-  merge.** `agentprof_cli::config::PartialConfig` gains an optional
-  `otlp: Option<PartialOtlpServerConfig>` field (feature-gated on
-  `otlp`), re-using
-  `agentprof_storage::otlp::config::PartialOtlpServerConfig` verbatim
-  (already serde-friendly — no new derives needed on the storage
-  type). `cmd::ingest_otlp::build_otlp_server_config` now takes a
-  second `Option<PartialOtlpServerConfig>` parameter and merges
-  per-field with priority **CLI flag > `AGENTPROF_OTLP_TOKEN` env >
-  `[otlp]` config-file block > built-in defaults**; the explicit
-  `--no-grpc` / `--no-http` toggles always win. `run_async` resolves
-  the file from `$AGENTPROF_CONFIG` or the platform XDG config dir
-  (`directories::BaseDirs::config_dir`) and best-effort-loads the
-  `[otlp]` block (missing file silent; malformed file → `warn` log,
-  fall through to CLI + defaults). The merged
-  `cfg.session_idle_timeout` now also drives the `SessionBufferCaps`
-  idle threshold so `[otlp] session_idle_timeout = "10m"` flows to
-  both the receiver config and the buffer caps. 4 new unit tests in
-  `cmd::ingest_otlp::tests` cover defaults-from-file,
-  CLI-overrides-file (grpc + bearer + idle), missing-block-falls-to-
-  defaults, and `--no-grpc` overriding a file-set `listen_grpc`. 2
-  new unit tests in `config::tests` round-trip an `[otlp]` block and
-  verify a missing block yields `None`.
-- **M2.2 T8.1 (cli): `agentprof ingest-otlp` subcommand running the OTLP
-  receiver** (gated on the `otlp` cargo feature; included in the default
-  `full` feature). New `cmd::ingest_otlp::IngestOtlpCmd` (clap-derive)
-  exposing `--grpc` / `--no-grpc` / `--http` / `--no-http` /
-  `--bearer-token` (env: `AGENTPROF_OTLP_TOKEN`) /
-  `--tls-cert` / `--tls-key` / `--client-ca` (clap `requires =`
-  enforces TLS cert/key pairing and `--client-ca` ⇒ `--tls-cert`) /
-  `--max-session-bytes` / `--max-session-events` / `--idle-seconds` /
-  `--store`. `run(...)` builds an `OtlpServerConfig` from CLI args +
-  documented defaults (gRPC `127.0.0.1:4317`, HTTP `127.0.0.1:4318`,
-  16 MiB / 100 000 events / 300 s idle), opens the SQLite store
-  (`--store` wins over the resolved `[storage] path`), wires
-  `StorageFlushSink → SessionRouter → IngestPipeline → serve_{grpc,http}`
-  + `spawn_idle_sweeper` (30 s tick), then awaits SIGINT
-  (`tokio::signal::ctrl_c`) or SIGTERM (`SignalKind::terminate`, Unix
-  only) and drains in `stop accepting → join servers → flush sweeper`
-  order so no in-flight OTLP request races the final
-  `flush_all(Shutdown)`. Validation: `--no-grpc --no-http` →
-  `ExitKind::UserError` ("at least one of --grpc / --http must be
-  enabled"). `main()` dispatcher gates the variant on `#[cfg(feature =
-  "otlp")]` and spins a multi-thread tokio runtime via `block_on` so
-  the rest of the CLI stays sync-flavored. Cargo: `otlp` feature now
-  also pulls `dep:tokio` (new optional dep on the workspace `tokio`
-  with the `signal` feature layered on top of the existing
-  `rt-multi-thread` + `macros` + `time` + `net`). Coverage in
-  `tests/cli_ingest_otlp_help.rs` (2 surface tests: `--help` lists
-  every documented flag; `--no-grpc --no-http` exits with `at least one
-  of` on stderr) + 3 in-module unit tests for `build_otlp_server_config`
-  (default loopback, both-disabled rejection, HTTP-only). Deep e2e
-  transport + TLS + lifecycle coverage stays in T9.1; config-file
-  `[otlp]` block stays in T8.2.
-
-- **M2.2 T7.1 (storage): wire pipeline → mapper → router → storage sink**
-  (gated on `otlp`). `IngestPipeline` now owns an `Arc<SessionRouter>`
-  instead of being a counters-only stub: each `ingest_logs` /
-  `ingest_metrics` / `ingest_traces` call now runs the M2.2 T5.2 mapper,
-  counts `MapperError` entries into a new `error_count` atomic, and
-  forwards the resulting `Vec<Result<TypedEvent, MapperError>>` to
-  `SessionRouter::ingest`. New `agentprof_storage::otlp::sink_storage`
-  module exposes `StorageFlushSink::new(Arc<Mutex<Db>>)` (with optional
-  `with_now_fn` for deterministic tests) — a `FlushSink` impl that
-  translates the closed-buffer `PersistableSession` into the M2.1
-  `AnalysisReport` shape and persists via `upsert_report`, writing
-  `sessions.raw_path = "otlp://<session_id>"` so OTLP-sourced rows are
-  visually distinguishable from filesystem-ingested ones. Mapping
-  rollups: `TypedEvent::TokenUsage` data points accumulate into
-  `model_metrics`; `ToolDecisionStart` + `ToolResult` pairs roll up into
-  `tool_rank` rows with paired-timestamp durations + percentile stats.
-  Lossy mappings (per spec §6 explicit OTLP latitude): `Unrecognized`
-  events, `UserPrompt` per-prompt sizes, and `SessionStart.cwd` not
-  surfaced through indexed columns are dropped with `tracing::debug!`
-  rather than failing the flush. `IngestPipeline::noop_for_test()`
-  remains available for transport-layer smoke tests (uses a private
-  `NoopFlushSink`). New `error_count_for_test()` exposes the cumulative
-  mapper-error counter. Integration coverage in
-  `tests/otlp_pipeline_e2e.rs` (7 tests: logs round-trip persisted with
-  correct `raw_path`; metrics token usage rolled into `model_metrics`;
-  trace tool span paired into `tool_rank`; OOM-trip flush persists a
-  partial session; explicit `flush_all(Shutdown)` drains 3 open buffers;
-  mapper errors counted without blocking the surrounding batch;
-  explicit `close_buffer(Idle)` routes through the sink). No new
-  workspace dependencies; sink reuses existing `Arc<Mutex<Db>>` pattern
-  established by `SqliteDataSource`.
-
-- **M2.2 T6.2 (storage): async idle sweeper task + graceful shutdown**
-  (gated on `otlp`). New `agentprof_storage::otlp::sweeper` module
-  exposes `spawn_idle_sweeper(router, interval)` → `SweeperHandle`.
-  The spawned tokio task `select!`s between a `tokio::time::interval`
-  tick (calls `router.sweep_idle()` to close buffers past their
-  `idle_timeout`) and a `oneshot::Receiver` cancel signal (calls
-  `router.flush_all(CloseReason::Shutdown)` before exit). Cancellation
-  has two paths: explicit `SweeperHandle::shutdown().await` returns
-  `Result<(), OtlpServerError>` after the join; implicit drop of the
-  handle drops the oneshot sender, which the task observes as
-  `Err(_)` and runs the same flush path detached. New
-  `OtlpServerError::Internal(String)` variant surfaces `JoinError`
-  from the shutdown path. Integration coverage in
-  `tests/otlp_sweeper.rs` (4 tests:
-  `sweeper_runs_periodic_sweep`,
-  `sweeper_shutdown_flushes_remaining`,
-  `sweeper_shutdown_is_idempotent_via_drop`,
-  `sweeper_can_be_cancelled_mid_sleep`)
-  plus 2 unit tests in `sweeper::tests`. Storage `dev-dependencies`
-  gain `tokio = { features = ["test-util"] }` for the paused-clock
-  tests. No new workspace dependencies; sweeper uses the existing
-  `tokio::sync::oneshot` already pulled in by `server_grpc` /
-  `server_http`.
-
-- **M2.2 T6.1 (storage): `SessionRouter` + `SessionBuffer` with OOM caps**
-  (gated on `otlp`). New `agentprof_storage::otlp::router` module
-  exposes `SessionRouter` (per-`session.id` event router backed by
-  `DashMap`), `SessionBuffer` (in-memory buffer with byte / event
-  counters), `SessionBufferCaps` (defaults: 16 MiB / 100 000 events /
-  5 min idle — overridable via `with_max_bytes` / `with_max_events` /
-  `with_idle_timeout` builder methods because the struct is
-  `#[non_exhaustive]`), `CloseReason` enum (`ExplicitEnd` / `OomBytes`
-  / `OomEvents` / `Idle` / `Shutdown`), and `FlushSink` trait
-  (`fn flush(&self, &SessionId, PersistableSession) -> FlushResult`)
-  for the M2.2 T7.1 persistence layer to implement.
-  `SessionRouter::ingest(Vec<Result<TypedEvent, MapperError>>)`
-  consumes a mapper batch: `Ok` events are routed into the matching
-  buffer (creating one on first sight); `Err` entries and
-  `Unrecognized` variants are dropped with `tracing::warn!` per
-  spec §5.5 soft-fail. After every push the router checks the three
-  immediate close triggers (explicit `SessionEnd` → `ExplicitEnd`;
-  `bytes_used > cap.max_bytes` → `OomBytes`;
-  `events.len() > cap.max_events` → `OomEvents`).
-  `SessionBuffer::into_persistable(reason)` implements the spec §5.4
-  pairing algorithm: any `ToolDecisionStart` keyed
-  `(tool_name, turn_id)` that never saw a matching `ToolResult` is
-  closed with a synthetic `ToolResult { status:
-  ToolCallStatus::OpenAtEndOfSession }` timestamped at the buffer's
-  last-known wall-clock event; the full event vector is then
-  stable-sorted by timestamp. `SessionRouter::sweep_idle()` returns
-  the closed session ids for the future T6.2 background reaper;
-  `SessionRouter::flush_all(reason)` drains every open buffer
-  (shutdown path). Routing is sync, entry-level locked, and never
-  holds a `DashMap` guard across `close_buffer`. New workspace dep
-  `dashmap = "6"` gated under storage's `otlp` feature
-  (Apache-2.0 OR MIT, `cargo deny check` green). New smoke test
-  `tests/otlp_router.rs` (9 tests:
-  `router_ingest_groups_by_session_id`,
-  `router_close_on_explicit_session_end`,
-  `router_oom_bytes_triggers_flush`,
-  `router_oom_events_triggers_flush`,
-  `router_into_persistable_pairs_tool_calls`,
-  `router_sweep_idle_closes_stale`,
-  `router_flush_all_drains_buffers`,
-  `router_dropped_mapper_errors_are_logged_not_flushed`,
-  `router_close_unknown_session_is_noop`).
-- **M2.2 T4.1 (storage): bearer-token auth for both OTLP transports**
-  (gated on `otlp`). New `agentprof_storage::otlp::auth` module exposes
-  two helpers sharing a single `Option<Arc<String>>` token:
-  `bearer_interceptor(token) -> impl Fn(Request<()>) -> Result<Request<()>,
-  Status> + Clone + Send + Sync + 'static` (wired into
-  `tonic::service::interceptor::InterceptedService` for the three gRPC
-  collector services in `server_grpc`) and
-  `async fn bearer_middleware(token, req, next) -> Result<Response,
-  StatusCode>` (wired into `axum::middleware::from_fn` ahead of the
-  `/v1/{logs,metrics,traces}` routes in `server_http`). Semantics: when
-  `token == None` both helpers passthrough (preserves all existing T2.2 /
-  T2.3 / T3.1 / T3.2 tests that never set `listen_token`); when
-  `Some(t)`, requires `Authorization: Bearer <t>` exact match per
-  RFC 6750 §2.1 — missing / non-ASCII / wrong-prefix / mismatch all
-  short-circuit with `tonic::Code::Unauthenticated` on gRPC and `401
-  UNAUTHORIZED` on HTTP, and the `IngestPipeline` is never invoked on
-  rejection (verified via `counts_for_test() == (0, 0, 0)` post-reject).
-  New smoke test `tests/otlp_auth_smoke.rs` (3 tests:
-  `grpc_rejects_request_without_bearer_when_token_configured`,
-  `grpc_accepts_request_with_correct_bearer`,
-  `http_rejects_request_without_bearer_when_token_configured`).
-- **M2.2 T2.2 (storage): tonic gRPC OTLP listener + `IngestPipeline`
-  stub** (gated on `otlp`). New `agentprof_storage::otlp::server_grpc`
-  exposes `serve_grpc(cfg, pipeline) -> Result<(JoinHandle, oneshot::Sender<()>),
-  OtlpServerError>` that binds via `tokio::net::TcpListener`
-  (synchronous bind error → `OtlpServerError::Bind`), wraps the listener
-  in `tonic::transport::server::TcpIncoming`, and registers all three
-  OTLP collector services (`LogsService`, `MetricsService`,
-  `TraceService`). New `agentprof_storage::otlp::pipeline::IngestPipeline`
-  is the fan-in stub used by every service `export`: per-signal
-  `AtomicUsize` counters + `#[doc(hidden)]` `noop_for_test()` and
-  `counts_for_test()` helpers; `ingest_logs` / `ingest_metrics` /
-  `ingest_traces` take `Arc<Self>`, return `Result<_, RouterError>`, and
-  will be replaced by the real session-router in M2.2 T7.1 without an
-  API break. The crate-private `otlp::proto` module mirrors the upstream
-  `opentelemetry::proto::*` layout so the relative paths emitted by
-  `tonic_build` resolve correctly; both `pipeline` and `server_grpc`
-  share these generated types. `build.rs` now invokes tonic-build via
-  `compile_protos_with_config` with a pre-configured `prost_build::Config`
-  that disables proto comments (upstream OTLP comments contain fenced
-  text rustdoc mis-parses as Rust doctests). New `prost` runtime dep
-  (gated on `otlp`) and new `prost-build` build-dep added because
-  generated code references `::prost::*` paths. New smoke test
-  `grpc_server_binds_and_shuts_down` (5 tests total in
-  `tests/otlp_config_smoke.rs`) covers bind + graceful shutdown via
-  oneshot channel; a real round-trip via a gRPC client lands in T2.3.
+- **OTLP receiver** (M2.2; feature-gated on `otlp`) — push-based
+  session ingestion via OpenTelemetry. `agentprof ingest-otlp` runs both
+  a gRPC listener (default `127.0.0.1:4317`, tonic + tower) and an
+  HTTP/protobuf listener (default `127.0.0.1:4318`, axum), accepts
+  Logs + Metrics + Traces signals, groups events by `session.id` (with
+  `claude.session_id` fallback) into bounded per-session buffers, and
+  persists finalized sessions to the same SQLite store as `agentprof
+  analyze`. Bearer-token auth (RFC 6750) and rustls TLS/mTLS are
+  supported on both transports. See
+  [ADR-0021](docs/internals/adr-0021-otlp-receiver-architecture.md)
+  for the 10 architecture decisions and
+  [`docs/superpowers/specs/2026-06-10-m2.2-otlp-receiver-design.md`](docs/superpowers/specs/2026-06-10-m2.2-otlp-receiver-design.md)
+  for the design spec.
+  - New modules under `agentprof_storage::otlp`: `config`, `error`,
+    `proto` (tonic-build codegen of `opentelemetry::proto::*`),
+    `mapper`, `typed`, `router`, `sweeper`, `auth`, `tls`,
+    `server_grpc`, `server_http`, `sink_storage`, `pipeline`.
+    - `config` / `error` — `OtlpServerConfig` + `PartialOtlpServerConfig`
+      (TOML-friendly), `OtlpServerError` variants (`Bind`, `Tls`,
+      `Pipeline`, `Internal`, ...).
+    - `proto` — codegen via `tonic_build::compile_protos_with_config`
+      with proto comments disabled (upstream OTLP comments contain
+      fenced text rustdoc mis-parses as doctests).
+    - `typed` + `mapper` — `TypedEvent` intermediate representation
+      (`SessionStart`, `SessionEnd`, `ToolDecisionStart`, `ToolResult`,
+      `TokenUsage`, `UserPrompt`, `Unrecognized`); mapper lowers OTLP
+      Logs / Metrics / Traces into `Vec<Result<TypedEvent, MapperError>>`.
+    - `router` — `SessionRouter` + `SessionBuffer` (`DashMap`-backed,
+      `#[non_exhaustive]` `SessionBufferCaps` with builder methods;
+      defaults 16 MiB / 100 000 events / 5 min idle). Close triggers:
+      `ExplicitEnd` / `OomBytes` / `OomEvents` / `Idle` / `Shutdown`.
+      Pairing algorithm (spec §5.4): unmatched `ToolDecisionStart`
+      synthesized as `ToolResult { status: OpenAtEndOfSession }` at the
+      buffer's last wall-clock; event vector stable-sorted by timestamp.
+      `FlushSink` trait abstracts persistence.
+    - `sweeper` — `spawn_idle_sweeper(router, interval) -> SweeperHandle`
+      drives periodic `router.sweep_idle()` and runs
+      `router.flush_all(Shutdown)` on explicit shutdown or handle drop.
+    - `auth` — `bearer_interceptor` (tonic) + `bearer_middleware`
+      (axum); passthrough when `token == None`, otherwise enforces
+      `Authorization: Bearer <t>` exact match (`Unauthenticated` /
+      `401`) before the pipeline is invoked.
+    - `tls` — rustls server config builder; optional mTLS via
+      `--client-ca`.
+    - `server_grpc` — `serve_grpc(cfg, pipeline)` binds via
+      `tokio::net::TcpListener` + `TcpIncoming`, registers all three
+      OTLP collector services, returns `(JoinHandle, oneshot::Sender)`.
+    - `server_http` — axum router with `/v1/{logs,metrics,traces}`
+      protobuf endpoints; `415` / `400` error paths covered.
+    - `sink_storage` — `StorageFlushSink::new(Arc<Mutex<Db>>)`
+      translates `PersistableSession` into the M2.1 `AnalysisReport`
+      shape and persists via `upsert_report`; writes
+      `sessions.raw_path = "otlp://<session_id>"` to distinguish
+      OTLP-sourced rows. Token-usage data points roll into
+      `model_metrics`; tool decision/result pairs roll into `tool_rank`
+      with paired-timestamp percentile stats.
+    - `pipeline` — `IngestPipeline` owns an `Arc<SessionRouter>`,
+      runs the mapper for each signal, counts `MapperError` into an
+      `error_count` atomic, and forwards into the router; lossy
+      mappings (Unrecognized, per-prompt UserPrompt sizes, etc.)
+      `tracing::debug!`-dropped per spec §6.
+  - New CLI: `agentprof ingest-otlp` (feature-gated; included in the
+    default `full` feature). Flags: `--grpc` / `--no-grpc` /
+    `--http` / `--no-http` / `--bearer-token`
+    (env `AGENTPROF_OTLP_TOKEN`) / `--tls-cert` / `--tls-key` /
+    `--client-ca` (clap `requires =` enforces cert/key pairing and
+    `--client-ca` ⇒ `--tls-cert`) / `--max-session-bytes` /
+    `--max-session-events` / `--idle-seconds` / `--store`. Hidden
+    `--sweeper-interval-seconds` overrides the production 30 s tick
+    for tests. Lifecycle awaits SIGINT (`tokio::signal::ctrl_c`) or
+    SIGTERM (`SignalKind::terminate`, Unix only) then drains in
+    `stop accepting → join servers → flush sweeper` order. Validation:
+    `--no-grpc --no-http` → `ExitKind::UserError`.
+  - New `[otlp]` config-file block (`agentprof_cli::config::PartialConfig`
+    gains `otlp: Option<PartialOtlpServerConfig>` field, feature-gated).
+    Precedence per field: **CLI flag > `AGENTPROF_OTLP_TOKEN` env >
+    `[otlp]` config-file block > built-in defaults**; explicit
+    `--no-grpc` / `--no-http` always win. Config file resolved from
+    `$AGENTPROF_CONFIG` or platform XDG config dir; missing file silent,
+    malformed file `warn`-logged and falls through.
+  - Workspace dependency additions (all gated under `otlp` features):
+    storage gains `tonic`, `prost`, `prost-build`, `axum`, `tower`,
+    `bytes`, `rustls`, `tokio-rustls`, `dashmap`, `tokio` features
+    (`rt-multi-thread` + `macros` + `time` + `net` + `test-util` in
+    dev-deps); cli gains `tokio` `signal` feature on the `otlp` path.
+    `cargo deny check` green; no new license exceptions required.
+  - 118 new tests covering config / auth / TLS / mapper / router /
+    sweeper / pipeline e2e / CLI e2e (`tests/otlp_config_smoke.rs`,
+    `tests/otlp_auth_smoke.rs`, `tests/otlp_router.rs`,
+    `tests/otlp_sweeper.rs`, `tests/otlp_pipeline_e2e.rs`,
+    `tests/cli_ingest_otlp_help.rs`,
+    `tests/cli_ingest_otlp_e2e.rs` — 8 end-to-end cases through real
+    `agentprof ingest-otlp` binary via `opentelemetry-proto` +
+    `tonic` (gRPC) and `reqwest` (HTTP/protobuf): explicit
+    `session.end` round-trip, token-usage rollup, tool-span pairing,
+    bearer rejection bypass, `--max-session-events` OOM partial
+    flush, idle-sweeper flush, three interleaved session ids into
+    three distinct rows, explicit `session.end` persists across
+    SIGKILL).
 - **M2.1.1 aggregate dual-path** (closes the M2.1 dual-path story).
   `cmd::aggregate` now SQLite-cache-accelerated via new
   `SessionDataSource::load_episodes(id) -> Result<Episodes, _>` trait
@@ -671,6 +548,27 @@ prefix used in commit messages).
 
 ### Documentation
 
+- **M2.2 OTLP receiver doc sweep:**
+  - New [ADR-0021](docs/internals/adr-0021-otlp-receiver-architecture.md)
+    documenting 10 architecture decisions (gRPC + HTTP transports,
+    OTLP-is-not-an-Adapter boundary, session.id grouping with
+    `claude.session_id` fallback, bounded buffers + sweeper, mapper
+    lossiness latitude, bearer + rustls security model, etc.).
+  - [ADR-0018](docs/internals/adr-0018-sessiondatasource-trait.md)
+    footnote linking to ADR-0021 §Decision 3 (OTLP receiver does **not**
+    implement the `Adapter` trait — it is a sink, not a pull-source).
+  - `docs/architecture.md` §3 (dependency graph), §6 (data sources),
+    §8 (CLI surface), §9 (storage layer), §10 (observability), and
+    §15.4 (feature flags) updated to reflect the shipped `otlp`
+    feature, `ingest-otlp` subcommand, and `otlp://<session_id>`
+    raw-path convention.
+  - `docs/plan.md` M2.2 marked **shipped** with commit-range pointer.
+  - `docs/adapters.md` gains an "OTLP is not an adapter" disclaimer
+    redirecting contributors to ADR-0021 + `agentprof-storage::otlp`.
+  - L2 READMEs refreshed: `crates/agentprof-storage/README.md` adds an
+    `otlp` module-tree section and `[otlp]` config block table;
+    `crates/agentprof-cli/README.md` documents `ingest-otlp` flags +
+    config-file precedence.
 - **agentprof-core (audit B4):** `DEFAULT_HEURISTIC_TOKENS` and
   `WasteComputeContext::with_heuristic` rustdoc now call out the
   cl100k_base calibration bias — `o200k_base` (GPT-4o / GPT-5 /
