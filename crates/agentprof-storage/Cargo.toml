@@ -17,7 +17,18 @@ default = []
 # Enable the CLI ingest progress bar (used by `agentprof ingest`).
 progress = ["dep:indicatif"]
 # Enable the OTLP receiver (subscribes to Claude Code telemetry).
-otlp = ["dep:opentelemetry", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk", "dep:tonic", "dep:tokio"]
+otlp = [
+    "dep:opentelemetry",
+    "dep:opentelemetry-otlp",
+    "dep:opentelemetry_sdk",
+    "dep:tonic",
+    "dep:tokio",
+    "dep:axum",
+    "dep:bytes",
+    "dep:rustls",
+    "dep:rustls-pemfile",
+    "dep:tower",
+]
 
 [dependencies]
 agentprof-core     = { workspace = true }
@@ -37,6 +48,15 @@ opentelemetry-otlp  = { workspace = true, optional = true }
 opentelemetry_sdk   = { workspace = true, optional = true }
 tonic               = { workspace = true, optional = true }
 tokio               = { workspace = true, optional = true }
+axum                = { workspace = true, optional = true }
+bytes               = { workspace = true, optional = true }
+rustls              = { workspace = true, optional = true }
+rustls-pemfile      = { workspace = true, optional = true }
+tower               = { workspace = true, optional = true }
+
+[build-dependencies]
+tonic-build = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+rcgen    = { workspace = true }

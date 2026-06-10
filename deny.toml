@@ -39,6 +39,24 @@ ignore = [
     #       this ignore when our Cargo.lock no longer lists
     #       number_prefix 0.4.x).
     "RUSTSEC-2025-0119",
+    # RUSTSEC-2025-0134: `rustls-pemfile` 2.2.0 is unmaintained
+    # (repo archived August 2025). Upstream recommends migrating
+    # to `rustls-pki-types::PemObject` (available since
+    # rustls-pki-types 1.9.0), which is the same code rustls-pemfile
+    # 2.x wraps. We pull rustls-pemfile in via the `otlp` feature of
+    # agentprof-storage (M2.2 T1.1) for loading PEM cert+key files
+    # for mTLS in the OTLP receiver.
+    #
+    # - (a) advisory: https://rustsec.org/advisories/RUSTSEC-2025-0134
+    # - (b) cannot fix yet: the actual PEM-loading call sites land in
+    #       M2.2 T4.2 (TLS bootstrap); migrating to
+    #       `rustls-pki-types::PemObject` is a code change scheduled
+    #       for that ticket, not T1.1.
+    # - (c) upstream: https://github.com/rustls/pemfile/issues/61
+    # - (d) re-evaluate: remove this ignore once M2.2 T4.2 swaps the
+    #       PEM loader to `rustls-pki-types::PemObject` and drops the
+    #       `rustls-pemfile` dependency from agentprof-storage.
+    "RUSTSEC-2025-0134",
 ]
 
 [licenses]
