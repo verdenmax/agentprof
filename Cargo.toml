@@ -83,9 +83,10 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 tokio   = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util", "net", "time"] }
 
 # OTLP receiver (feature `otlp`)
-opentelemetry      = "0.27"
-opentelemetry-otlp = "0.27"
-opentelemetry_sdk  = "0.27"
+opentelemetry       = "0.27"
+opentelemetry-otlp  = "0.27"
+opentelemetry_sdk   = "0.27"
+opentelemetry-proto = "0.27"
 tonic              = "0.12"
 tonic-build        = "0.12"
 prost              = "0.13"

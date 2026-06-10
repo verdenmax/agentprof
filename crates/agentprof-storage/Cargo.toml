@@ -63,3 +63,4 @@ prost-build = "0.13"
 [dev-dependencies]
 tempfile = { workspace = true }
 rcgen    = { workspace = true }
+opentelemetry-proto = { workspace = true, features = ["gen-tonic"] }

@@ -67,3 +67,60 @@ fn from_partial_parses_humantime_durations() {
     assert_eq!(cfg.session_idle_timeout, Duration::from_secs(120));
     assert_eq!(cfg.shutdown_grace, Duration::from_secs(30));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn grpc_round_trip_increments_logs_counter() {
+    use agentprof_storage::otlp::pipeline::IngestPipeline;
+    use agentprof_storage::otlp::server_grpc::serve_grpc;
+    use opentelemetry_proto::tonic::collector::logs::v1::logs_service_client::LogsServiceClient;
+    use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
+    use std::sync::Arc;
+    use tokio::net::TcpListener;
+
+    // Pre-bind on port 0 to learn an OS-assigned port, then drop the listener
+    // so `serve_grpc` can rebind on the same port. There is an inherent race
+    // here (another process may grab the port), but it is acceptable for a
+    // loopback smoke test.
+    let probe = TcpListener::bind("127.0.0.1:0").await.expect("probe bind");
+    let addr = probe.local_addr().expect("probe addr");
+    drop(probe);
+
+    let mut cfg = OtlpServerConfig::default();
+    cfg.listen_grpc = Some(addr);
+    cfg.listen_http = None;
+
+    let pipeline = Arc::new(IngestPipeline::noop_for_test());
+    let (handle, shutdown) = serve_grpc(cfg, pipeline.clone()).await.expect("serve_grpc");
+
+    // Give the server task a moment to start serving on the rebinding port.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let endpoint = format!("http://{addr}");
+    let resp = {
+        let mut client = LogsServiceClient::connect(endpoint)
+            .await
+            .expect("connect logs client");
+        client
+            .export(ExportLogsServiceRequest {
+                resource_logs: vec![],
+            })
+            .await
+            .expect("export logs")
+    };
+    assert!(
+        resp.into_inner().partial_success.is_none(),
+        "expected no partial_success on empty export"
+    );
+
+    assert_eq!(
+        pipeline.counts_for_test(),
+        (1, 0, 0),
+        "logs counter should have incremented exactly once"
+    );
+
+    shutdown.send(()).expect("send shutdown");
+    handle
+        .await
+        .expect("server task join")
+        .expect("server inner");
+}
