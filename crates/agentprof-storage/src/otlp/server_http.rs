@@ -17,8 +17,10 @@
 //! shared [`crate::otlp::pipeline::IngestPipeline`] — the same fan-in
 //! point used by [`crate::otlp::server_grpc`].
 //!
-//! TLS, bearer auth, and proxy-protocol land in later M2.2 tasks; this
-//! module only does plaintext HTTP/1.1.
+//! TLS lands in M2.2 T4.2 (see [`crate::otlp::tls`]); proxy-protocol lands
+//! in later M2.2 tasks. When `cfg.tls_cert`/`tls_key` are set this module
+//! transparently switches from plaintext `axum::serve` to
+//! `axum_server::from_tcp_rustls`.
 //!
 //! [`proto::logs::ExportLogsServiceRequest`]: super::proto::logs::ExportLogsServiceRequest
 //! [`proto::logs::ExportLogsServiceResponse`]: super::proto::logs::ExportLogsServiceResponse
@@ -47,6 +49,7 @@ use crate::otlp::pipeline::IngestPipeline;
 use crate::otlp::proto::logs::ExportLogsServiceRequest;
 use crate::otlp::proto::metrics::ExportMetricsServiceRequest;
 use crate::otlp::proto::trace::ExportTraceServiceRequest;
+use crate::otlp::tls::load_server_tls_config;
 
 /// Handle pair returned by [`serve_http`]: the server's join handle and
 /// a oneshot used to request graceful shutdown.
@@ -114,14 +117,46 @@ pub async fn serve_http(
         .with_state(pipeline);
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-    let join = tokio::spawn(async move {
-        axum::serve(listener, app)
-            .with_graceful_shutdown(async move {
-                let _ = shutdown_rx.await;
-            })
-            .await
-            .map_err(|e| OtlpServerError::Http(format!("axum::serve: {e}")))
-    });
+    let join = if let Some(cert_path) = cfg.tls_cert.as_deref() {
+        let key_path = cfg.tls_key.as_deref().ok_or_else(|| {
+            OtlpServerError::Config(
+                "serve_http: tls_cert set but tls_key is None (validate() should have caught this)"
+                    .into(),
+            )
+        })?;
+        let tls_cfg = load_server_tls_config(cert_path, key_path, cfg.tls_client_ca.as_deref())?;
+        let rustls_cfg =
+            axum_server::tls_rustls::RustlsConfig::from_config(std::sync::Arc::new(tls_cfg));
+        let std_listener = listener
+            .into_std()
+            .map_err(|e| OtlpServerError::Http(format!("convert tokio listener to std: {e}")))?;
+        std_listener
+            .set_nonblocking(true)
+            .map_err(|e| OtlpServerError::Http(format!("set_nonblocking on std listener: {e}")))?;
+        let handle = axum_server::Handle::new();
+        let shutdown_handle = handle.clone();
+        tokio::spawn(async move {
+            let _ = shutdown_rx.await;
+            // Trigger graceful shutdown; `None` => no forced-deadline timeout.
+            shutdown_handle.graceful_shutdown(None);
+        });
+        let server = axum_server::from_tcp_rustls(std_listener, rustls_cfg).handle(handle);
+        tokio::spawn(async move {
+            server
+                .serve(app.into_make_service())
+                .await
+                .map_err(|e| OtlpServerError::Http(format!("axum_server::serve: {e}")))
+        })
+    } else {
+        tokio::spawn(async move {
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async move {
+                    let _ = shutdown_rx.await;
+                })
+                .await
+                .map_err(|e| OtlpServerError::Http(format!("axum::serve: {e}")))
+        })
+    };
 
     Ok((join, shutdown_tx))
 }

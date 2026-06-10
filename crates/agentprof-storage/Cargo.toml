@@ -25,11 +25,12 @@ otlp = [
     "dep:prost",
     "dep:tokio",
     "dep:axum",
+    "dep:axum-server",
     "dep:bytes",
     "dep:rustls",
-    "dep:rustls-pemfile",
     "dep:tower",
 ]
+axum-server = ["dep:axum-server"]
 
 [dependencies]
 agentprof-core     = { workspace = true }
@@ -53,8 +54,8 @@ tokio               = { workspace = true, optional = true }
 axum                = { workspace = true, optional = true }
 bytes               = { workspace = true, optional = true }
 rustls              = { workspace = true, optional = true }
-rustls-pemfile      = { workspace = true, optional = true }
 tower               = { workspace = true, optional = true }
+axum-server         = { workspace = true, optional = true }
 
 [build-dependencies]
 tonic-build = { workspace = true }

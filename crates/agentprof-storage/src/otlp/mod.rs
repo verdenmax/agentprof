@@ -8,8 +8,9 @@
 //! - [`server_grpc`] — tonic gRPC listener wiring (M2.2 T2.2)
 //! - [`server_http`] — axum HTTP/protobuf listener wiring (M2.2 T3.1)
 //! - [`auth`] — bearer-token interceptor + middleware (M2.2 T4.1)
+//! - [`tls`] — server TLS + optional mTLS config builder (M2.2 T4.2)
 //!
-//! Additional modules (`tls` / `mapper` / `session_router` / `typed`)
+//! Additional modules (`mapper` / `session_router` / `typed`)
 //! land in subsequent M2.2 tasks.
 //!
 //! The crate-private `proto` module mirrors the upstream
@@ -25,6 +26,7 @@ pub mod error;
 pub mod pipeline;
 pub mod server_grpc;
 pub mod server_http;
+pub mod tls;
 
 pub use config::{OtlpServerConfig, PartialOtlpServerConfig};
 pub use error::{MapperError, OtlpServerError, RouterError};

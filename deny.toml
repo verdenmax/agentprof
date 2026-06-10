@@ -42,20 +42,34 @@ ignore = [
     # RUSTSEC-2025-0134: `rustls-pemfile` 2.2.0 is unmaintained
     # (repo archived August 2025). Upstream recommends migrating
     # to `rustls-pki-types::PemObject` (available since
-    # rustls-pki-types 1.9.0), which is the same code rustls-pemfile
-    # 2.x wraps. We pull rustls-pemfile in via the `otlp` feature of
-    # agentprof-storage (M2.2 T1.1) for loading PEM cert+key files
-    # for mTLS in the OTLP receiver.
+    # rustls-pki-types 1.9.0).
+    #
+    # As of M2.2 T4.2 our own code in `agentprof-storage/src/otlp/tls.rs`
+    # uses `rustls::pki_types::pem::PemObject` directly and has no
+    # direct dependency on `rustls-pemfile`. We still match this
+    # advisory transitively via `axum-server` 0.7's `tls-rustls`
+    # feature, which we use for HTTPS termination of the OTLP HTTP
+    # listener.
     #
     # - (a) advisory: https://rustsec.org/advisories/RUSTSEC-2025-0134
-    # - (b) cannot fix yet: the actual PEM-loading call sites land in
-    #       M2.2 T4.2 (TLS bootstrap); migrating to
-    #       `rustls-pki-types::PemObject` is a code change scheduled
-    #       for that ticket, not T1.1.
-    # - (c) upstream: https://github.com/rustls/pemfile/issues/61
-    # - (d) re-evaluate: remove this ignore once M2.2 T4.2 swaps the
-    #       PEM loader to `rustls-pki-types::PemObject` and drops the
-    #       `rustls-pemfile` dependency from agentprof-storage.
+    # - (b) cannot fix at our layer: `axum-server` 0.7.x unconditionally
+    #       enables `rustls-pemfile` whenever its `tls-rustls` feature
+    #       is selected (no `*-no-pemfile` variant exists in 0.7).
+    #       Acceptable risk for our usage: rustls-pemfile is only
+    #       exercised in axum-server's `RustlsConfig::from_pem_file*`
+    #       helpers, which agentprof-storage **does not call** — we
+    #       build the `rustls::ServerConfig` ourselves and hand it in
+    #       via `RustlsConfig::from_config(Arc<ServerConfig>)`. The
+    #       crate is therefore present in the dependency graph but its
+    #       PEM-parsing surface is never reached at runtime.
+    # - (c) upstream: https://github.com/rustls/pemfile/issues/61 and
+    #       https://github.com/programatik29/axum-server/issues (track
+    #       a future axum-server release that drops rustls-pemfile in
+    #       favour of rustls-pki-types::PemObject).
+    # - (d) re-evaluate: when axum-server ships a release whose
+    #       `tls-rustls` feature no longer pulls in `rustls-pemfile`
+    #       (likely axum-server 0.8+; remove this ignore once our
+    #       Cargo.lock no longer lists `rustls-pemfile`).
     "RUSTSEC-2025-0134",
 ]
 

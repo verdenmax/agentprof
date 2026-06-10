@@ -13,8 +13,9 @@
 //!    tuple is returned. Sending on the oneshot triggers graceful shutdown
 //!    via tonic's `serve_with_shutdown`.
 //!
-//! TLS, bearer auth, proxy-protocol, and per-session buffering land in
-//! later M2.2 tasks; this module only does plaintext h2c gRPC.
+//! TLS / mTLS land in M2.2 T4.2 (see [`crate::otlp::tls`]); proxy-protocol
+//! and per-session buffering land in later M2.2 tasks. This module
+//! activates TLS automatically when `cfg.tls_cert`/`tls_key` are set.
 
 use std::sync::Arc;
 
@@ -23,7 +24,7 @@ use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tonic::service::interceptor::InterceptedService;
 use tonic::transport::server::TcpIncoming;
-use tonic::transport::Server;
+use tonic::transport::{Certificate, Identity, Server, ServerTlsConfig};
 use tonic::{Request, Response, Status};
 
 use crate::otlp::auth::bearer_interceptor;
@@ -36,6 +37,7 @@ use crate::otlp::proto::metrics::metrics_service_server::{MetricsService, Metric
 use crate::otlp::proto::metrics::{ExportMetricsServiceRequest, ExportMetricsServiceResponse};
 use crate::otlp::proto::trace::trace_service_server::{TraceService, TraceServiceServer};
 use crate::otlp::proto::trace::{ExportTraceServiceRequest, ExportTraceServiceResponse};
+use crate::otlp::tls::read_pem_file;
 
 /// Handle pair returned by [`serve_grpc`]: the server's join handle and
 /// a oneshot used to request graceful shutdown.
@@ -114,7 +116,24 @@ pub async fn serve_grpc(
     );
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-    let server = Server::builder()
+    let mut builder = Server::builder();
+    if let Some(cert_path) = cfg.tls_cert.as_deref() {
+        let key_path = cfg.tls_key.as_deref().ok_or_else(|| {
+            OtlpServerError::Config(
+                "serve_grpc: tls_cert set but tls_key is None (validate() should have caught this)"
+                    .into(),
+            )
+        })?;
+        let cert_pem = read_pem_file(cert_path)?;
+        let key_pem = read_pem_file(key_path)?;
+        let mut tls = ServerTlsConfig::new().identity(Identity::from_pem(&cert_pem, &key_pem));
+        if let Some(ca_path) = cfg.tls_client_ca.as_deref() {
+            let ca_pem = read_pem_file(ca_path)?;
+            tls = tls.client_ca_root(Certificate::from_pem(&ca_pem));
+        }
+        builder = builder.tls_config(tls)?;
+    }
+    let server = builder
         .add_service(logs)
         .add_service(metrics)
         .add_service(traces);
