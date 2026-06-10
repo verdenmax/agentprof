@@ -52,7 +52,9 @@ Derive-stage warnings: M
   NonMonotonicTimestamp / PayloadNameMissing
 ```
 
-All other subcommands (`ingest-otlp` / `config`) remain **planned** for Phase 2.
+All other subcommands (`config`) remain **planned** for Phase 2.
+The `ingest-otlp` subcommand is **shipped** (M2.2 T8.1; gated on the
+`otlp` cargo feature). See [§ `agentprof ingest-otlp`](#agentprof-ingest-otlp-m22) below.
 
 ## Quick start
 
@@ -367,6 +369,51 @@ six actions plus prune cascade and ingest arg-group validation.
 Every test pins `--storage-path <tempdir>/test.sqlite` per the
 post-T5.x hermeticity requirement.
 
+## `agentprof ingest-otlp` (M2.2)
+
+Runs the embedded OTLP receiver — gated on the `otlp` cargo feature
+(included in the default `full` feature). Binds gRPC (`127.0.0.1:4317`)
+and HTTP/protobuf (`127.0.0.1:4318`) listeners, decodes OTLP envelopes
+via the M2.2 T5.2 mapper, groups them by `session.id` through the M2.2
+T6.1 `SessionRouter`, and persists each finalized buffer to the same
+`SQLite` store used by `analyze` via the M2.2 T7.1
+`StorageFlushSink`. On SIGINT / SIGTERM (Unix), drains every open
+buffer through the sink before exiting (no partial sessions are
+lost).
+
+```sh
+# Bind both listeners on loopback, write to the resolved storage path:
+agentprof ingest-otlp
+
+# Bind gRPC on a non-default address, disable HTTP, require a bearer:
+agentprof ingest-otlp --grpc 0.0.0.0:14317 --no-http --bearer-token s3cret
+
+# Terminate mTLS on both listeners:
+agentprof ingest-otlp \
+    --tls-cert /etc/agentprof/server.pem \
+    --tls-key  /etc/agentprof/server.key \
+    --client-ca /etc/agentprof/clients.pem
+```
+
+| Flag | Default | Notes |
+|---|---|---|
+| `--grpc <ADDR>` / `--no-grpc` | `127.0.0.1:4317` | At least one of `--grpc` / `--http` must be enabled (or just don't pass `--no-*`). |
+| `--http <ADDR>` / `--no-http` | `127.0.0.1:4318` | HTTP/protobuf transport. |
+| `--bearer-token <TOKEN>` | none (auth disabled) | Also reads `AGENTPROF_OTLP_TOKEN` env. |
+| `--tls-cert` / `--tls-key` | none (plain TCP) | Both required together (enforced by clap `requires =`). |
+| `--client-ca <PATH>` | none | Implies mTLS; requires `--tls-cert`. |
+| `--max-session-bytes <N>` | `16 777 216` (16 MiB) | Force-flush threshold per `SessionBuffer`. |
+| `--max-session-events <N>` | `100 000` | Force-flush threshold per `SessionBuffer`. |
+| `--idle-seconds <SECONDS>` | `300` | Idle flush threshold (sweeper interval is 30 s). |
+| `--store <PATH>` | resolved via `[storage] path` | Overrides the resolved `SQLite` location. |
+
+**Out of scope for T8.1**: `[otlp]` block in `agentprof.toml` (lands in
+T8.2) and end-to-end transport / TLS / signal lifecycle tests (T9.1).
+The current `tests/cli_ingest_otlp_help.rs` only covers `--help`
+shape + the both-listeners-disabled validation. See
+[`docs/superpowers/specs/2026-06-10-m2.2-otlp-receiver-design.md`](../../docs/superpowers/specs/2026-06-10-m2.2-otlp-receiver-design.md)
+§8 for the full receiver design.
+
 ## Public interface
 
 This crate produces a binary, not a library. The user-facing protocol is the CLI itself:
@@ -410,7 +457,8 @@ See [`docs/architecture.md`](../../docs/architecture.md) §8 for the canonical s
 | `exit` | `ExitKind` enum + `classify_error` downcast | ✓ shipped (M1.4) |
 | `data_source` | `DualPathDataSource` composer — fans out `SessionDataSource` calls to an adapter + optional `SQLite` store, merges by session id (adapter wins), and records divergence warnings. (An async re-upsert callback was prototyped in M2.1 T4.2 and removed by the M2.1 audit followup — see `data_source.rs` module docs; proper async refresh is deferred to M2.1.1.) | ✓ shipped (M2.1 T4.2; re-upsert callback removed in audit followup) |
 | `data_source_factory` | `build_data_source(agent, root, &StorageConfig, no_cache) -> anyhow::Result<(Box<dyn SessionDataSource>, WarningsHandle)>` — single composition seam used by every subcommand. Returns a `DualPathDataSource` when storage is reachable, falls back to a bare `AdapterDataSource` when `--no-cache` is set **or** storage open fails (`tracing::warn!` + graceful degradation, never a hard error). The second tuple element is an `Arc<Mutex<Vec<DualPathWarning>>>` shared with the inner dual-path source (empty for adapter-only returns) — callers drain it and emit one stderr line per warning unless `--quiet`. | ✓ shipped (M2.1 T5.1, warnings handle M2.1 T5.2) |
-| `cmd::{ingest_otlp, config}` | One module per planned subcommand | planned (Phase 2) |
+| `cmd::ingest_otlp` | The `ingest-otlp` subcommand: builds an `OtlpServerConfig` from clap flags + documented defaults, opens the SQLite store, wires `StorageFlushSink → SessionRouter → IngestPipeline → serve_{grpc,http}` + `spawn_idle_sweeper`, and drains gracefully on SIGINT / SIGTERM. Feature-gated under `otlp`; dispatcher in `main.rs` spins a multi-thread tokio runtime via `block_on` so the rest of the CLI stays sync. | ✓ shipped (M2.2 T8.1; config-file `[otlp]` block → T8.2; e2e tests → T9.1) |
+| `cmd::config` | One module per planned subcommand | planned (Phase 2) |
 | `config` | TOML loader / writer for `~/.config/agentprof/config.toml` | planned (M1.5+) |
 | `report_html` | `askama` templates for the HTML report | planned (M1.5+) |
 | `main` | clap dispatch + tracing init + panic hook | ✓ shipped (M1.4) |

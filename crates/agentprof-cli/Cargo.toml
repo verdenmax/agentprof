@@ -21,7 +21,7 @@ default = ["full"]
 full    = ["anthropic-api", "otlp"]
 
 anthropic-api = ["agentprof-core/anthropic-api"]
-otlp          = ["agentprof-storage/otlp"]
+otlp          = ["agentprof-storage/otlp", "dep:tokio"]
 
 [dependencies]
 agentprof-core     = { workspace = true, features = ["clap-derive"] }
@@ -43,6 +43,12 @@ chrono             = { workspace = true }
 directories        = { workspace = true }
 askama             = { workspace = true }
 notify-debouncer-mini = { workspace = true }
+
+# OTLP receiver runtime (feature `otlp`). The workspace `tokio` already
+# carries `rt-multi-thread` + `macros` + `time` + `net`; we layer the
+# `signal` feature on top so the receiver can react to SIGINT/SIGTERM
+# (`tokio::signal::unix::SignalKind`).
+tokio              = { workspace = true, optional = true, features = ["signal"] }
 
 [dev-dependencies]
 assert_cmd = { workspace = true }

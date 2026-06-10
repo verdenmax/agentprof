@@ -349,7 +349,7 @@ M1.4 引入的纯函数 rollups，消费 `&Episodes` 产出 per-row 分析数据
 
 ## 8. CLI 协议（`agentprof <COMMAND>`）
 
-> **当前实现状态**（2026-06-08）：`analyze` ✅ M1.4 + `--export tui` M1.5 + `--export speedscope|html` M1.6.4 + `--section mcp-waste` M1.6.5 + `--tokens-per-tool` / `--tool-descriptions` M1.6.6 / `list` ✅ M1.6.1 / `aggregate` ✅ M1.6.2 + `--export tui` M1.6.3 + waste cols M1.6.5 + wasted-tokens col M1.6.6 / `watch` ✅ M1.6.3 / `mcp-waste` ✅ M1.6.5 + token-cost flags M1.6.6 已 ship；`ingest-otlp` / `config` 规划中（Phase 2）；`export` 已取消（与 `analyze --export` 100% 重复，CLI surface 已移除）。
+> **当前实现状态**（2026-06-08）：`analyze` ✅ M1.4 + `--export tui` M1.5 + `--export speedscope|html` M1.6.4 + `--section mcp-waste` M1.6.5 + `--tokens-per-tool` / `--tool-descriptions` M1.6.6 / `list` ✅ M1.6.1 / `aggregate` ✅ M1.6.2 + `--export tui` M1.6.3 + waste cols M1.6.5 + wasted-tokens col M1.6.6 / `watch` ✅ M1.6.3 / `mcp-waste` ✅ M1.6.5 + token-cost flags M1.6.6 已 ship；`ingest-otlp` ✅ M2.2 T8.1（CLI surface + 信号驱动 drain；config-file 块 → T8.2，e2e transport 测试 → T9.1）；`config` 规划中（Phase 2）；`export` 已取消（与 `analyze --export` 100% 重复，CLI surface 已移除）。
 
 ```
 analyze [--agent copilot]                     # ✅ M1.4: copilot only; auto/claude/codex 留给 Phase 3
@@ -434,8 +434,24 @@ mcp-waste [--root <dir>]                       # ✅ M1.6.5
         命中描述时走 tiktoken 精确计数。Loaded 一次后在每个 session 复用（spec §6.2 +
         [ADR-0016](internals/adr-0016-mcp-token-cost-architecture.md)）。
 
-ingest-otlp [--listen 0.0.0.0:4317]            # 🚧 规划中 — Phase 2
-    启动 OTLP receiver，订阅 Claude Code telemetry（feature: otlp）。
+ingest-otlp [OPTIONS]                          # ✅ M2.2 T8.1 (v0.3.0)
+    启动 OTLP receiver（gRPC + HTTP/protobuf），订阅 Claude Code /
+    Codex / Copilot CLI telemetry，按 session.id 聚合事件后写入 SQLite
+    （feature gate: `otlp`）。
+      --grpc <ADDR>              gRPC 监听地址（默认 127.0.0.1:4317）
+      --no-grpc                  关闭 gRPC 监听器
+      --http <ADDR>              HTTP/protobuf 监听地址（默认 127.0.0.1:4318）
+      --no-http                  关闭 HTTP 监听器
+      --bearer-token <TOKEN>     共享 bearer auth（env: AGENTPROF_OTLP_TOKEN）
+      --tls-cert / --tls-key     server TLS 证书 + 私钥（PEM，必须成对）
+      --client-ca <PATH>         client CA bundle → 启用 mTLS
+      --max-session-bytes <N>    单 session buffer 上限（默认 16 MiB）
+      --max-session-events <N>   单 session 事件上限（默认 100000）
+      --idle-seconds <SECONDS>   idle flush 阈值（默认 300）
+      --store <PATH>             覆写 SQLite 存储路径
+    至少必须启用 gRPC 或 HTTP 其一；同时 --no-grpc + --no-http → UserError。
+    收到 SIGINT/SIGTERM 后会 drain 所有未持久化的 session buffer 后退出。
+    T8.2 将补 `[otlp]` 配置块；T9.1 补端到端 transport 测试。
 
 config  [show | edit | path]                   # 🚧 规划中 — Phase 2
     XDG 配置：~/.config/agentprof/config.toml。

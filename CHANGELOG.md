@@ -22,6 +22,38 @@ prefix used in commit messages).
 
 ### Added
 
+- **M2.2 T8.1 (cli): `agentprof ingest-otlp` subcommand running the OTLP
+  receiver** (gated on the `otlp` cargo feature; included in the default
+  `full` feature). New `cmd::ingest_otlp::IngestOtlpCmd` (clap-derive)
+  exposing `--grpc` / `--no-grpc` / `--http` / `--no-http` /
+  `--bearer-token` (env: `AGENTPROF_OTLP_TOKEN`) /
+  `--tls-cert` / `--tls-key` / `--client-ca` (clap `requires =`
+  enforces TLS cert/key pairing and `--client-ca` ⇒ `--tls-cert`) /
+  `--max-session-bytes` / `--max-session-events` / `--idle-seconds` /
+  `--store`. `run(...)` builds an `OtlpServerConfig` from CLI args +
+  documented defaults (gRPC `127.0.0.1:4317`, HTTP `127.0.0.1:4318`,
+  16 MiB / 100 000 events / 300 s idle), opens the SQLite store
+  (`--store` wins over the resolved `[storage] path`), wires
+  `StorageFlushSink → SessionRouter → IngestPipeline → serve_{grpc,http}`
+  + `spawn_idle_sweeper` (30 s tick), then awaits SIGINT
+  (`tokio::signal::ctrl_c`) or SIGTERM (`SignalKind::terminate`, Unix
+  only) and drains in `stop accepting → join servers → flush sweeper`
+  order so no in-flight OTLP request races the final
+  `flush_all(Shutdown)`. Validation: `--no-grpc --no-http` →
+  `ExitKind::UserError` ("at least one of --grpc / --http must be
+  enabled"). `main()` dispatcher gates the variant on `#[cfg(feature =
+  "otlp")]` and spins a multi-thread tokio runtime via `block_on` so
+  the rest of the CLI stays sync-flavored. Cargo: `otlp` feature now
+  also pulls `dep:tokio` (new optional dep on the workspace `tokio`
+  with the `signal` feature layered on top of the existing
+  `rt-multi-thread` + `macros` + `time` + `net`). Coverage in
+  `tests/cli_ingest_otlp_help.rs` (2 surface tests: `--help` lists
+  every documented flag; `--no-grpc --no-http` exits with `at least one
+  of` on stderr) + 3 in-module unit tests for `build_otlp_server_config`
+  (default loopback, both-disabled rejection, HTTP-only). Deep e2e
+  transport + TLS + lifecycle coverage stays in T9.1; config-file
+  `[otlp]` block stays in T8.2.
+
 - **M2.2 T7.1 (storage): wire pipeline → mapper → router → storage sink**
   (gated on `otlp`). `IngestPipeline` now owns an `Arc<SessionRouter>`
   instead of being a counters-only stub: each `ingest_logs` /

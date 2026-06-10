@@ -185,6 +185,8 @@ full CLI documentation.
 - `agentprof watch` (M1.6.3) — live-refresh single-session TUI (kernel-event-driven via `notify-debouncer-mini`; default 250 ms debounce). See [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) `## agentprof watch` and [ADR-0009](docs/internals/adr-0009-watch-runner-and-notify.md).
 - `agentprof watch aggregate --by KEY` (M1.6.3) — live-refresh cross-session aggregate TUI; accepts every `aggregate` flag (except `--export` / `--output`, which are rejected because the output is always TUI).
 - `agentprof mcp-waste` (M1.6.5) — cross-session report of MCP tools loaded into the context window but never called (md / json / html). Pairs with `analyze --section mcp-waste` (single session) and the `[5] McpWaste` TUI view. See [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) `## agentprof mcp-waste` and [ADR-0015](docs/internals/adr-0015-mcp-waste-architecture.md).
+- `agentprof db <init|stats|ingest|prune|vacuum|export>` (M2.1) — SQLite cache lifecycle and inspection.
+- `agentprof ingest-otlp` (M2.2 T8.1, feature `otlp`) — embedded OTLP receiver (gRPC `127.0.0.1:4317` + HTTP `127.0.0.1:4318`) that decodes Claude Code / Codex / Copilot CLI telemetry envelopes, buffers them per `session.id`, and persists finalized sessions to the same SQLite store used by `analyze`. Drains gracefully on SIGINT / SIGTERM. See [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) `## agentprof ingest-otlp`.
 
 ### MCP server waste analysis (M1.6.5+)
 

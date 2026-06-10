@@ -84,6 +84,10 @@ enum SubCmd {
     /// Database lifecycle and inspection: `init` / `stats` / `ingest`
     /// / `prune` / `vacuum` / `export` (M2.1 T6).
     Db(cmd::db::DbArgs),
+    /// Run the embedded OTLP receiver and persist incoming sessions
+    /// to the local store (M2.2 T8.1).
+    #[cfg(feature = "otlp")]
+    IngestOtlp(cmd::ingest_otlp::IngestOtlpCmd),
 }
 
 fn main() -> ExitCode {
@@ -124,6 +128,8 @@ fn run(
             cmd::mcp_waste::run(c, cfg, tracing_handle, no_cache, storage_path, quiet)
         }
         SubCmd::Db(c) => cmd::db::run(c, storage_path),
+        #[cfg(feature = "otlp")]
+        SubCmd::IngestOtlp(c) => cmd::ingest_otlp::run(c, storage_path),
     }
 }
 

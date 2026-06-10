@@ -22,6 +22,8 @@ pub mod analyze;
 pub mod db;
 pub mod exit;
 pub mod format;
+#[cfg(feature = "otlp")]
+pub mod ingest_otlp;
 pub mod list;
 pub mod mcp_waste;
 pub mod model_hint;
