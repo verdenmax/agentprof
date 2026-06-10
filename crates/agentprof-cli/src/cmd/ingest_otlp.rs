@@ -118,6 +118,13 @@ pub struct IngestOtlpCmd {
     /// Override the `SQLite` store path (default: resolved from config).
     #[arg(long, value_name = "PATH")]
     pub store: Option<PathBuf>,
+
+    /// Override the idle-sweeper tick interval, in seconds. Hidden
+    /// from `--help`; intended for end-to-end tests that need the
+    /// sweeper to fire well below the production default of
+    /// [`SWEEPER_INTERVAL_SECONDS`]. Defaults to that constant.
+    #[arg(long, value_name = "SECONDS", hide = true)]
+    pub sweeper_interval_seconds: Option<u64>,
 }
 
 /// Entry point for `agentprof ingest-otlp`.
@@ -164,7 +171,11 @@ async fn run_async(cmd: IngestOtlpCmd, storage_path: Option<PathBuf>) -> Result<
         .with_idle_timeout(cfg.session_idle_timeout);
     let router = Arc::new(SessionRouter::new(caps, sink));
     let pipeline = Arc::new(IngestPipeline::new(router.clone()));
-    let sweeper = spawn_idle_sweeper(router, Duration::from_secs(SWEEPER_INTERVAL_SECONDS));
+    let sweeper_interval = Duration::from_secs(
+        cmd.sweeper_interval_seconds
+            .unwrap_or(SWEEPER_INTERVAL_SECONDS),
+    );
+    let sweeper = spawn_idle_sweeper(router, sweeper_interval);
 
     let grpc_handle = if let Some(addr) = cfg.listen_grpc {
         let (join, shutdown_tx) = serve_grpc(cfg.clone(), pipeline.clone())
@@ -372,6 +383,7 @@ mod tests {
             max_session_events: None,
             idle_seconds: None,
             store: None,
+            sweeper_interval_seconds: None,
         }
     }
 

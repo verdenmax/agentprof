@@ -22,6 +22,30 @@ prefix used in commit messages).
 
 ### Added
 
+- **M2.2 T9.1 (cli): 8 end-to-end OTLP receiver tests against the
+  real `agentprof ingest-otlp` binary** (gated on `otlp`). New
+  `crates/agentprof-cli/tests/cli_ingest_otlp_e2e.rs` spawns the
+  receiver on ephemeral `127.0.0.1` ports with a tempfile-backed
+  `SQLite` store, pushes OTLP envelopes via `opentelemetry-proto` +
+  `tonic` (gRPC) and `reqwest` (HTTP/protobuf), then asserts rows
+  appear in the resulting DB. Cases: gRPC logs `SessionStart`+`End`
+  → 1 row; HTTP metrics token usage → `total_input_tokens` rollup;
+  gRPC traces tool span → `tools_loaded` row; bearer-token rejection
+  bypasses the pipeline; `--max-session-events=3` OOM-flushes a
+  partial session; idle sweeper flushes an inactive session;
+  three interleaved session ids land in three distinct rows;
+  explicit `session.end` persists across `SIGKILL` (substitute for
+  `SIGTERM` since adding `nix` to the workspace is forbidden).
+  Total wall-clock ~2.1 s for the file (3 consecutive runs each
+  finished in 2.07 s). New CLI flag `--sweeper-interval-seconds`
+  (hidden from `--help`) overrides the production 30 s sweeper
+  tick so test #6 can fire the sweeper inside its budget; not
+  user-facing. New `agentprof-cli` dev-dependencies (all
+  workspace-pinned, no new entries in `[workspace.dependencies]`):
+  `opentelemetry-proto` (`gen-tonic`), `tonic`, `reqwest`, `prost`,
+  `tokio` (`rt-multi-thread`+`macros`+`time`+`net`), and
+  `agentprof-storage` with the `otlp` feature enabled for the test
+  view.
 - **M2.2 T8.2 (cli): `[otlp]` config-file block with CLI-override
   merge.** `agentprof_cli::config::PartialConfig` gains an optional
   `otlp: Option<PartialOtlpServerConfig>` field (feature-gated on
