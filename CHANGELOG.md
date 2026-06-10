@@ -22,6 +22,29 @@ prefix used in commit messages).
 
 ### Added
 
+- **M2.2 T8.2 (cli): `[otlp]` config-file block with CLI-override
+  merge.** `agentprof_cli::config::PartialConfig` gains an optional
+  `otlp: Option<PartialOtlpServerConfig>` field (feature-gated on
+  `otlp`), re-using
+  `agentprof_storage::otlp::config::PartialOtlpServerConfig` verbatim
+  (already serde-friendly — no new derives needed on the storage
+  type). `cmd::ingest_otlp::build_otlp_server_config` now takes a
+  second `Option<PartialOtlpServerConfig>` parameter and merges
+  per-field with priority **CLI flag > `AGENTPROF_OTLP_TOKEN` env >
+  `[otlp]` config-file block > built-in defaults**; the explicit
+  `--no-grpc` / `--no-http` toggles always win. `run_async` resolves
+  the file from `$AGENTPROF_CONFIG` or the platform XDG config dir
+  (`directories::BaseDirs::config_dir`) and best-effort-loads the
+  `[otlp]` block (missing file silent; malformed file → `warn` log,
+  fall through to CLI + defaults). The merged
+  `cfg.session_idle_timeout` now also drives the `SessionBufferCaps`
+  idle threshold so `[otlp] session_idle_timeout = "10m"` flows to
+  both the receiver config and the buffer caps. 4 new unit tests in
+  `cmd::ingest_otlp::tests` cover defaults-from-file,
+  CLI-overrides-file (grpc + bearer + idle), missing-block-falls-to-
+  defaults, and `--no-grpc` overriding a file-set `listen_grpc`. 2
+  new unit tests in `config::tests` round-trip an `[otlp]` block and
+  verify a missing block yields `None`.
 - **M2.2 T8.1 (cli): `agentprof ingest-otlp` subcommand running the OTLP
   receiver** (gated on the `otlp` cargo feature; included in the default
   `full` feature). New `cmd::ingest_otlp::IngestOtlpCmd` (clap-derive)

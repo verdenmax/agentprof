@@ -13,6 +13,26 @@
 //! and defaults live in `agentprof-storage` so the CLI never owns
 //! storage policy.
 //!
+//! ## `[otlp]` block (feature `otlp`)
+//!
+//! When the `otlp` feature is enabled an additional `[otlp]` section is
+//! recognized and deserialized into
+//! [`agentprof_storage::otlp::config::PartialOtlpServerConfig`] verbatim.
+//! Merge order (highest priority first), applied by
+//! `agentprof ingest-otlp`:
+//!
+//! 1. CLI flags (`--grpc`, `--http`, `--bearer-token`, …).
+//! 2. The `AGENTPROF_OTLP_TOKEN` environment variable (folded into
+//!    `--bearer-token` by `clap`).
+//! 3. The `[otlp]` config-file block.
+//! 4. The built-in defaults documented on [`OtlpServerConfig::default`].
+//!
+//! See `docs/superpowers/specs/2026-06-10-m2.2-otlp-receiver-design.md`
+//! §§8–9 for the canonical specification.
+//!
+//! [`OtlpServerConfig::default`]:
+//!     agentprof_storage::otlp::config::OtlpServerConfig::default
+//!
 //! # Examples
 //!
 //! ```
@@ -49,6 +69,15 @@ use thiserror::Error;
 pub struct PartialConfig {
     /// `[storage]` section — see [`PartialStorageConfig`].
     pub storage: PartialStorageConfig,
+
+    /// `[otlp]` section — see
+    /// [`agentprof_storage::otlp::config::PartialOtlpServerConfig`].
+    ///
+    /// `None` means the section was absent from the TOML file; the
+    /// `ingest-otlp` builder then falls back to built-in defaults
+    /// (possibly overridden by CLI flags).
+    #[cfg(feature = "otlp")]
+    pub otlp: Option<agentprof_storage::otlp::config::PartialOtlpServerConfig>,
 }
 
 /// Errors raised while loading / merging the CLI config.
@@ -165,5 +194,30 @@ mod tests {
     fn unknown_top_level_section_rejected() {
         let err = parse_toml("[nope]\nfoo = 1\n").unwrap_err();
         assert!(matches!(err, ConfigError::Toml(_)));
+    }
+
+    #[cfg(feature = "otlp")]
+    #[test]
+    fn otlp_section_round_trips_into_partial() {
+        let cfg = parse_toml(
+            r#"
+                [otlp]
+                listen_grpc = "0.0.0.0:9317"
+                listen_token = "shared-secret"
+                session_idle_timeout = "10m"
+            "#,
+        )
+        .unwrap();
+        let otlp = cfg.otlp.expect("otlp section present");
+        assert_eq!(otlp.listen_grpc.as_deref(), Some("0.0.0.0:9317"));
+        assert_eq!(otlp.listen_token.as_deref(), Some("shared-secret"));
+        assert_eq!(otlp.session_idle_timeout.as_deref(), Some("10m"));
+    }
+
+    #[cfg(feature = "otlp")]
+    #[test]
+    fn missing_otlp_section_yields_none() {
+        let cfg = parse_toml("[storage]\nauto_prune_days = 7\n").unwrap();
+        assert!(cfg.otlp.is_none());
     }
 }

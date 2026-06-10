@@ -1,11 +1,13 @@
 //! `agentprof ingest-otlp` — run the embedded OTLP receiver and persist
-//! incoming sessions to the local `SQLite` store (M2.2 T8.1).
+//! incoming sessions to the local `SQLite` store (M2.2 T8.1 + T8.2).
 //!
 //! Wires up the M2.2 receiver subsystem end-to-end:
 //!
 //! ```text
-//! clap args ─▶ OtlpServerConfig + SessionBufferCaps
-//!                            │
+//! [otlp] file partial ─┐
+//!                      ▼
+//! clap args ─▶ build_otlp_server_config ─▶ OtlpServerConfig
+//!                            │            + SessionBufferCaps
 //!                            ▼
 //!     StorageFlushSink(Db) ─▶ SessionRouter ─▶ IngestPipeline
 //!                            │                  │
@@ -21,12 +23,21 @@
 //! that no in-flight OTLP request races with the final
 //! `flush_all(Shutdown)` sweep.
 //!
-//! Config-file (`[otlp]` block) integration is intentionally **out of
-//! scope** for T8.1: only CLI args + the documented defaults are
-//! honored here. T8.2 will fold a `PartialOtlpServerConfig` from disk
-//! between defaults and CLI overrides.
+//! ## Config priority (T8.2)
+//!
+//! For every field of [`OtlpServerConfig`], values are resolved in
+//! this order (highest priority first):
+//!
+//! 1. CLI flags (`--grpc`, `--http`, `--bearer-token`, …).
+//! 2. The `AGENTPROF_OTLP_TOKEN` environment variable — `clap`'s
+//!    `env = …` attribute folds it into `--bearer-token`, so it
+//!    shares priority 1 from the merge function's perspective.
+//! 3. The `[otlp]` block from `$AGENTPROF_CONFIG` or
+//!    `~/.config/agentprof/config.toml`.
+//! 4. The built-in defaults documented on
+//!    [`OtlpServerConfig::default`].
 
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -35,7 +46,7 @@ use anyhow::{Context, Result};
 use clap::Args;
 
 use agentprof_storage::config::PartialStorageConfig;
-use agentprof_storage::otlp::config::OtlpServerConfig;
+use agentprof_storage::otlp::config::{OtlpServerConfig, PartialOtlpServerConfig};
 use agentprof_storage::otlp::pipeline::IngestPipeline;
 use agentprof_storage::otlp::router::{SessionBufferCaps, SessionRouter};
 use agentprof_storage::otlp::server_grpc::serve_grpc;
@@ -45,11 +56,10 @@ use agentprof_storage::otlp::sweeper::spawn_idle_sweeper;
 use agentprof_storage::Db;
 
 use crate::cmd::exit::ExitKind;
-use agentprof_cli::config::resolve_storage_config;
+use agentprof_cli::config::{parse_toml, resolve_storage_config};
 
 const DEFAULT_MAX_SESSION_BYTES: usize = 16 * 1024 * 1024;
 const DEFAULT_MAX_SESSION_EVENTS: usize = 100_000;
-const DEFAULT_IDLE_SECONDS: u64 = 300;
 const SWEEPER_INTERVAL_SECONDS: u64 = 30;
 
 /// CLI arguments for `agentprof ingest-otlp`.
@@ -131,7 +141,8 @@ pub fn run(cmd: IngestOtlpCmd, storage_path: Option<PathBuf>) -> Result<()> {
 }
 
 async fn run_async(cmd: IngestOtlpCmd, storage_path: Option<PathBuf>) -> Result<()> {
-    let cfg = build_otlp_server_config(&cmd)?;
+    let file_partial = load_partial_otlp_from_disk();
+    let cfg = build_otlp_server_config(&cmd, file_partial)?;
 
     let store_path = if let Some(explicit) = cmd.store.clone() {
         explicit
@@ -150,9 +161,7 @@ async fn run_async(cmd: IngestOtlpCmd, storage_path: Option<PathBuf>) -> Result<
     let caps = SessionBufferCaps::default()
         .with_max_bytes(cmd.max_session_bytes.unwrap_or(DEFAULT_MAX_SESSION_BYTES))
         .with_max_events(cmd.max_session_events.unwrap_or(DEFAULT_MAX_SESSION_EVENTS))
-        .with_idle_timeout(Duration::from_secs(
-            cmd.idle_seconds.unwrap_or(DEFAULT_IDLE_SECONDS),
-        ));
+        .with_idle_timeout(cfg.session_idle_timeout);
     let router = Arc::new(SessionRouter::new(caps, sink));
     let pipeline = Arc::new(IngestPipeline::new(router.clone()));
     let sweeper = spawn_idle_sweeper(router, Duration::from_secs(SWEEPER_INTERVAL_SECONDS));
@@ -210,13 +219,37 @@ async fn run_async(cmd: IngestOtlpCmd, storage_path: Option<PathBuf>) -> Result<
     Ok(())
 }
 
-/// Build an [`OtlpServerConfig`] from CLI args + documented defaults.
+/// Build an [`OtlpServerConfig`] from CLI args, an optional config-file
+/// partial, and the documented defaults.
 ///
-/// Validation rules:
-/// - At least one of gRPC / HTTP must be enabled.
-/// - `--tls-cert` / `--tls-key` pairing and `--client-ca` requiring
-///   `--tls-cert` are already enforced by clap (`requires = …`).
-fn build_otlp_server_config(cmd: &IngestOtlpCmd) -> Result<OtlpServerConfig> {
+/// Merge priority (highest first):
+///
+/// 1. CLI flags (`cmd.grpc`, `cmd.http`, `cmd.bearer_token`, …) — and
+///    the `AGENTPROF_OTLP_TOKEN` env var folded into `--bearer-token`
+///    by `clap` via `env = …`.
+/// 2. Fields present in `file_partial` (parsed from the `[otlp]` block
+///    of the user's config file).
+/// 3. Built-in defaults from [`OtlpServerConfig::default`] (loopback
+///    listeners on the standard OTLP ports).
+///
+/// `cmd.no_grpc` / `cmd.no_http` are explicit "disable" toggles and
+/// always override any positive value from file or defaults. clap
+/// enforces `--tls-cert` ↔ `--tls-key` pairing and
+/// `--client-ca` ⇒ `--tls-cert`, so this function trusts those
+/// invariants for CLI-supplied paths.
+///
+/// # Errors
+///
+/// - [`ExitKind::UserError`] when both listeners are explicitly
+///   disabled (`--no-grpc` + `--no-http`).
+/// - [`ExitKind::UserError`] when the file partial fails to resolve
+///   (malformed address / duration), or when the merged config fails
+///   [`OtlpServerConfig::validate`] (e.g. mismatched TLS pair coming
+///   from the file plus CLI).
+fn build_otlp_server_config(
+    cmd: &IngestOtlpCmd,
+    file_partial: Option<PartialOtlpServerConfig>,
+) -> Result<OtlpServerConfig> {
     if cmd.no_grpc && cmd.no_http {
         return Err(ExitKind::UserError.into_anyhow(
             "at least one of --grpc / --http must be enabled (got both --no-grpc and --no-http)"
@@ -224,24 +257,38 @@ fn build_otlp_server_config(cmd: &IngestOtlpCmd) -> Result<OtlpServerConfig> {
         ));
     }
 
-    let mut cfg = OtlpServerConfig::default();
+    let mut cfg =
+        OtlpServerConfig::from_partial(file_partial.unwrap_or_default()).map_err(|e| {
+            ExitKind::UserError.into_anyhow(format!("invalid [otlp] config-file block: {e}"))
+        })?;
 
-    cfg.listen_grpc = if cmd.no_grpc {
-        None
-    } else {
-        Some(cmd.grpc.unwrap_or_else(default_grpc_addr))
-    };
-    cfg.listen_http = if cmd.no_http {
-        None
-    } else {
-        Some(cmd.http.unwrap_or_else(default_http_addr))
-    };
-    cfg.listen_token.clone_from(&cmd.bearer_token);
-    cfg.tls_cert.clone_from(&cmd.tls_cert);
-    cfg.tls_key.clone_from(&cmd.tls_key);
-    cfg.tls_client_ca.clone_from(&cmd.client_ca);
-    cfg.session_idle_timeout =
-        Duration::from_secs(cmd.idle_seconds.unwrap_or(DEFAULT_IDLE_SECONDS));
+    if cmd.no_grpc {
+        cfg.listen_grpc = None;
+    } else if let Some(addr) = cmd.grpc {
+        cfg.listen_grpc = Some(addr);
+    }
+
+    if cmd.no_http {
+        cfg.listen_http = None;
+    } else if let Some(addr) = cmd.http {
+        cfg.listen_http = Some(addr);
+    }
+
+    if let Some(token) = &cmd.bearer_token {
+        cfg.listen_token = Some(token.clone());
+    }
+    if let Some(p) = &cmd.tls_cert {
+        cfg.tls_cert = Some(p.clone());
+    }
+    if let Some(p) = &cmd.tls_key {
+        cfg.tls_key = Some(p.clone());
+    }
+    if let Some(p) = &cmd.client_ca {
+        cfg.tls_client_ca = Some(p.clone());
+    }
+    if let Some(secs) = cmd.idle_seconds {
+        cfg.session_idle_timeout = Duration::from_secs(secs);
+    }
 
     cfg.validate().map_err(|e| {
         ExitKind::UserError.into_anyhow(format!("invalid OTLP receiver config: {e}"))
@@ -249,12 +296,41 @@ fn build_otlp_server_config(cmd: &IngestOtlpCmd) -> Result<OtlpServerConfig> {
     Ok(cfg)
 }
 
-const fn default_grpc_addr() -> SocketAddr {
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 4317)
+/// Best-effort load of the `[otlp]` block from the user's config file.
+///
+/// Resolution order: `$AGENTPROF_CONFIG` (if set) → the platform
+/// XDG config dir (`$XDG_CONFIG_HOME/agentprof/config.toml` on Linux,
+/// equivalent on macOS / Windows via `directories`). A missing file is
+/// silently treated as "no overrides"; a malformed file is logged at
+/// `warn` level and likewise treated as "no overrides" so the receiver
+/// can still start from CLI args + defaults.
+fn load_partial_otlp_from_disk() -> Option<PartialOtlpServerConfig> {
+    let path = resolve_config_file_path()?;
+    let src = match std::fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(e) => {
+            tracing::warn!(path = %path.display(), error = %e,
+                "failed to read agentprof config file; ignoring [otlp] overrides");
+            return None;
+        }
+    };
+    match parse_toml(&src) {
+        Ok(cfg) => cfg.otlp,
+        Err(e) => {
+            tracing::warn!(path = %path.display(), error = %e,
+                "failed to parse agentprof config file; ignoring [otlp] overrides");
+            None
+        }
+    }
 }
 
-const fn default_http_addr() -> SocketAddr {
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 4318)
+fn resolve_config_file_path() -> Option<PathBuf> {
+    if let Some(custom) = std::env::var_os("AGENTPROF_CONFIG") {
+        return Some(PathBuf::from(custom));
+    }
+    let dirs = directories::BaseDirs::new()?;
+    Some(dirs.config_dir().join("agentprof").join("config.toml"))
 }
 
 #[cfg(unix)]
@@ -301,21 +377,89 @@ mod tests {
 
     #[test]
     fn build_config_defaults_to_loopback_on_both_listeners() {
-        let cfg = build_otlp_server_config(&args(false, false)).expect("defaults validate");
+        let cfg = build_otlp_server_config(&args(false, false), None).expect("defaults validate");
         assert_eq!(cfg.listen_grpc.unwrap().to_string(), "127.0.0.1:4317");
         assert_eq!(cfg.listen_http.unwrap().to_string(), "127.0.0.1:4318");
     }
 
     #[test]
     fn build_config_rejects_both_listeners_disabled() {
-        let err = build_otlp_server_config(&args(true, true)).expect_err("must fail");
+        let err = build_otlp_server_config(&args(true, true), None).expect_err("must fail");
         let msg = format!("{err:#}");
         assert!(msg.contains("at least one of"), "got: {msg}");
     }
 
     #[test]
     fn build_config_no_grpc_keeps_http_only() {
-        let cfg = build_otlp_server_config(&args(true, false)).expect("http-only validates");
+        let cfg = build_otlp_server_config(&args(true, false), None).expect("http-only validates");
+        assert!(cfg.listen_grpc.is_none());
+        assert!(cfg.listen_http.is_some());
+    }
+
+    // ------------------------------------------------------------------
+    // T8.2: [otlp] config-file block + CLI override merge
+    // ------------------------------------------------------------------
+
+    /// File partial provides defaults when CLI omits flags.
+    #[test]
+    fn t82_config_file_provides_defaults_when_cli_omits_flags() {
+        let file = PartialOtlpServerConfig {
+            listen_grpc: Some("127.0.0.1:9317".to_string()),
+            listen_http: Some(String::new()), // disable HTTP from file
+            listen_token: Some("from-file".to_string()),
+            session_idle_timeout: Some("10m".to_string()),
+            ..Default::default()
+        };
+        let cfg = build_otlp_server_config(&args(false, false), Some(file))
+            .expect("file partial validates");
+        assert_eq!(cfg.listen_grpc.unwrap().to_string(), "127.0.0.1:9317");
+        assert!(
+            cfg.listen_http.is_none(),
+            "file-disabled HTTP must stay disabled when CLI doesn't set --http"
+        );
+        assert_eq!(cfg.listen_token.as_deref(), Some("from-file"));
+        assert_eq!(cfg.session_idle_timeout, Duration::from_secs(600));
+    }
+
+    /// CLI flags override the config-file block on a per-field basis.
+    #[test]
+    fn t82_cli_args_override_config_file() {
+        let file = PartialOtlpServerConfig {
+            listen_grpc: Some("127.0.0.1:4317".to_string()),
+            listen_token: Some("from-file".to_string()),
+            session_idle_timeout: Some("10m".to_string()),
+            ..Default::default()
+        };
+        let mut a = args(false, false);
+        a.grpc = Some("0.0.0.0:9000".parse().unwrap());
+        a.bearer_token = Some("from-cli".to_string());
+        a.idle_seconds = Some(42);
+
+        let cfg = build_otlp_server_config(&a, Some(file)).expect("validates");
+        assert_eq!(cfg.listen_grpc.unwrap().to_string(), "0.0.0.0:9000");
+        assert_eq!(cfg.listen_token.as_deref(), Some("from-cli"));
+        assert_eq!(cfg.session_idle_timeout, Duration::from_secs(42));
+    }
+
+    /// `None` file partial (i.e., no `[otlp]` block in the TOML) falls
+    /// back to the built-in defaults — same as the pre-T8.2 behavior.
+    #[test]
+    fn t82_missing_otlp_block_uses_defaults() {
+        let cfg = build_otlp_server_config(&args(false, false), None).expect("validates");
+        assert_eq!(cfg.listen_grpc.unwrap().to_string(), "127.0.0.1:4317");
+        assert_eq!(cfg.listen_http.unwrap().to_string(), "127.0.0.1:4318");
+        assert!(cfg.listen_token.is_none());
+        assert_eq!(cfg.session_idle_timeout, Duration::from_secs(300));
+    }
+
+    /// `--no-grpc` always wins even if the file partial sets a value.
+    #[test]
+    fn t82_cli_disable_flag_overrides_file_listener() {
+        let file = PartialOtlpServerConfig {
+            listen_grpc: Some("127.0.0.1:9317".to_string()),
+            ..Default::default()
+        };
+        let cfg = build_otlp_server_config(&args(true, false), Some(file)).expect("validates");
         assert!(cfg.listen_grpc.is_none());
         assert!(cfg.listen_http.is_some());
     }

@@ -434,7 +434,7 @@ mcp-waste [--root <dir>]                       # ✅ M1.6.5
         命中描述时走 tiktoken 精确计数。Loaded 一次后在每个 session 复用（spec §6.2 +
         [ADR-0016](internals/adr-0016-mcp-token-cost-architecture.md)）。
 
-ingest-otlp [OPTIONS]                          # ✅ M2.2 T8.1 (v0.3.0)
+ingest-otlp [OPTIONS]                          # ✅ M2.2 T8.1 + T8.2 (v0.3.0)
     启动 OTLP receiver（gRPC + HTTP/protobuf），订阅 Claude Code /
     Codex / Copilot CLI telemetry，按 session.id 聚合事件后写入 SQLite
     （feature gate: `otlp`）。
@@ -451,7 +451,10 @@ ingest-otlp [OPTIONS]                          # ✅ M2.2 T8.1 (v0.3.0)
       --store <PATH>             覆写 SQLite 存储路径
     至少必须启用 gRPC 或 HTTP 其一；同时 --no-grpc + --no-http → UserError。
     收到 SIGINT/SIGTERM 后会 drain 所有未持久化的 session buffer 后退出。
-    T8.2 将补 `[otlp]` 配置块；T9.1 补端到端 transport 测试。
+    T8.2: receiver 启动时自动读 `$AGENTPROF_CONFIG` 或
+    `~/.config/agentprof/config.toml` 的 `[otlp]` 块作为默认；
+    CLI flag > env (AGENTPROF_OTLP_TOKEN) > config-file > built-in defaults。
+    T9.1 补端到端 transport 测试。
 
 config  [show | edit | path]                   # 🚧 规划中 — Phase 2
     XDG 配置：~/.config/agentprof/config.toml。
@@ -671,9 +674,23 @@ anthropic_api_key_env = "ANTHROPIC_API_KEY"
 "claude-sonnet-4.5" = { input = 3.0,  output = 15.0 }
 "gpt-5.2"           = { input = 1.25, output = 10.0 }
 
-[otlp]
-listen  = "127.0.0.1:4317"
-enabled = false
+[otlp]                                     # ✅ M2.2 T8.2 (feature: otlp)
+# Listener addresses ("" disables, omit → 127.0.0.1:4317 / :4318 defaults).
+listen_grpc = "127.0.0.1:4317"
+listen_http = "127.0.0.1:4318"
+# Shared bearer token. CLI flag --bearer-token / env AGENTPROF_OTLP_TOKEN override.
+listen_token = "shared-secret"
+# Server TLS — both required as a pair when TLS is on.
+# tls_cert        = "/etc/agentprof/server.pem"
+# tls_key         = "/etc/agentprof/server.key"
+# mTLS client CA (implies server TLS above).
+# tls_client_ca   = "/etc/agentprof/clients-ca.pem"
+# Humantime strings (Ns / Nm / Nh). Default idle = 5m, shutdown grace = 10s.
+session_idle_timeout = "5m"
+shutdown_grace       = "10s"
+
+# Priority for [otlp] fields: CLI flag > env (AGENTPROF_OTLP_TOKEN) > this
+# config-file block > built-in defaults documented above.
 ```
 
 ---

@@ -53,8 +53,8 @@ Derive-stage warnings: M
 ```
 
 All other subcommands (`config`) remain **planned** for Phase 2.
-The `ingest-otlp` subcommand is **shipped** (M2.2 T8.1; gated on the
-`otlp` cargo feature). See [§ `agentprof ingest-otlp`](#agentprof-ingest-otlp-m22) below.
+The `ingest-otlp` subcommand is **shipped** (M2.2 T8.1 + T8.2; gated on
+the `otlp` cargo feature). See [§ `agentprof ingest-otlp`](#agentprof-ingest-otlp-m22) below.
 
 ## Quick start
 
@@ -407,12 +407,49 @@ agentprof ingest-otlp \
 | `--idle-seconds <SECONDS>` | `300` | Idle flush threshold (sweeper interval is 30 s). |
 | `--store <PATH>` | resolved via `[storage] path` | Overrides the resolved `SQLite` location. |
 
-**Out of scope for T8.1**: `[otlp]` block in `agentprof.toml` (lands in
-T8.2) and end-to-end transport / TLS / signal lifecycle tests (T9.1).
-The current `tests/cli_ingest_otlp_help.rs` only covers `--help`
-shape + the both-listeners-disabled validation. See
-[`docs/superpowers/specs/2026-06-10-m2.2-otlp-receiver-design.md`](../../docs/superpowers/specs/2026-06-10-m2.2-otlp-receiver-design.md)
-§8 for the full receiver design.
+### `[otlp]` config-file block (T8.2)
+
+On startup `ingest-otlp` looks for an `[otlp]` block in the agentprof
+TOML config (resolved from `$AGENTPROF_CONFIG` if set, else
+`~/.config/agentprof/config.toml` via the platform's XDG conventions).
+Values present in the block become the defaults for every field, and
+CLI flags overlay them per-field. Resolution priority (highest first):
+
+1. **CLI flag** — `--grpc`, `--http`, `--bearer-token`, `--tls-cert`,
+   `--tls-key`, `--client-ca`, `--idle-seconds`, plus the explicit
+   `--no-grpc` / `--no-http` disable toggles.
+2. **`AGENTPROF_OTLP_TOKEN` env var** — `clap` folds it into
+   `--bearer-token` automatically, so it shares priority 1.
+3. **`[otlp]` config-file block** below.
+4. **Built-in defaults** documented above.
+
+A missing file or missing `[otlp]` block is silently treated as "no
+overrides"; a malformed file logs a `warn` and falls through to CLI +
+defaults so the receiver can still start.
+
+```toml
+[otlp]
+# Listener addresses ("" disables the listener, omit → loopback defaults).
+listen_grpc = "127.0.0.1:4317"
+listen_http = "127.0.0.1:4318"
+
+# Shared bearer auth (also overridable via env AGENTPROF_OTLP_TOKEN).
+listen_token = "shared-secret"
+
+# Server TLS — both required as a pair when TLS is on.
+# tls_cert      = "/etc/agentprof/server.pem"
+# tls_key       = "/etc/agentprof/server.key"
+# mTLS client CA (implies server TLS above is configured).
+# tls_client_ca = "/etc/agentprof/clients-ca.pem"
+
+# Humantime-style durations (Ns / Nm / Nh).
+session_idle_timeout = "5m"
+shutdown_grace       = "10s"
+```
+
+The `max_session_bytes` / `max_session_events` buffer caps stay
+CLI-only for now — they belong to `SessionBufferCaps`, not
+`OtlpServerConfig`.
 
 ## Public interface
 
@@ -457,7 +494,7 @@ See [`docs/architecture.md`](../../docs/architecture.md) §8 for the canonical s
 | `exit` | `ExitKind` enum + `classify_error` downcast | ✓ shipped (M1.4) |
 | `data_source` | `DualPathDataSource` composer — fans out `SessionDataSource` calls to an adapter + optional `SQLite` store, merges by session id (adapter wins), and records divergence warnings. (An async re-upsert callback was prototyped in M2.1 T4.2 and removed by the M2.1 audit followup — see `data_source.rs` module docs; proper async refresh is deferred to M2.1.1.) | ✓ shipped (M2.1 T4.2; re-upsert callback removed in audit followup) |
 | `data_source_factory` | `build_data_source(agent, root, &StorageConfig, no_cache) -> anyhow::Result<(Box<dyn SessionDataSource>, WarningsHandle)>` — single composition seam used by every subcommand. Returns a `DualPathDataSource` when storage is reachable, falls back to a bare `AdapterDataSource` when `--no-cache` is set **or** storage open fails (`tracing::warn!` + graceful degradation, never a hard error). The second tuple element is an `Arc<Mutex<Vec<DualPathWarning>>>` shared with the inner dual-path source (empty for adapter-only returns) — callers drain it and emit one stderr line per warning unless `--quiet`. | ✓ shipped (M2.1 T5.1, warnings handle M2.1 T5.2) |
-| `cmd::ingest_otlp` | The `ingest-otlp` subcommand: builds an `OtlpServerConfig` from clap flags + documented defaults, opens the SQLite store, wires `StorageFlushSink → SessionRouter → IngestPipeline → serve_{grpc,http}` + `spawn_idle_sweeper`, and drains gracefully on SIGINT / SIGTERM. Feature-gated under `otlp`; dispatcher in `main.rs` spins a multi-thread tokio runtime via `block_on` so the rest of the CLI stays sync. | ✓ shipped (M2.2 T8.1; config-file `[otlp]` block → T8.2; e2e tests → T9.1) |
+| `cmd::ingest_otlp` | The `ingest-otlp` subcommand: reads the `[otlp]` block from `~/.config/agentprof/config.toml` (or `$AGENTPROF_CONFIG`), folds CLI flags + env on top to build an `OtlpServerConfig` (priority: CLI > env > file > defaults), opens the SQLite store, wires `StorageFlushSink → SessionRouter → IngestPipeline → serve_{grpc,http}` + `spawn_idle_sweeper`, and drains gracefully on SIGINT / SIGTERM. Feature-gated under `otlp`; dispatcher in `main.rs` spins a multi-thread tokio runtime via `block_on` so the rest of the CLI stays sync. | ✓ shipped (M2.2 T8.1 + T8.2; e2e tests → T9.1) |
 | `cmd::config` | One module per planned subcommand | planned (Phase 2) |
 | `config` | TOML loader / writer for `~/.config/agentprof/config.toml` | planned (M1.5+) |
 | `report_html` | `askama` templates for the HTML report | planned (M1.5+) |
