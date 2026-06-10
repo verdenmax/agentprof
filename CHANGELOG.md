@@ -22,6 +22,30 @@ prefix used in commit messages).
 
 ### Added
 
+- **M2.2 T6.2 (storage): async idle sweeper task + graceful shutdown**
+  (gated on `otlp`). New `agentprof_storage::otlp::sweeper` module
+  exposes `spawn_idle_sweeper(router, interval)` → `SweeperHandle`.
+  The spawned tokio task `select!`s between a `tokio::time::interval`
+  tick (calls `router.sweep_idle()` to close buffers past their
+  `idle_timeout`) and a `oneshot::Receiver` cancel signal (calls
+  `router.flush_all(CloseReason::Shutdown)` before exit). Cancellation
+  has two paths: explicit `SweeperHandle::shutdown().await` returns
+  `Result<(), OtlpServerError>` after the join; implicit drop of the
+  handle drops the oneshot sender, which the task observes as
+  `Err(_)` and runs the same flush path detached. New
+  `OtlpServerError::Internal(String)` variant surfaces `JoinError`
+  from the shutdown path. Integration coverage in
+  `tests/otlp_sweeper.rs` (4 tests:
+  `sweeper_runs_periodic_sweep`,
+  `sweeper_shutdown_flushes_remaining`,
+  `sweeper_shutdown_is_idempotent_via_drop`,
+  `sweeper_can_be_cancelled_mid_sleep`)
+  plus 2 unit tests in `sweeper::tests`. Storage `dev-dependencies`
+  gain `tokio = { features = ["test-util"] }` for the paused-clock
+  tests. No new workspace dependencies; sweeper uses the existing
+  `tokio::sync::oneshot` already pulled in by `server_grpc` /
+  `server_http`.
+
 - **M2.2 T6.1 (storage): `SessionRouter` + `SessionBuffer` with OOM caps**
   (gated on `otlp`). New `agentprof_storage::otlp::router` module
   exposes `SessionRouter` (per-`session.id` event router backed by

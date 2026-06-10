@@ -66,5 +66,8 @@ prost-build = "0.13"
 [dev-dependencies]
 tempfile = { workspace = true }
 rcgen    = { workspace = true }
+# `test-util` (paused clock, `tokio::time::advance`) is only needed by the
+# OTLP sweeper lifecycle tests; everything else uses the workspace defaults.
+tokio    = { workspace = true, features = ["test-util"] }
 opentelemetry-proto = { workspace = true, features = ["gen-tonic"] }
 reqwest  = { workspace = true }

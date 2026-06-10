@@ -13,6 +13,9 @@
 //! - [`mapper`] — OTLP wire types → [`typed::TypedEvent`] conversion (M2.2 T5.2)
 //! - [`router`] — [`router::SessionRouter`] + per-session [`router::SessionBuffer`]
 //!   with OOM caps + idle / shutdown flush triggers (M2.2 T6.1)
+//! - [`sweeper`] — async wrapper around [`router::SessionRouter`] that
+//!   periodically calls [`router::SessionRouter::sweep_idle`] and drains
+//!   on shutdown (M2.2 T6.2)
 //!
 //! Additional modules land in subsequent M2.2 tasks.
 //!
@@ -31,6 +34,7 @@ pub mod pipeline;
 pub mod router;
 pub mod server_grpc;
 pub mod server_http;
+pub mod sweeper;
 pub mod tls;
 pub mod typed;
 

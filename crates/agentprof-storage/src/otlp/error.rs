@@ -75,6 +75,15 @@ pub enum OtlpServerError {
     /// Config validation rejected the resolved settings.
     #[error("config validation: {0}")]
     Config(String),
+    /// Internal lifecycle failure not attributable to user config or I/O.
+    ///
+    /// Currently emitted by [`crate::otlp::sweeper::SweeperHandle::shutdown`]
+    /// when the background sweeper task panics or is aborted before the
+    /// `JoinHandle` resolves cleanly — neither should happen in normal
+    /// operation, but the variant gives the shutdown path a typed escape
+    /// hatch rather than swallowing the failure.
+    #[error("internal otlp lifecycle error: {0}")]
+    Internal(String),
 }
 
 /// Errors raised by the OTLP → `TypedEvent` mapper (per-event, recoverable).
