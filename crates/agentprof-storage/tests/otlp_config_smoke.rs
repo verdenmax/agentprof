@@ -185,3 +185,89 @@ async fn http_server_binds_serves_logs_then_shuts_down() {
         .expect("server task join")
         .expect("server inner");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn http_rejects_wrong_content_type() {
+    use agentprof_storage::otlp::pipeline::IngestPipeline;
+    use agentprof_storage::otlp::server_http::serve_http;
+    use std::sync::Arc;
+    use tokio::net::TcpListener;
+
+    let probe = TcpListener::bind("127.0.0.1:0").await.expect("probe bind");
+    let addr = probe.local_addr().expect("probe addr");
+    drop(probe);
+
+    let mut cfg = OtlpServerConfig::default();
+    cfg.listen_grpc = None;
+    cfg.listen_http = Some(addr);
+
+    let pipeline = Arc::new(IngestPipeline::noop_for_test());
+    let (handle, shutdown) = serve_http(cfg, pipeline).await.expect("serve_http");
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let url = format!("http://{addr}/v1/logs");
+    let client = reqwest::Client::builder().build().expect("build client");
+    let resp = client
+        .post(&url)
+        .header("content-type", "application/json")
+        .body(b"{}".as_ref())
+        .send()
+        .await
+        .expect("send POST /v1/logs");
+    assert_eq!(
+        resp.status().as_u16(),
+        415,
+        "expected 415 UNSUPPORTED_MEDIA_TYPE, got {}",
+        resp.status()
+    );
+
+    shutdown.send(()).expect("send shutdown");
+    handle
+        .await
+        .expect("server task join")
+        .expect("server inner");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn http_rejects_malformed_protobuf_body() {
+    use agentprof_storage::otlp::pipeline::IngestPipeline;
+    use agentprof_storage::otlp::server_http::serve_http;
+    use std::sync::Arc;
+    use tokio::net::TcpListener;
+
+    let probe = TcpListener::bind("127.0.0.1:0").await.expect("probe bind");
+    let addr = probe.local_addr().expect("probe addr");
+    drop(probe);
+
+    let mut cfg = OtlpServerConfig::default();
+    cfg.listen_grpc = None;
+    cfg.listen_http = Some(addr);
+
+    let pipeline = Arc::new(IngestPipeline::noop_for_test());
+    let (handle, shutdown) = serve_http(cfg, pipeline).await.expect("serve_http");
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let url = format!("http://{addr}/v1/logs");
+    let client = reqwest::Client::builder().build().expect("build client");
+    let resp = client
+        .post(&url)
+        .header("content-type", "application/x-protobuf")
+        .body(b"\xff\xff garbage".as_ref())
+        .send()
+        .await
+        .expect("send POST /v1/logs");
+    assert_eq!(
+        resp.status().as_u16(),
+        400,
+        "expected 400 BAD_REQUEST, got {}",
+        resp.status()
+    );
+
+    shutdown.send(()).expect("send shutdown");
+    handle
+        .await
+        .expect("server task join")
+        .expect("server inner");
+}
