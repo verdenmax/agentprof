@@ -1,13 +1,19 @@
 # agentprof-storage
 
 > SQLite persistence layer for **agentprof**, with a hybrid cache/store
-> mode for the on-disk file and (planned, feature-gated) OTLP receiver.
+> mode for the on-disk file and an optional OTLP receiver subsystem
+> (feature `otlp`).
 >
 > **Status (M2.1, v0.2.0)**: shipped end-to-end — `Db` handle + embedded
 > migrations, atomic `upsert_report`, typed read API, `SessionDataSource`
 > impl for dual-path reads, and the `admin::*` helpers that back the
-> `agentprof db` cli subcommand family. The OTLP receiver remains
-> planned (feature `otlp`, M2.2 milestone).
+> `agentprof db` cli subcommand family.
+>
+> **Status (M2.2, v0.3.0, feature `otlp`)**: OTLP receiver subsystem
+> shipped under `agentprof_storage::otlp` — gRPC + HTTP/protobuf
+> listeners, per-`session.id` in-memory buffering with OOM caps, idle /
+> size / shutdown flush triggers, and a `StorageFlushSink` that reuses
+> the M2.1 `upsert_report` pipeline. Architecture: [ADR-0021](../../docs/internals/adr-0021-otlp-receiver-architecture.md).
 
 ## Position in the agentprof architecture
 
@@ -107,23 +113,22 @@ cache-vs-store policy.
 | `datasource` | `SqliteDataSource` impl of `agentprof_core::datasource::SessionDataSource` (M2.1 T2.6) |
 | `admin`      | `stats` / `prune_before` / `vacuum` / `export_session_json` (M2.1 T2.7) backing the `agentprof db` family |
 | `error`      | `SqliteError` for every fallible API |
-| `otlp` (feature `otlp`, M2.2 in progress) | OTLP receiver subsystem. Submodules: `config` (`OtlpServerConfig` + `PartialOtlpServerConfig`, T2.1), `error` (`OtlpServerError` / `MapperError` / `RouterError`, T2.1), `pipeline` (`IngestPipeline` real end-to-end fan-in: mapper → router → flush sink, T7.1), `server_grpc` (tonic gRPC listener with 3 collector services, T2.2), `server_http` (axum HTTP/protobuf listener with `/v1/{logs,metrics,traces}`, T3.1), `auth` (bearer-token tonic interceptor + axum middleware applied to both transports, T4.1), `tls` (rustls server config + optional mTLS, T4.2), `typed` (`TypedEvent` IR + `SignalKind` + `TokenDirection`, T5.1), `mapper` (OTLP wire types → `TypedEvent`, T5.2), `router` (`SessionRouter` + `SessionBuffer` + OOM caps + `FlushSink` trait + tool-call pairing in `into_persistable`, T6.1), `sweeper` (`spawn_idle_sweeper` async wrapper that periodically calls `router.sweep_idle()` and drains via `flush_all(Shutdown)` on cancellation, T6.2), `sink_storage` (`StorageFlushSink` that persists closed buffers via `upsert_report` with `raw_path = "otlp://<id>"`, T7.1). Internal `proto` submodule holds tonic-generated server stubs (mirrors `opentelemetry::proto::*` layout). |
+| `otlp` (feature `otlp`, M2.2 ✅) | OTLP receiver subsystem. Submodules: `config` (`OtlpServerConfig` + `PartialOtlpServerConfig`), `error` (`OtlpServerError` / `MapperError` / `RouterError`), `pipeline` (`IngestPipeline` end-to-end fan-in: mapper → router → flush sink), `server_grpc` (tonic gRPC listener with 3 collector services), `server_http` (axum HTTP/protobuf listener with `/v1/{logs,metrics,traces}`), `auth` (bearer-token tonic interceptor + axum middleware applied to both transports), `tls` (rustls server config + optional mTLS), `typed` (`TypedEvent` IR + `SignalKind` + `TokenDirection`), `mapper` (OTLP wire types → `TypedEvent`), `router` (`SessionRouter` + `SessionBuffer` + OOM caps + `FlushSink` trait + tool-call pairing in `into_persistable`), `sweeper` (`spawn_idle_sweeper` async wrapper that periodically calls `router.sweep_idle()` and drains via `flush_all(Shutdown)` on cancellation), `sink_storage` (`StorageFlushSink` that persists closed buffers via `upsert_report` with `raw_path = "otlp://<id>"`). Internal `proto` submodule holds tonic-generated server stubs (mirrors `opentelemetry::proto::*` layout). See [ADR-0021](../../docs/internals/adr-0021-otlp-receiver-architecture.md). |
 
 ## Features
 
 | Feature | Default | Effect |
 |---|---|---|
-| `otlp` | off | Pulls in `opentelemetry`, `opentelemetry-otlp`, `opentelemetry_sdk`, `tonic`, `prost`, `tokio`, `axum`, `bytes`, `rustls`, `rustls-pemfile`, `tower`; compiles the OTLP collector `.proto`s into server stubs at build time (build-dep on `tonic-build` + `prost-build`); enables the receiver subsystem under `agentprof_storage::otlp` (M2.2 in progress — T2.2 ships gRPC listener + `IngestPipeline` stub). |
+| `otlp` | off | Pulls in `opentelemetry-proto`, `tonic`, `prost`, `tokio`, `axum`, `bytes`, `dashmap`, `rustls`, `rustls-pemfile`, `tower`; compiles the OTLP collector `.proto`s into server stubs at build time (build-dep on `tonic-build` + `prost-build`); enables the receiver subsystem under `agentprof_storage::otlp` (M2.2 ✅ — full gRPC + HTTP/protobuf transport, per-`session.id` buffering with OOM caps, idle/size/shutdown flush, bearer + TLS + mTLS auth, `StorageFlushSink` reusing `upsert_report`). See [ADR-0021](../../docs/internals/adr-0021-otlp-receiver-architecture.md). |
 
 ## Dependencies
 
 - Workspace internal: `agentprof-core`
 - External: `serde`, `serde_json`, `thiserror`, `tracing`, `chrono`,
   `directories`, `rusqlite` (bundled)
-- Optional (feature `otlp`): `opentelemetry`, `opentelemetry-otlp`,
-  `opentelemetry_sdk`, `tonic`, `prost`, `tokio`, `axum`, `bytes`,
-  `rustls`, `rustls-pemfile`, `tower`; build-dep `tonic-build` +
-  `prost-build` for `.proto` codegen
+- Optional (feature `otlp`): `opentelemetry-proto`, `tonic`, `prost`,
+  `tokio`, `axum`, `bytes`, `dashmap`, `rustls`, `rustls-pemfile`,
+  `tower`; build-dep `tonic-build` + `prost-build` for `.proto` codegen
 
 ## Local commands
 
@@ -144,6 +149,7 @@ resolution for both modes.
 | [0017](../../docs/internals/adr-0017-unify-session-id-namespace.md) | Unify session id namespace (M2.1 hotfix — makes dual-path actually function) |
 | [0018](../../docs/internals/adr-0018-session-datasource-trait.md) | `SessionDataSource` trait + dual-path semantics |
 | [0019](../../docs/internals/adr-0019-hybrid-storage-mode.md) | Hybrid cache vs store mode |
+| [0021](../../docs/internals/adr-0021-otlp-receiver-architecture.md) | OTLP receiver architecture (M2.2) — push path, per-session buffering, why it does **not** implement `Adapter` |
 
 ## Change history
 

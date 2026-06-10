@@ -471,7 +471,11 @@ agentprof watch      [--agent copilot] [--session ...] [--root ...] [--debounce-
 agentprof mcp-waste  [--root ...] [--since 7d] [--top 20] [--mcp-config ...]
                      [--tokens-per-tool 200] [--tool-descriptions ...]
                      [--export md|json|html] [--output ...]                 # ✓ shipped (M1.6.5 + M1.6.6 tokens)
-agentprof ingest-otlp [--listen 0.0.0.0:4317]   # feature: otlp            # planned (Phase 2)
+agentprof ingest-otlp [--grpc 127.0.0.1:4317] [--http 127.0.0.1:4318]
+                      [--bearer-token TOKEN] [--tls-cert ...] [--tls-key ...]
+                      [--client-ca ...] [--max-session-bytes N]
+                      [--max-session-events N] [--idle-seconds N]
+                      [--store PATH]                                          # ✓ shipped (M2.2; feature: otlp)
 agentprof config     [show | edit | path]                                  # planned (Phase 2)
 ```
 

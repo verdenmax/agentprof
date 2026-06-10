@@ -90,7 +90,7 @@ agentprof-cli  ──▶  agentprof-tui
 |---|---|---|---|
 | `agentprof-core` | lib | `model`, `tokenizer`, `analyzer` (+ `analyzer::aggregate` M1.6.2), `export` (M1.6.4: speedscope JSON + SVG flamegraph), `observability::pii::{hash_path, hash_short}` (M1.6.4 tracing), `error` | `serde`, `serde_json`, `tiktoken-rs`, `chrono`, `thiserror`, **`sha2`** (M1.6.4 tracing), `reqwest`(opt, feature `anthropic-api`) |
 | `agentprof-adapters` | lib | `claude`, `codex`, `copilot`, `registry`, `discovery` | `serde_json`, `walkdir`, `globset` |
-| `agentprof-storage` | lib | SQLite persistence layer with hybrid cache/store mode (M2.1 ✅): `config::{StorageConfig, StorageMode, PartialStorageConfig}` (XDG-aware path resolution per [ADR-0019](internals/adr-0019-hybrid-storage-mode.md)), `db::Db` (handle + embedded migrations under `migrations/001_initial.sql`; pragmas `journal_mode=WAL` / `synchronous=NORMAL` / `foreign_keys=ON`), `upsert::upsert_report(db, report, raw_path, ingested_at_secs)` (atomic 3-table write), `query::{query_sessions_since, load_session}` (read API), `datasource::SqliteDataSource` (impl of `agentprof_core::datasource::SessionDataSource`, see [ADR-0018](internals/adr-0018-session-datasource-trait.md)), `admin::{stats, prune_before, vacuum, export_session_json}` (backs the `agentprof db` family), `error::SqliteError` (thiserror); `otlp`(feature, planned M2.2) | `rusqlite`(bundled), `serde_json`, `chrono`, `directories`, `opentelemetry-otlp`(opt), `tonic`(opt), `tokio`(opt) |
+| `agentprof-storage` | lib | SQLite persistence layer with hybrid cache/store mode (M2.1 ✅): `config::{StorageConfig, StorageMode, PartialStorageConfig}` (XDG-aware path resolution per [ADR-0019](internals/adr-0019-hybrid-storage-mode.md)), `db::Db` (handle + embedded migrations under `migrations/001_initial.sql`; pragmas `journal_mode=WAL` / `synchronous=NORMAL` / `foreign_keys=ON`), `upsert::upsert_report(db, report, raw_path, ingested_at_secs)` (atomic 3-table write), `query::{query_sessions_since, load_session}` (read API), `datasource::SqliteDataSource` (impl of `agentprof_core::datasource::SessionDataSource`, see [ADR-0018](internals/adr-0018-session-datasource-trait.md)), `admin::{stats, prune_before, vacuum, export_session_json}` (backs the `agentprof db` family), `error::SqliteError` (thiserror); **`otlp` submodule (feature `otlp`, M2.2 ✅)** — OTLP receiver: `config` / `error` / `typed` / `mapper` / `router` (per-session `SessionBuffer` + OOM caps) / `sweeper` / `sink_storage` (`StorageFlushSink` reusing `upsert_report`) / `pipeline` (`IngestPipeline`) / `server_grpc` (tonic 4317) / `server_http` (axum 4318, `/v1/{logs,metrics,traces}`) / `auth` (shared bearer interceptor + middleware) / `tls` (rustls + optional mTLS) / `proto` (generated stubs); see [ADR-0021](internals/adr-0021-otlp-receiver-architecture.md) | `rusqlite`(bundled), `serde_json`, `chrono`, `directories`; (feature `otlp`) `tonic`, `prost`, `axum`, `tokio`, `opentelemetry-proto`, `dashmap`, `rustls`, `rustls-pemfile`, `tower`, `bytes` |
 | `agentprof-tui` | lib | `app` (with `AppRunner`) + `app::{terminal,event,state}`, `views::{flamegraph, roi, aggregate, models, turn_detail, format}`, `theme`, `error` — **shipped M1.5** ([`README`](../crates/agentprof-tui/README.md), [ADR-0006](internals/adr-0006-panic-safe-tui.md)); + `watch::{WatchRunner, WatchData, RefreshKind, ReloadError, AggSortKey}` + cross-session arm in `views::aggregate` + `Event::Refresh` — **shipped M1.6.3** ([ADR-0009](internals/adr-0009-watch-runner-and-notify.md)); + `views::turn_detail` (F1 Enter-to-open) + `views::models` (F1.7 Models view, key `4`, surfaces session-level per-model token totals — see [ADR-0012](internals/adr-0012-session-model-metrics-and-models-view.md)) — post-MVP UX waves F1, F1.5–F1.19 layered on the M1.5 base | `ratatui 0.29`, `crossterm 0.28` |
 | `agentprof-cli` | bin (`agentprof`) | `cmd::analyze` ✅ M1.4 + `--export tui` (M1.5) + `--export speedscope\|html` ✅ M1.6.4，`cmd::list` ✅ M1.6.1，`cmd::aggregate` ✅ M1.6.2 (--by tool\|mcp-server\|day\|model, --export md\|json\|csv\|html) + `--export tui` ✅ M1.6.3（deferred from M1.6.2），`cmd::watch` ✅ M1.6.3 (单 session + `watch aggregate ...` 子模式)，`observability::{config, init, tui_guard}` ✅ M1.6.4 (tracing infra — global `--log-level` / `--log-file` + TUI auto-redirect + reload-Layer)，`cmd::{ingest_otlp, config}` 规划中（Phase 2），`export` 已取消（与 `analyze --export` 重复），`config`, `main` | `clap`, `tracing`, `tracing-subscriber`, **`tracing-appender`**（M1.6.4 tracing，rolling-file writer），`anyhow`, `directories`, **`askama`**, **`csv`**, **`notify-debouncer-mini`**（M1.6.3，含 `notify` v6.1.1 transitive） |
 | `xtask` | bin | `anonymize`, `dist-check`, `release-notes` | `xshell` |
@@ -271,6 +271,7 @@ pub struct SessionRef {
 | Claude Code | `~/.claude/projects/**/*.jsonl`（Phase 3 / M3.1） |
 | Codex CLI | `~/.codex/sessions/...`（Phase 3 / M3.2，具体格式以实际抓取为准） |
 | Copilot CLI | `~/.copilot/session-state/<uuid>/events.jsonl`（M1.2 已实现；schema 详见 [ADR-0002](internals/adr-0002-copilot-event-schema.md) + [ADR-0005 §6](internals/adr-0005-analyzer-and-payload-name.md)） |
+| OTLP (push) | 不读文件 —— OTLP client 主动 push 到 `127.0.0.1:4317` (gRPC) 或 `127.0.0.1:4318` (HTTP/protobuf)；session 落地为 `raw_path = "otlp://<session.id>"`（M2.2 ✅，feature `otlp`，见 `agentprof ingest-otlp` 与 [ADR-0021](internals/adr-0021-otlp-receiver-architecture.md)）。**OTLP 不通过 `Adapter` trait**（push 语义、跨 session 路由不匹配文件拉取模型），见 [ADR-0021 §Decision 3](internals/adr-0021-otlp-receiver-architecture.md)。 |
 
 可在配置文件中覆盖。
 
@@ -313,6 +314,41 @@ pub struct SessionRef {
        └──────────────────────┘
 ```
 
+**OTLP push path** (M2.2 ✅, parallel ingestion, feature `otlp`):
+
+```
+   OTLP client (agent emitting OTel signals)
+        │  gRPC :4317  /  HTTP/protobuf :4318
+        ▼
+   server_grpc / server_http  (auth + TLS)
+        │  ExportRequest
+        ▼
+   mapper  (OTLP wire → TypedEvent IR)
+        │
+        ▼
+   SessionRouter  ──▶  SessionBuffer (one per session.id, OOM-capped)
+        │                   │
+        │           idle / size / shutdown trigger
+        ▼                   ▼
+   sweeper           StorageFlushSink::flush(buf, reason)
+                            │  build AnalysisReport from buffer
+                            ▼
+                     storage::upsert_report  (raw_path = "otlp://<id>")
+                            │
+                            ▼
+                     SQLite (same schema as file-pull path)
+                            │
+                            ▼
+                     `agentprof analyze` / `list` / `aggregate` read
+                     uniformly via SessionDataSource (M2.1).
+```
+
+OTLP **does not** implement `Adapter` (push-mode, cross-session routing —
+see [ADR-0021](internals/adr-0021-otlp-receiver-architecture.md) Decision 3).
+The two paths converge at the SQLite store; downstream read commands
+(`analyze` / `list` / `aggregate` / `mcp-waste`) treat OTLP-ingested
+sessions identically to file-ingested ones.
+
 ### 7.1 关键算法
 
 - **schema_tokens(tool)** = tokenize 该 tool 在 wire format 中的完整 JSON 表示。
@@ -349,7 +385,7 @@ M1.4 引入的纯函数 rollups，消费 `&Episodes` 产出 per-row 分析数据
 
 ## 8. CLI 协议（`agentprof <COMMAND>`）
 
-> **当前实现状态**（2026-06-08）：`analyze` ✅ M1.4 + `--export tui` M1.5 + `--export speedscope|html` M1.6.4 + `--section mcp-waste` M1.6.5 + `--tokens-per-tool` / `--tool-descriptions` M1.6.6 / `list` ✅ M1.6.1 / `aggregate` ✅ M1.6.2 + `--export tui` M1.6.3 + waste cols M1.6.5 + wasted-tokens col M1.6.6 / `watch` ✅ M1.6.3 / `mcp-waste` ✅ M1.6.5 + token-cost flags M1.6.6 已 ship；`ingest-otlp` ✅ M2.2 T8.1（CLI surface + 信号驱动 drain；config-file 块 → T8.2，e2e transport 测试 → T9.1）；`config` 规划中（Phase 2）；`export` 已取消（与 `analyze --export` 100% 重复，CLI surface 已移除）。
+> **当前实现状态**（2026-06-10）：`analyze` ✅ M1.4 + `--export tui` M1.5 + `--export speedscope|html` M1.6.4 + `--section mcp-waste` M1.6.5 + `--tokens-per-tool` / `--tool-descriptions` M1.6.6 / `list` ✅ M1.6.1 / `aggregate` ✅ M1.6.2 + `--export tui` M1.6.3 + waste cols M1.6.5 + wasted-tokens col M1.6.6 / `watch` ✅ M1.6.3 / `mcp-waste` ✅ M1.6.5 + token-cost flags M1.6.6 / `ingest-otlp` ✅ M2.2（feature `otlp`，gRPC+HTTP receiver，`[otlp]` config block，端到端 transport 测试，drain on SIGINT/SIGTERM；架构见 [ADR-0021](internals/adr-0021-otlp-receiver-architecture.md)）已 ship；`config` 规划中（Phase 2）；`export` 已取消（与 `analyze --export` 100% 重复，CLI surface 已移除）。
 
 ```
 analyze [--agent copilot]                     # ✅ M1.4: copilot only; auto/claude/codex 留给 Phase 3
@@ -434,10 +470,10 @@ mcp-waste [--root <dir>]                       # ✅ M1.6.5
         命中描述时走 tiktoken 精确计数。Loaded 一次后在每个 session 复用（spec §6.2 +
         [ADR-0016](internals/adr-0016-mcp-token-cost-architecture.md)）。
 
-ingest-otlp [OPTIONS]                          # ✅ M2.2 T8.1 + T8.2 (v0.3.0)
+ingest-otlp [OPTIONS]                          # ✅ M2.2 (v0.3.0, feature: otlp)
     启动 OTLP receiver（gRPC + HTTP/protobuf），订阅 Claude Code /
     Codex / Copilot CLI telemetry，按 session.id 聚合事件后写入 SQLite
-    （feature gate: `otlp`）。
+    （feature gate: `otlp`）。架构见 [ADR-0021](internals/adr-0021-otlp-receiver-architecture.md)。
       --grpc <ADDR>              gRPC 监听地址（默认 127.0.0.1:4317）
       --no-grpc                  关闭 gRPC 监听器
       --http <ADDR>              HTTP/protobuf 监听地址（默认 127.0.0.1:4318）
@@ -451,10 +487,12 @@ ingest-otlp [OPTIONS]                          # ✅ M2.2 T8.1 + T8.2 (v0.3.0)
       --store <PATH>             覆写 SQLite 存储路径
     至少必须启用 gRPC 或 HTTP 其一；同时 --no-grpc + --no-http → UserError。
     收到 SIGINT/SIGTERM 后会 drain 所有未持久化的 session buffer 后退出。
-    T8.2: receiver 启动时自动读 `$AGENTPROF_CONFIG` 或
+    Receiver 启动时自动读 `$AGENTPROF_CONFIG` 或
     `~/.config/agentprof/config.toml` 的 `[otlp]` 块作为默认；
     CLI flag > env (AGENTPROF_OTLP_TOKEN) > config-file > built-in defaults。
-    T9.1 补端到端 transport 测试。
+    OTLP path 复用 M2.1 的 SQLite schema（**不引入新 migration**）；落地后
+    `raw_path` 形如 `otlp://<session.id>`，下游 `analyze` / `list` /
+    `aggregate` 与文件采集来源的 session 无差别对待。
 
 config  [show | edit | path]                   # 🚧 规划中 — Phase 2
     XDG 配置：~/.config/agentprof/config.toml。
@@ -563,6 +601,13 @@ opportunistic re-upsert。详见 [ADR-0018](internals/adr-0018-session-datasourc
 > `Episodes::default()` (empty); aggregate gracefully skips empty
 > `Episodes` in the percentile pool. Cache-mode users get full coverage
 > on next ingest. See [ADR-0020](internals/adr-0020-aggregate-dualpath.md).
+>
+> **Status (M2.2, OTLP path)**: the OTLP receiver (feature `otlp`)
+> persists via the **same** `upsert_report` call (and therefore the same
+> three tables + `episodes_json` column) as the file-pull path. **No new
+> migration**: OTLP-ingested sessions are distinguished only by
+> `raw_path = "otlp://<session.id>"`. Downstream queries are unchanged.
+> See [ADR-0021](internals/adr-0021-otlp-receiver-architecture.md).
 
 文件路径默认按 mode 派生：
 - **cache mode** (default): `${XDG_CACHE_HOME:-~/.cache}/agentprof/cache.sqlite`
@@ -1112,8 +1157,8 @@ todo        = "warn"
 ### 15.4 Feature flags
 
 - `agentprof-core/features = ["anthropic-api"]` —— 启用真实 token API 精确化
-- `agentprof-storage/features = ["otlp"]` —— 启用 OTLP receiver（Phase 2）
-- `agentprof-cli/features = ["full"]` = `core/anthropic-api + storage/otlp`（默认）
+- `agentprof-storage/features = ["otlp"]` —— **启用 OTLP receiver 子系统**（M2.2 ✅，feature-gated）。打开后编译 `agentprof_storage::otlp` 整个 module 树（config / error / typed / mapper / router / sweeper / sink_storage / pipeline / server_grpc / server_http / auth / tls / proto），引入 `tonic` + `prost` + `axum` + `tokio` + `opentelemetry-proto` + `dashmap` + `rustls` 等运行时依赖，以及 `tonic-build` + `prost-build` 的 build-deps（OTLP collector `.proto` 编译生成 server stubs）。架构总览见 [ADR-0021](internals/adr-0021-otlp-receiver-architecture.md)。无 feature 时这些依赖完全不编译，binary 显著瘦身。
+- `agentprof-cli/features = ["full"]` = `core/anthropic-api + storage/otlp`（默认 on）。`ingest-otlp` 子命令需要 `otlp`；关闭 `full` 后该子命令在 dispatcher 中被 cfg-gated 移除。
 
 ### 15.5 Observability (M1.6.4)
 

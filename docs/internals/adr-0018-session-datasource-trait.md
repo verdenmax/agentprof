@@ -207,6 +207,7 @@ The cli composer (`DualPathDataSource`) encodes the following invariants:
 - ADR-0017 — id-namespace unification (the structural prerequisite)
 - ADR-0019 — hybrid storage mode (the cache-vs-store decision this trait
   abstracts over)
+- ADR-0021 — OTLP receiver architecture (see footnote below)
 - Implementation:
   - `crates/agentprof-core/src/datasource.rs` (trait definition)
   - `crates/agentprof-adapters/src/datasource.rs` (`AdapterDataSource`)
@@ -215,3 +216,19 @@ The cli composer (`DualPathDataSource`) encodes the following invariants:
     composer)
   - `crates/agentprof-cli/src/data_source_factory.rs` (single
     composition seam)
+
+---
+
+> **2026-06-10 update (M2.2)**: the OTLP receiver
+> ([ADR-0021](adr-0021-otlp-receiver-architecture.md)) deliberately does
+> **not** implement the `Adapter` trait sketched in this ADR's "OTLP-ready"
+> language. OTLP is push-mode streaming with cross-cutting session
+> grouping (per-`session.id` in-memory buffer + idle / size / shutdown
+> flush triggers), which is structurally incompatible with `Adapter`'s
+> file-pull / per-session iteration model (`discover_sessions(&Path)`
+> then `load_session(&SessionRef)`). The OTLP path instead persists via
+> the same `upsert_report` call this ADR's `SqliteDataSource` reads
+> from — so OTLP-ingested sessions are still served uniformly through
+> `SessionDataSource` on the *read* side, just bypassing the `Adapter`
+> trait on the *write* side. See [ADR-0021 §Decision 3](adr-0021-otlp-receiver-architecture.md)
+> for the full rationale and dismissed alternatives.

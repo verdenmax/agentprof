@@ -9,6 +9,22 @@ Each AI agent stores its session telemetry in its own format. Adapters
 translate those formats into the unified `RawSession<E>` shape so
 `agentprof-core::episode` (M1.3+) can analyze them agent-agnostically.
 
+> **OTLP is *not* an adapter.** The OTLP receiver (M2.2, feature `otlp`;
+> see [ADR-0021](internals/adr-0021-otlp-receiver-architecture.md))
+> deliberately does **not** implement the `Adapter` trait. `Adapter` is a
+> file-pull / per-session iteration model (`discover_sessions(&Path) →
+> Vec<SessionRef>` then `load_session(&SessionRef) → RawSession`), which
+> is structurally incompatible with OTLP's push-mode streaming and
+> cross-cutting session grouping (events from many sessions are
+> interleaved on the wire and must be routed into per-`session.id`
+> in-memory buffers with idle / size / shutdown flush). From the user's
+> perspective OTLP is still a *session source* (analyze / list /
+> aggregate treat OTLP-ingested rows identically to file-ingested ones),
+> but its wiring goes through `agentprof_storage::otlp::SessionRouter`
+> + `StorageFlushSink → upsert_report` rather than the `Adapter` trait.
+> See [ADR-0021 §Decision 3](internals/adr-0021-otlp-receiver-architecture.md)
+> for the full rationale.
+
 ## Adapter contract
 
 Implement `agentprof_core::adapter::Adapter` (see its rustdoc for full

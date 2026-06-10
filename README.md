@@ -31,7 +31,7 @@ dual-path-wired; `aggregate` stays single-path until M2.1.1 hoists
 [`docs/internals/`](docs/internals/), and the M2.1 spec under
 [`docs/superpowers/specs/`](docs/superpowers/specs/). Pending **v0.2.0 tag**.
 
-Next milestone: **v0.2.0 tag** (M2.1 already merged on main) → **M2.2 OTLP receiver**.
+Next milestone: **v0.3.0 tag** (M2.2 OTLP receiver shipped on `feat/m2.2-otlp-receiver` — see [ADR-0021](docs/internals/adr-0021-otlp-receiver-architecture.md)) → Phase 3 adapters (Claude / Codex).
 See [`docs/plan.md`](docs/plan.md) for the roadmap and
 [`docs/architecture.md`](docs/architecture.md) for the architecture (L1).
 
@@ -186,7 +186,7 @@ full CLI documentation.
 - `agentprof watch aggregate --by KEY` (M1.6.3) — live-refresh cross-session aggregate TUI; accepts every `aggregate` flag (except `--export` / `--output`, which are rejected because the output is always TUI).
 - `agentprof mcp-waste` (M1.6.5) — cross-session report of MCP tools loaded into the context window but never called (md / json / html). Pairs with `analyze --section mcp-waste` (single session) and the `[5] McpWaste` TUI view. See [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) `## agentprof mcp-waste` and [ADR-0015](docs/internals/adr-0015-mcp-waste-architecture.md).
 - `agentprof db <init|stats|ingest|prune|vacuum|export>` (M2.1) — SQLite cache lifecycle and inspection.
-- `agentprof ingest-otlp` (M2.2 T8.1, feature `otlp`) — embedded OTLP receiver (gRPC `127.0.0.1:4317` + HTTP `127.0.0.1:4318`) that decodes Claude Code / Codex / Copilot CLI telemetry envelopes, buffers them per `session.id`, and persists finalized sessions to the same SQLite store used by `analyze`. Drains gracefully on SIGINT / SIGTERM. See [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) `## agentprof ingest-otlp`.
+- `agentprof ingest-otlp` (M2.2, feature `otlp`) — embedded OTLP receiver (gRPC `127.0.0.1:4317` + HTTP/protobuf `127.0.0.1:4318`) that decodes Claude Code / Codex / Copilot CLI OpenTelemetry envelopes, fans them per-`session.id` into in-memory `SessionBuffer`s (OOM-capped on bytes + event count), and persists finalized sessions to the same SQLite store used by `analyze` (reusing M2.1's `upsert_report`; `raw_path = "otlp://<id>"`). Bearer / TLS / mTLS auth + `[otlp]` config-file block; drains gracefully on SIGINT / SIGTERM. **OTLP does not implement the `Adapter` trait** — push semantics and cross-session routing are structurally incompatible with the file-pull model; see [ADR-0021](docs/internals/adr-0021-otlp-receiver-architecture.md) §Decision 3 for the rationale. Subcommand reference: [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) `## agentprof ingest-otlp`.
 
 ### MCP server waste analysis (M1.6.5+)
 
