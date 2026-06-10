@@ -9,8 +9,9 @@
 //! - [`server_http`] — axum HTTP/protobuf listener wiring (M2.2 T3.1)
 //! - [`auth`] — bearer-token interceptor + middleware (M2.2 T4.1)
 //! - [`tls`] — server TLS + optional mTLS config builder (M2.2 T4.2)
+//! - [`typed`] — [`typed::TypedEvent`] intermediate representation (M2.2 T5.1)
 //!
-//! Additional modules (`mapper` / `session_router` / `typed`)
+//! Additional modules (`mapper` / `session_router`)
 //! land in subsequent M2.2 tasks.
 //!
 //! The crate-private `proto` module mirrors the upstream
@@ -27,6 +28,7 @@ pub mod pipeline;
 pub mod server_grpc;
 pub mod server_http;
 pub mod tls;
+pub mod typed;
 
 pub use config::{OtlpServerConfig, PartialOtlpServerConfig};
 pub use error::{MapperError, OtlpServerError, RouterError};
