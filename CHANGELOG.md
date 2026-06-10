@@ -22,6 +22,31 @@ prefix used in commit messages).
 
 ### Added
 
+- **M2.2 T2.2 (storage): tonic gRPC OTLP listener + `IngestPipeline`
+  stub** (gated on `otlp`). New `agentprof_storage::otlp::server_grpc`
+  exposes `serve_grpc(cfg, pipeline) -> Result<(JoinHandle, oneshot::Sender<()>),
+  OtlpServerError>` that binds via `tokio::net::TcpListener`
+  (synchronous bind error → `OtlpServerError::Bind`), wraps the listener
+  in `tonic::transport::server::TcpIncoming`, and registers all three
+  OTLP collector services (`LogsService`, `MetricsService`,
+  `TraceService`). New `agentprof_storage::otlp::pipeline::IngestPipeline`
+  is the fan-in stub used by every service `export`: per-signal
+  `AtomicUsize` counters + `#[doc(hidden)]` `noop_for_test()` and
+  `counts_for_test()` helpers; `ingest_logs` / `ingest_metrics` /
+  `ingest_traces` take `Arc<Self>`, return `Result<_, RouterError>`, and
+  will be replaced by the real session-router in M2.2 T7.1 without an
+  API break. The crate-private `otlp::proto` module mirrors the upstream
+  `opentelemetry::proto::*` layout so the relative paths emitted by
+  `tonic_build` resolve correctly; both `pipeline` and `server_grpc`
+  share these generated types. `build.rs` now invokes tonic-build via
+  `compile_protos_with_config` with a pre-configured `prost_build::Config`
+  that disables proto comments (upstream OTLP comments contain fenced
+  text rustdoc mis-parses as Rust doctests). New `prost` runtime dep
+  (gated on `otlp`) and new `prost-build` build-dep added because
+  generated code references `::prost::*` paths. New smoke test
+  `grpc_server_binds_and_shuts_down` (5 tests total in
+  `tests/otlp_config_smoke.rs`) covers bind + graceful shutdown via
+  oneshot channel; a real round-trip via a gRPC client lands in T2.3.
 - **M2.1.1 aggregate dual-path** (closes the M2.1 dual-path story).
   `cmd::aggregate` now SQLite-cache-accelerated via new
   `SessionDataSource::load_episodes(id) -> Result<Episodes, _>` trait

@@ -76,6 +76,8 @@ dependencies = [
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
+ "prost",
+ "prost-build",
  "rcgen",
  "rusqlite",
  "rusqlite_migration",

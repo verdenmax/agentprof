@@ -107,13 +107,13 @@ cache-vs-store policy.
 | `datasource` | `SqliteDataSource` impl of `agentprof_core::datasource::SessionDataSource` (M2.1 T2.6) |
 | `admin`      | `stats` / `prune_before` / `vacuum` / `export_session_json` (M2.1 T2.7) backing the `agentprof db` family |
 | `error`      | `SqliteError` for every fallible API |
-| `otlp` (planned, feature `otlp`) | Tonic-based OpenTelemetry receiver (M2.2) |
+| `otlp` (feature `otlp`, M2.2 in progress) | OTLP receiver subsystem. Submodules: `config` (`OtlpServerConfig` + `PartialOtlpServerConfig`, T2.1), `error` (`OtlpServerError` / `MapperError` / `RouterError`, T2.1), `pipeline` (`IngestPipeline` stub counters, T2.2), `server_grpc` (tonic gRPC listener with 3 collector services, T2.2). Internal `proto` submodule holds tonic-generated server stubs (mirrors `opentelemetry::proto::*` layout). |
 
 ## Features
 
 | Feature | Default | Effect |
 |---|---|---|
-| `otlp` | off | Pulls in `opentelemetry`, `opentelemetry-otlp`, `opentelemetry_sdk`, `tonic`, `tokio`; enables the planned receiver consumed by `agentprof ingest-otlp` (M2.2). |
+| `otlp` | off | Pulls in `opentelemetry`, `opentelemetry-otlp`, `opentelemetry_sdk`, `tonic`, `prost`, `tokio`, `axum`, `bytes`, `rustls`, `rustls-pemfile`, `tower`; compiles the OTLP collector `.proto`s into server stubs at build time (build-dep on `tonic-build` + `prost-build`); enables the receiver subsystem under `agentprof_storage::otlp` (M2.2 in progress — T2.2 ships gRPC listener + `IngestPipeline` stub). |
 
 ## Dependencies
 
@@ -121,7 +121,9 @@ cache-vs-store policy.
 - External: `serde`, `serde_json`, `thiserror`, `tracing`, `chrono`,
   `directories`, `rusqlite` (bundled)
 - Optional (feature `otlp`): `opentelemetry`, `opentelemetry-otlp`,
-  `opentelemetry_sdk`, `tonic`, `tokio`
+  `opentelemetry_sdk`, `tonic`, `prost`, `tokio`, `axum`, `bytes`,
+  `rustls`, `rustls-pemfile`, `tower`; build-dep `tonic-build` +
+  `prost-build` for `.proto` codegen
 
 ## Local commands
 

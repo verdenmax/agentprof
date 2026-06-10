@@ -37,6 +37,25 @@ fn from_partial_disable_grpc_via_empty_string() {
     );
 }
 
+#[tokio::test(flavor = "current_thread")]
+async fn grpc_server_binds_and_shuts_down() {
+    use agentprof_storage::otlp::pipeline::IngestPipeline;
+    use agentprof_storage::otlp::server_grpc::serve_grpc;
+    use std::sync::Arc;
+
+    let mut cfg = OtlpServerConfig::default();
+    cfg.listen_grpc = Some("127.0.0.1:0".parse().unwrap());
+    cfg.listen_http = None;
+
+    let pipeline = Arc::new(IngestPipeline::noop_for_test());
+    let (handle, shutdown) = serve_grpc(cfg, pipeline).await.expect("bind");
+    shutdown.send(()).expect("send shutdown");
+    handle
+        .await
+        .expect("server task join")
+        .expect("server inner");
+}
+
 #[test]
 fn from_partial_parses_humantime_durations() {
     let partial = PartialOtlpServerConfig {

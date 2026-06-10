@@ -41,10 +41,18 @@ fn compile_otlp_protos() {
 
     let include_dirs = [proto_root];
 
+    let mut prost_cfg = prost_build::Config::new();
+    // Suppress message-level doc comments: upstream OTLP `.proto` files contain
+    // fenced code samples (e.g. `"/http/user_agent": "..."`) that rustdoc
+    // mis-parses as Rust doctests. Service-level comments are filtered
+    // separately by tonic-build's own `.disable_comments(".")`.
+    prost_cfg.disable_comments(["."]);
+
     if let Err(e) = tonic_build::configure()
         .build_client(false)
         .build_server(true)
-        .compile_protos(&proto_paths, &include_dirs)
+        .disable_comments(".")
+        .compile_protos_with_config(prost_cfg, &proto_paths, &include_dirs)
     {
         panic!("failed to compile OTLP collector .proto files with tonic_build: {e}");
     }

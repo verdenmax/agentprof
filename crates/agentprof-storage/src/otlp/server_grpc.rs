@@ -1,0 +1,184 @@
+//! gRPC OTLP listener (M2.2 T2.2).
+//!
+//! Binds tonic's `Server` to [`crate::otlp::config::OtlpServerConfig::listen_grpc`]
+//! and registers the three OTLP collector services
+//! (`LogsService` / `MetricsService` / `TraceService`). Each service impl
+//! delegates to [`crate::otlp::pipeline::IngestPipeline`].
+//!
+//! The bind+shutdown lifecycle returned from [`serve_grpc`] is:
+//!
+//! 1. The function awaits `TcpListener::bind`, so a bind error surfaces
+//!    synchronously as [`crate::otlp::error::OtlpServerError::Bind`].
+//! 2. On success, the server task is spawned and a `(JoinHandle, oneshot::Sender<()>)`
+//!    tuple is returned. Sending on the oneshot triggers graceful shutdown
+//!    via tonic's `serve_with_shutdown`.
+//!
+//! TLS, bearer auth, proxy-protocol, and per-session buffering land in
+//! later M2.2 tasks; this module only does plaintext h2c gRPC.
+
+use std::sync::Arc;
+
+use tokio::net::TcpListener;
+use tokio::sync::oneshot;
+use tokio::task::JoinHandle;
+use tonic::transport::server::TcpIncoming;
+use tonic::transport::Server;
+use tonic::{Request, Response, Status};
+
+use crate::otlp::config::OtlpServerConfig;
+use crate::otlp::error::OtlpServerError;
+use crate::otlp::pipeline::IngestPipeline;
+use crate::otlp::proto::logs::logs_service_server::{LogsService, LogsServiceServer};
+use crate::otlp::proto::logs::{ExportLogsServiceRequest, ExportLogsServiceResponse};
+use crate::otlp::proto::metrics::metrics_service_server::{MetricsService, MetricsServiceServer};
+use crate::otlp::proto::metrics::{ExportMetricsServiceRequest, ExportMetricsServiceResponse};
+use crate::otlp::proto::trace::trace_service_server::{TraceService, TraceServiceServer};
+use crate::otlp::proto::trace::{ExportTraceServiceRequest, ExportTraceServiceResponse};
+
+/// Handle pair returned by [`serve_grpc`]: the server's join handle and
+/// a oneshot used to request graceful shutdown.
+///
+/// Sending `()` on the [`oneshot::Sender`] causes tonic's
+/// `serve_with_shutdown` future to resolve, after which the join handle
+/// resolves with the server's inner result.
+pub type GrpcServerHandle = (JoinHandle<Result<(), OtlpServerError>>, oneshot::Sender<()>);
+
+/// Bind the OTLP gRPC listener, register the three collector services, and
+/// spawn the server task.
+///
+/// The bind step is awaited synchronously, so a port collision or other
+/// `io::Error` is surfaced immediately as
+/// [`OtlpServerError::Bind`]. After a successful bind the task is spawned
+/// and the returned [`oneshot::Sender`] can be used to request graceful
+/// shutdown at any time.
+///
+/// Requires `cfg.listen_grpc` to be `Some(_)`; the caller is expected to
+/// have already run [`OtlpServerConfig::validate`].
+///
+/// # Errors
+///
+/// - [`OtlpServerError::Config`] if `cfg.listen_grpc` is `None`.
+/// - [`OtlpServerError::Bind`] if `TcpListener::bind` fails.
+///
+/// # Examples
+///
+/// ```no_run
+/// # async fn run() -> Result<(), Box<dyn std::error::Error>> {
+/// use agentprof_storage::otlp::config::OtlpServerConfig;
+/// use agentprof_storage::otlp::pipeline::IngestPipeline;
+/// use agentprof_storage::otlp::server_grpc::serve_grpc;
+/// use std::sync::Arc;
+///
+/// let cfg = OtlpServerConfig::default();
+/// let pipeline = Arc::new(IngestPipeline::noop_for_test());
+/// let (handle, shutdown) = serve_grpc(cfg, pipeline).await?;
+/// // ... later:
+/// let _ = shutdown.send(());
+/// handle.await??;
+/// # Ok(()) }
+/// ```
+pub async fn serve_grpc(
+    cfg: OtlpServerConfig,
+    pipeline: Arc<IngestPipeline>,
+) -> Result<GrpcServerHandle, OtlpServerError> {
+    let addr = cfg.listen_grpc.ok_or_else(|| {
+        OtlpServerError::Config("serve_grpc requires cfg.listen_grpc = Some(_)".into())
+    })?;
+
+    let listener = TcpListener::bind(addr)
+        .await
+        .map_err(|source| OtlpServerError::Bind { addr, source })?;
+    let incoming = TcpIncoming::from_listener(listener, true, None)
+        .map_err(|e| OtlpServerError::Config(format!("TcpIncoming::from_listener: {e}")))?;
+
+    let logs = LogsServiceServer::new(LogsImpl {
+        pipeline: pipeline.clone(),
+    });
+    let metrics = MetricsServiceServer::new(MetricsImpl {
+        pipeline: pipeline.clone(),
+    });
+    let traces = TraceServiceServer::new(TracesImpl { pipeline });
+
+    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+    let server = Server::builder()
+        .add_service(logs)
+        .add_service(metrics)
+        .add_service(traces);
+
+    let join = tokio::spawn(async move {
+        server
+            .serve_with_incoming_shutdown(incoming, async move {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .map_err(OtlpServerError::from)
+    });
+
+    Ok((join, shutdown_tx))
+}
+
+/// `LogsService` impl that delegates every export to the shared pipeline.
+struct LogsImpl {
+    pipeline: Arc<IngestPipeline>,
+}
+
+#[tonic::async_trait]
+impl LogsService for LogsImpl {
+    async fn export(
+        &self,
+        request: Request<ExportLogsServiceRequest>,
+    ) -> Result<Response<ExportLogsServiceResponse>, Status> {
+        let req = request.into_inner();
+        let resp = self
+            .pipeline
+            .clone()
+            .ingest_logs(req)
+            .await
+            .map_err(|e| Status::internal(format!("ingest_logs: {e}")))?;
+        Ok(Response::new(resp))
+    }
+}
+
+/// `MetricsService` impl mirroring [`LogsImpl`].
+struct MetricsImpl {
+    pipeline: Arc<IngestPipeline>,
+}
+
+#[tonic::async_trait]
+impl MetricsService for MetricsImpl {
+    async fn export(
+        &self,
+        request: Request<ExportMetricsServiceRequest>,
+    ) -> Result<Response<ExportMetricsServiceResponse>, Status> {
+        let req = request.into_inner();
+        let resp = self
+            .pipeline
+            .clone()
+            .ingest_metrics(req)
+            .await
+            .map_err(|e| Status::internal(format!("ingest_metrics: {e}")))?;
+        Ok(Response::new(resp))
+    }
+}
+
+/// `TraceService` impl mirroring [`LogsImpl`].
+struct TracesImpl {
+    pipeline: Arc<IngestPipeline>,
+}
+
+#[tonic::async_trait]
+impl TraceService for TracesImpl {
+    async fn export(
+        &self,
+        request: Request<ExportTraceServiceRequest>,
+    ) -> Result<Response<ExportTraceServiceResponse>, Status> {
+        let req = request.into_inner();
+        let resp = self
+            .pipeline
+            .clone()
+            .ingest_traces(req)
+            .await
+            .map_err(|e| Status::internal(format!("ingest_traces: {e}")))?;
+        Ok(Response::new(resp))
+    }
+}
