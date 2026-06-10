@@ -22,6 +22,48 @@ prefix used in commit messages).
 
 ### Added
 
+- **M2.2 T6.1 (storage): `SessionRouter` + `SessionBuffer` with OOM caps**
+  (gated on `otlp`). New `agentprof_storage::otlp::router` module
+  exposes `SessionRouter` (per-`session.id` event router backed by
+  `DashMap`), `SessionBuffer` (in-memory buffer with byte / event
+  counters), `SessionBufferCaps` (defaults: 16 MiB / 100 000 events /
+  5 min idle — overridable via `with_max_bytes` / `with_max_events` /
+  `with_idle_timeout` builder methods because the struct is
+  `#[non_exhaustive]`), `CloseReason` enum (`ExplicitEnd` / `OomBytes`
+  / `OomEvents` / `Idle` / `Shutdown`), and `FlushSink` trait
+  (`fn flush(&self, &SessionId, PersistableSession) -> FlushResult`)
+  for the M2.2 T7.1 persistence layer to implement.
+  `SessionRouter::ingest(Vec<Result<TypedEvent, MapperError>>)`
+  consumes a mapper batch: `Ok` events are routed into the matching
+  buffer (creating one on first sight); `Err` entries and
+  `Unrecognized` variants are dropped with `tracing::warn!` per
+  spec §5.5 soft-fail. After every push the router checks the three
+  immediate close triggers (explicit `SessionEnd` → `ExplicitEnd`;
+  `bytes_used > cap.max_bytes` → `OomBytes`;
+  `events.len() > cap.max_events` → `OomEvents`).
+  `SessionBuffer::into_persistable(reason)` implements the spec §5.4
+  pairing algorithm: any `ToolDecisionStart` keyed
+  `(tool_name, turn_id)` that never saw a matching `ToolResult` is
+  closed with a synthetic `ToolResult { status:
+  ToolCallStatus::OpenAtEndOfSession }` timestamped at the buffer's
+  last-known wall-clock event; the full event vector is then
+  stable-sorted by timestamp. `SessionRouter::sweep_idle()` returns
+  the closed session ids for the future T6.2 background reaper;
+  `SessionRouter::flush_all(reason)` drains every open buffer
+  (shutdown path). Routing is sync, entry-level locked, and never
+  holds a `DashMap` guard across `close_buffer`. New workspace dep
+  `dashmap = "6"` gated under storage's `otlp` feature
+  (Apache-2.0 OR MIT, `cargo deny check` green). New smoke test
+  `tests/otlp_router.rs` (9 tests:
+  `router_ingest_groups_by_session_id`,
+  `router_close_on_explicit_session_end`,
+  `router_oom_bytes_triggers_flush`,
+  `router_oom_events_triggers_flush`,
+  `router_into_persistable_pairs_tool_calls`,
+  `router_sweep_idle_closes_stale`,
+  `router_flush_all_drains_buffers`,
+  `router_dropped_mapper_errors_are_logged_not_flushed`,
+  `router_close_unknown_session_is_noop`).
 - **M2.2 T4.1 (storage): bearer-token auth for both OTLP transports**
   (gated on `otlp`). New `agentprof_storage::otlp::auth` module exposes
   two helpers sharing a single `Option<Arc<String>>` token:

@@ -11,8 +11,10 @@
 //! - [`tls`] — server TLS + optional mTLS config builder (M2.2 T4.2)
 //! - [`typed`] — [`typed::TypedEvent`] intermediate representation (M2.2 T5.1)
 //! - [`mapper`] — OTLP wire types → [`typed::TypedEvent`] conversion (M2.2 T5.2)
+//! - [`router`] — [`router::SessionRouter`] + per-session [`router::SessionBuffer`]
+//!   with OOM caps + idle / shutdown flush triggers (M2.2 T6.1)
 //!
-//! Additional modules (`session_router`) land in subsequent M2.2 tasks.
+//! Additional modules land in subsequent M2.2 tasks.
 //!
 //! The crate-private `proto` module mirrors the upstream
 //! `opentelemetry::proto::*` module layout so the relative paths emitted
@@ -26,6 +28,7 @@ pub mod config;
 pub mod error;
 pub mod mapper;
 pub mod pipeline;
+pub mod router;
 pub mod server_grpc;
 pub mod server_http;
 pub mod tls;
