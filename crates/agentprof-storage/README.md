@@ -107,7 +107,7 @@ cache-vs-store policy.
 | `datasource` | `SqliteDataSource` impl of `agentprof_core::datasource::SessionDataSource` (M2.1 T2.6) |
 | `admin`      | `stats` / `prune_before` / `vacuum` / `export_session_json` (M2.1 T2.7) backing the `agentprof db` family |
 | `error`      | `SqliteError` for every fallible API |
-| `otlp` (feature `otlp`, M2.2 in progress) | OTLP receiver subsystem. Submodules: `config` (`OtlpServerConfig` + `PartialOtlpServerConfig`, T2.1), `error` (`OtlpServerError` / `MapperError` / `RouterError`, T2.1), `pipeline` (`IngestPipeline` stub counters, T2.2), `server_grpc` (tonic gRPC listener with 3 collector services, T2.2). Internal `proto` submodule holds tonic-generated server stubs (mirrors `opentelemetry::proto::*` layout). |
+| `otlp` (feature `otlp`, M2.2 in progress) | OTLP receiver subsystem. Submodules: `config` (`OtlpServerConfig` + `PartialOtlpServerConfig`, T2.1), `error` (`OtlpServerError` / `MapperError` / `RouterError`, T2.1), `pipeline` (`IngestPipeline` stub counters, T2.2), `server_grpc` (tonic gRPC listener with 3 collector services, T2.2), `server_http` (axum HTTP/protobuf listener with `/v1/{logs,metrics,traces}`, T3.1), `auth` (bearer-token tonic interceptor + axum middleware applied to both transports, T4.1). Internal `proto` submodule holds tonic-generated server stubs (mirrors `opentelemetry::proto::*` layout). |
 
 ## Features
 

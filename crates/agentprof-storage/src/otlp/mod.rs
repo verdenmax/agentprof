@@ -7,9 +7,10 @@
 //! - [`pipeline`] — [`pipeline::IngestPipeline`] fan-in stub (M2.2 T2.2)
 //! - [`server_grpc`] — tonic gRPC listener wiring (M2.2 T2.2)
 //! - [`server_http`] — axum HTTP/protobuf listener wiring (M2.2 T3.1)
+//! - [`auth`] — bearer-token interceptor + middleware (M2.2 T4.1)
 //!
-//! Additional modules (`auth` / `tls` / `mapper` /
-//! `session_router` / `typed`) land in subsequent M2.2 tasks.
+//! Additional modules (`tls` / `mapper` / `session_router` / `typed`)
+//! land in subsequent M2.2 tasks.
 //!
 //! The crate-private `proto` module mirrors the upstream
 //! `opentelemetry::proto::*` module layout so the relative paths emitted
@@ -18,6 +19,7 @@
 //! generated types so request / response plumbing type-checks without an
 //! extra conversion layer.
 
+pub mod auth;
 pub mod config;
 pub mod error;
 pub mod pipeline;

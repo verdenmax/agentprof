@@ -22,6 +22,27 @@ prefix used in commit messages).
 
 ### Added
 
+- **M2.2 T4.1 (storage): bearer-token auth for both OTLP transports**
+  (gated on `otlp`). New `agentprof_storage::otlp::auth` module exposes
+  two helpers sharing a single `Option<Arc<String>>` token:
+  `bearer_interceptor(token) -> impl Fn(Request<()>) -> Result<Request<()>,
+  Status> + Clone + Send + Sync + 'static` (wired into
+  `tonic::service::interceptor::InterceptedService` for the three gRPC
+  collector services in `server_grpc`) and
+  `async fn bearer_middleware(token, req, next) -> Result<Response,
+  StatusCode>` (wired into `axum::middleware::from_fn` ahead of the
+  `/v1/{logs,metrics,traces}` routes in `server_http`). Semantics: when
+  `token == None` both helpers passthrough (preserves all existing T2.2 /
+  T2.3 / T3.1 / T3.2 tests that never set `listen_token`); when
+  `Some(t)`, requires `Authorization: Bearer <t>` exact match per
+  RFC 6750 §2.1 — missing / non-ASCII / wrong-prefix / mismatch all
+  short-circuit with `tonic::Code::Unauthenticated` on gRPC and `401
+  UNAUTHORIZED` on HTTP, and the `IngestPipeline` is never invoked on
+  rejection (verified via `counts_for_test() == (0, 0, 0)` post-reject).
+  New smoke test `tests/otlp_auth_smoke.rs` (3 tests:
+  `grpc_rejects_request_without_bearer_when_token_configured`,
+  `grpc_accepts_request_with_correct_bearer`,
+  `http_rejects_request_without_bearer_when_token_configured`).
 - **M2.2 T2.2 (storage): tonic gRPC OTLP listener + `IngestPipeline`
   stub** (gated on `otlp`). New `agentprof_storage::otlp::server_grpc`
   exposes `serve_grpc(cfg, pipeline) -> Result<(JoinHandle, oneshot::Sender<()>),

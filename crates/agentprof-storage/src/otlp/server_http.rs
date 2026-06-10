@@ -40,6 +40,7 @@ use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
+use crate::otlp::auth::bearer_middleware;
 use crate::otlp::config::OtlpServerConfig;
 use crate::otlp::error::OtlpServerError;
 use crate::otlp::pipeline::IngestPipeline;
@@ -101,10 +102,15 @@ pub async fn serve_http(
         .await
         .map_err(|source| OtlpServerError::Bind { addr, source })?;
 
+    let token = cfg.listen_token.clone().map(Arc::new);
     let app: Router = Router::new()
         .route("/v1/logs", post(handle_logs))
         .route("/v1/metrics", post(handle_metrics))
         .route("/v1/traces", post(handle_traces))
+        .layer(axum::middleware::from_fn(move |req, next| {
+            let t = token.clone();
+            async move { bearer_middleware(t, req, next).await }
+        }))
         .with_state(pipeline);
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();

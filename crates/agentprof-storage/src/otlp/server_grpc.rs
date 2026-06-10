@@ -21,10 +21,12 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
+use tonic::service::interceptor::InterceptedService;
 use tonic::transport::server::TcpIncoming;
 use tonic::transport::Server;
 use tonic::{Request, Response, Status};
 
+use crate::otlp::auth::bearer_interceptor;
 use crate::otlp::config::OtlpServerConfig;
 use crate::otlp::error::OtlpServerError;
 use crate::otlp::pipeline::IngestPipeline;
@@ -91,13 +93,25 @@ pub async fn serve_grpc(
     let incoming = TcpIncoming::from_listener(listener, true, None)
         .map_err(|e| OtlpServerError::Config(format!("TcpIncoming::from_listener: {e}")))?;
 
-    let logs = LogsServiceServer::new(LogsImpl {
-        pipeline: pipeline.clone(),
-    });
-    let metrics = MetricsServiceServer::new(MetricsImpl {
-        pipeline: pipeline.clone(),
-    });
-    let traces = TraceServiceServer::new(TracesImpl { pipeline });
+    let token = cfg.listen_token.clone().map(Arc::new);
+    let interceptor = bearer_interceptor(token);
+
+    let logs = InterceptedService::new(
+        LogsServiceServer::new(LogsImpl {
+            pipeline: pipeline.clone(),
+        }),
+        interceptor.clone(),
+    );
+    let metrics = InterceptedService::new(
+        MetricsServiceServer::new(MetricsImpl {
+            pipeline: pipeline.clone(),
+        }),
+        interceptor.clone(),
+    );
+    let traces = InterceptedService::new(
+        TraceServiceServer::new(TracesImpl { pipeline }),
+        interceptor,
+    );
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let server = Server::builder()
