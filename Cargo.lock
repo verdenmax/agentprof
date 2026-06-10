@@ -80,6 +80,7 @@ dependencies = [
  "prost",
  "prost-build",
  "rcgen",
+ "reqwest",
  "rusqlite",
  "rusqlite_migration",
  "rustls",

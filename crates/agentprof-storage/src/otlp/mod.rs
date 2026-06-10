@@ -6,8 +6,9 @@
 //! - [`error`] — [`error::OtlpServerError`] / [`error::MapperError`] / [`error::RouterError`]
 //! - [`pipeline`] — [`pipeline::IngestPipeline`] fan-in stub (M2.2 T2.2)
 //! - [`server_grpc`] — tonic gRPC listener wiring (M2.2 T2.2)
+//! - [`server_http`] — axum HTTP/protobuf listener wiring (M2.2 T3.1)
 //!
-//! Additional modules (`server_http` / `auth` / `tls` / `mapper` /
+//! Additional modules (`auth` / `tls` / `mapper` /
 //! `session_router` / `typed`) land in subsequent M2.2 tasks.
 //!
 //! The crate-private `proto` module mirrors the upstream
@@ -21,6 +22,7 @@ pub mod config;
 pub mod error;
 pub mod pipeline;
 pub mod server_grpc;
+pub mod server_http;
 
 pub use config::{OtlpServerConfig, PartialOtlpServerConfig};
 pub use error::{MapperError, OtlpServerError, RouterError};
