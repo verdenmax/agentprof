@@ -25,7 +25,8 @@
 //!   `agentprof db` subcommand family (M2.1 T2.7)
 //! - `otlp` (feature `otlp`) — Tonic-based OpenTelemetry receiver
 //!   ([`otlp::config`] + [`otlp::error`] land in M2.2 T2.1; transport
-//!   layers in subsequent tasks)
+//!   layers in subsequent tasks; [`otlp::sink_storage::StorageFlushSink`]
+//!   in M2.2 T7.1 wires the per-session router to `upsert_report`)
 //!
 //! ## Features
 //!

@@ -16,6 +16,9 @@
 //! - [`sweeper`] — async wrapper around [`router::SessionRouter`] that
 //!   periodically calls [`router::SessionRouter::sweep_idle`] and drains
 //!   on shutdown (M2.2 T6.2)
+//! - [`sink_storage`] — [`sink_storage::StorageFlushSink`] that persists
+//!   closed session buffers via the M2.1 `SQLite` `upsert_report` path
+//!   (M2.2 T7.1)
 //!
 //! Additional modules land in subsequent M2.2 tasks.
 //!
@@ -34,6 +37,7 @@ pub mod pipeline;
 pub mod router;
 pub mod server_grpc;
 pub mod server_http;
+pub mod sink_storage;
 pub mod sweeper;
 pub mod tls;
 pub mod typed;

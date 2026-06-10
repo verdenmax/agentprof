@@ -22,6 +22,38 @@ prefix used in commit messages).
 
 ### Added
 
+- **M2.2 T7.1 (storage): wire pipeline → mapper → router → storage sink**
+  (gated on `otlp`). `IngestPipeline` now owns an `Arc<SessionRouter>`
+  instead of being a counters-only stub: each `ingest_logs` /
+  `ingest_metrics` / `ingest_traces` call now runs the M2.2 T5.2 mapper,
+  counts `MapperError` entries into a new `error_count` atomic, and
+  forwards the resulting `Vec<Result<TypedEvent, MapperError>>` to
+  `SessionRouter::ingest`. New `agentprof_storage::otlp::sink_storage`
+  module exposes `StorageFlushSink::new(Arc<Mutex<Db>>)` (with optional
+  `with_now_fn` for deterministic tests) — a `FlushSink` impl that
+  translates the closed-buffer `PersistableSession` into the M2.1
+  `AnalysisReport` shape and persists via `upsert_report`, writing
+  `sessions.raw_path = "otlp://<session_id>"` so OTLP-sourced rows are
+  visually distinguishable from filesystem-ingested ones. Mapping
+  rollups: `TypedEvent::TokenUsage` data points accumulate into
+  `model_metrics`; `ToolDecisionStart` + `ToolResult` pairs roll up into
+  `tool_rank` rows with paired-timestamp durations + percentile stats.
+  Lossy mappings (per spec §6 explicit OTLP latitude): `Unrecognized`
+  events, `UserPrompt` per-prompt sizes, and `SessionStart.cwd` not
+  surfaced through indexed columns are dropped with `tracing::debug!`
+  rather than failing the flush. `IngestPipeline::noop_for_test()`
+  remains available for transport-layer smoke tests (uses a private
+  `NoopFlushSink`). New `error_count_for_test()` exposes the cumulative
+  mapper-error counter. Integration coverage in
+  `tests/otlp_pipeline_e2e.rs` (7 tests: logs round-trip persisted with
+  correct `raw_path`; metrics token usage rolled into `model_metrics`;
+  trace tool span paired into `tool_rank`; OOM-trip flush persists a
+  partial session; explicit `flush_all(Shutdown)` drains 3 open buffers;
+  mapper errors counted without blocking the surrounding batch;
+  explicit `close_buffer(Idle)` routes through the sink). No new
+  workspace dependencies; sink reuses existing `Arc<Mutex<Db>>` pattern
+  established by `SqliteDataSource`.
+
 - **M2.2 T6.2 (storage): async idle sweeper task + graceful shutdown**
   (gated on `otlp`). New `agentprof_storage::otlp::sweeper` module
   exposes `spawn_idle_sweeper(router, interval)` → `SweeperHandle`.
