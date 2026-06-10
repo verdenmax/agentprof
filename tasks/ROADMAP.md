@@ -5,7 +5,7 @@
 > **文件名**：`tasks/ROADMAP.md`
 > **版本**：1.8
 > **最后更新**：2026-06-09
-> **当前 commit**：`main` HEAD `<filled-in-after-T7-merge>` (M2.1.1 aggregate dual-path merged)
+> **当前 commit**：`main` HEAD `1466c30` (M2.1.1 aggregate dual-path merged)
 > **当前阶段**：**Phase 2 — M2.1.1 aggregate dual-path ✅ shipped on `main`**：separate `episodes_json` column（migration 002，additive ALTER，default `'{}'`）+ `SessionDataSource::load_episodes(id)` trait method + 3 impls（`AdapterDataSource` / `SqliteDataSource` / `DualPathDataSource`）。`cmd::aggregate` rewires to `build_data_source(...)` matching the `list` / `mcp-waste` pattern; `cmd::analyze` write-through 和 `cmd::db::ingest` per-session loop 都扩展为 pair `upsert_report` + `upsert_episodes`。`AdapterDataSource::load_episodes_by_ref` bypass 保持 ingest 在 O(N)。详见 [ADR-0020](../docs/internals/adr-0020-aggregate-dualpath.md)。Prior wave: M2.1 SQLite 持久化 ([ADR-0017](../docs/internals/adr-0017-unify-session-id-namespace.md) / [ADR-0018](../docs/internals/adr-0018-session-datasource-trait.md) / [ADR-0019](../docs/internals/adr-0019-hybrid-storage-mode.md))。
 > **下一步入口**：**v0.2.0 tag**（`github-release` skill）→ **M2.2 OTLP receiver**（详见 [`docs/plan.md`](../docs/plan.md) §8）
 >
