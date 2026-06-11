@@ -13,6 +13,90 @@ prefix used in commit messages).
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-06-11
+
+> M2.3 web dashboard wave. New `agentprof serve` subcommand (feature
+> `web`) — live HTTP dashboard backed by the SQLite store. Closes Q-7.2
+> ("纯静态够用，还是要 server 模式") from `docs/plan.md` §7.2. v0.4.0
+> remains reserved for Phase 3 multi-agent (M3.1 ClaudeAdapter + M3.2
+> CodexAdapter); see [ADR-0024 D-7](docs/internals/adr-0024-web-dashboard-architecture.md#d-7-release-as-v033-not-v040).
+
+### Added (M2.3 web dashboard ✅)
+
+- **cli:** new `agentprof serve` subcommand (feature `web`) — live HTTP
+  dashboard backed by the SQLite store with 5 polling views (sessions
+  list, single session, aggregate, MCP-waste list, MCP-waste detail).
+- **cli:** routes `GET /sessions`, `/session/:id`,
+  `/aggregate?by=model|tool|day&since=...`, `/mcp-waste`,
+  `/mcp-waste/:server` + matching `/api/*.html` chunk endpoints for the
+  vanilla JS poller (~80 LOC, no framework). `GET /` → `303 /sessions`;
+  `GET /healthz` → `200 "healthy"`.
+- **cli:** `[serve]` config-file block (`bind` / `interval_default` /
+  `auto_open`) with precedence CLI > env > file > defaults (mirrors
+  M2.2 `[otlp]`).
+- **cli:** `format::html::render_body_only` +
+  `format::aggregate_html::render_body_only` — public extractors that
+  slice the existing full-page render output for embedding inside the
+  dashboard chrome (zero blast radius on M1.6.4 / M1.6.5 snapshots).
+- **cli:** `cmd::aggregate::compute_aggregate_from_store` — store-mode
+  parallel to `compute_aggregate` (supports `by=model|tool|day`;
+  `mcp-server` returns HTTP 400 with a `/mcp-waste` pointer per
+  ADR-0024 D-3 Consequences).
+- **cli:** `cmd::mcp_waste::compute_aggregate_waste_from_store` —
+  heuristic-only store-mode aggregator (no sidecar / no MCP config
+  plumbing; a banner directs users to the CLI for accurate counts).
+- **cli:** bundled `dashboard.css` / `dashboard.js` / `favicon.svg`
+  via `include_str!` / `include_bytes!` (no runtime FS reads, no CDN).
+- **cli:** default bind `127.0.0.1:4329` (loopback); non-loopback bind
+  emits `tracing::warn!` recommending reverse-proxy auth (ADR-0024 D-6).
+- **cli:** new feature `agentprof-cli/features = ["web"]` (included in
+  `full`); pulls `axum` / `tower` / `tower-http` / `tokio` / `open`
+  (the first three shared with `otlp`).
+
+### Documentation
+
+- **L3:** [ADR-0024 — Web dashboard
+  architecture](docs/internals/adr-0024-web-dashboard-architecture.md):
+  seven design decisions D-1..D-7 from the M2.3 spec §3 + four
+  implementation notes from T5–T11 (axum 0.7 `:name` path-param
+  syntax, matchit `:server.html` capture, askama 0.16 framework
+  integration deprecation, sliced `render_body_only`).
+- **L2:** [`docs/features/web-dashboard.md`](docs/features/web-dashboard.md)
+  — new cross-crate feature index (crate landscape table, quickstart,
+  endpoint table, caveats, test layout).
+- **L1:** [`docs/architecture.md`](docs/architecture.md) §3 (cli row
+  updated), §8 (new `agentprof serve` subsection), §14.4 (ADR-0021,
+  0022, 0023, 0024 rows added), §15.4 (web feature flag bullet +
+  `full` expansion).
+- **L2:** [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md)
+  — new `## agentprof serve` section (quick start + flag reference +
+  `[serve]` config block + views table + security note); Modules /
+  Features tables updated.
+- **Root:** [`README.md`](README.md) — `agentprof serve` bullet in §8
+  CLI Subcommands list + "Live dashboard" callout in Quick start.
+
+### Tests
+
+- **cli:** 24 unit tests in `cmd::serve::router_tests` (T5–T10
+  `tower::ServiceExt::oneshot` against an in-process Axum `Router`
+  with a fixture-populated `Arc<Mutex<Db>>`): 5 dashboard views × ~5
+  cases each (200 / 404 / 400 / empty-store / content-type assertions)
+  + `/healthz` + `/static/:name` MIME-type checks + `/` redirect + 2
+  insta snapshots (sessions-empty-store, session-page-fixture).
+- **cli:** 5 end-to-end tests in `tests/cli_serve_e2e.rs` spawn
+  `agentprof serve` as a real subprocess on an ephemeral port and
+  probe via `reqwest` — healthz roundtrip, missing-storage UserError,
+  nonexistent-storage UserError, sessions page render, static asset
+  MIME types.
+
+### Fixed
+
+- **cli:** layout chrome nav anchor `/waste` → `/mcp-waste` (matches
+  the active-nav literal used by all four MCP-waste handlers; surfaced
+  during T10 router wiring).
+
+> Next milestone TBD. v0.4.0 reserved for Phase 3 multi-agent completion (Claude + Codex adapters).
+
 ## [0.3.2] - 2026-06-11
 
 ### Fixed
@@ -30,8 +114,6 @@ prefix used in commit messages).
   called from `load_server_tls_config` / `serve_grpc` / `serve_http`
   + `otlp_tls_smoke` test setup. Strictly internal change; no API
   surface impact.
-
-> Next milestone TBD. v0.4.0 reserved for Phase 3 multi-agent completion (Claude + Codex adapters).
 
 ## [0.3.1] - 2026-06-11
 

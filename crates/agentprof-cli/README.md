@@ -478,6 +478,78 @@ The `max_session_bytes` / `max_session_events` buffer caps stay
 CLI-only for now — they belong to `SessionBufferCaps`, not
 `OtlpServerConfig`.
 
+## `agentprof serve` (M2.3 ✅, feature `web`)
+
+Live localhost dashboard backed by the SQLite store. Auto-polls every
+5 s by default; toolbar lets the user pause or change interval (1 s /
+2 s / 5 s / 10 s / 30 s; choice persists in `localStorage` under key
+`agentprof.interval`).
+
+```bash
+agentprof serve \
+  --storage-path ~/.local/share/agentprof/store.db
+```
+
+Then visit `http://127.0.0.1:4329/sessions` (the browser opens
+automatically unless `--no-open` is passed).
+
+### Flags
+
+| Flag | Default | Notes |
+|---|---|---|
+| `--storage-path <PATH>` | (required) | SQLite store path. **File must exist** — exits `ExitKind::UserError` otherwise with a `agentprof db ingest` hint. |
+| `--bind <ADDR>` | `127.0.0.1:4329` | Loopback default. Non-loopback bind emits a `tracing::warn!` recommending reverse-proxy auth. |
+| `--interval-default <SECS>` | `5` | Browser-side poll interval. Overridable in the toolbar to any value in `1..=60`. |
+| `--no-open` | off | Skip the "launch browser on start" behavior (suppresses the `open` crate call). |
+| `--quiet` | off | Silence the start-up banner that prints the listening URL. |
+
+### `[serve]` config-file block
+
+```toml
+[serve]
+bind             = "127.0.0.1:4329"
+interval_default = 5
+auto_open        = true
+```
+
+Loaded from `$AGENTPROF_CONFIG` or
+`$XDG_CONFIG_HOME/agentprof/config.toml`. **Precedence:** CLI flag > env >
+file > built-in defaults — same semantics as the `[otlp]` block (M2.2
+T8.2).
+
+### Views
+
+| Route | Notes |
+|---|---|
+| `GET /sessions` | Recent sessions list (30 d window, capped 200 rows). |
+| `GET /session/:id` | Per-session detail with embedded analytical report (flame graph + turn / tool / hook tables + cache section). Renders `format::html::render_body_only` inside the dashboard chrome. |
+| `GET /aggregate?by=model\|tool\|day&since=7d` | Cross-session aggregate. `--by=mcp-server` returns **HTTP 400** — use `/mcp-waste` instead (see [ADR-0024](../../docs/internals/adr-0024-web-dashboard-architecture.md) Consequences). |
+| `GET /mcp-waste?since=7d` | MCP server waste list (**heuristic-only** — no sidecar). Banner directs users to `agentprof mcp-waste --tool-descriptions ...` for accurate counts. |
+| `GET /mcp-waste/:server?since=7d` | Per-server tool usage detail. |
+| `GET /healthz` | Liveness probe — `200 OK` with body `healthy`. |
+| `GET /static/:name` | Bundled CSS / JS / favicon (compile-time `include_str!` / `include_bytes!`). |
+
+Each dashboard view also exposes a `/api/<path>.html` chunk endpoint
+(e.g. `/api/sessions.html`, `/api/session/:id.html`,
+`/api/aggregate.html`, `/api/mcp-waste.html`,
+`/api/mcp-waste/:server`) — the JS poller fetches the chunk and replaces
+`document.getElementById('main').innerHTML`. No JSON parsing client-side.
+
+### Security note
+
+The dashboard ships with **no authentication** in v0.3.3 (ADR-0024 D-6).
+Default loopback bind mitigates the obvious risk; if you bind to a
+non-loopback address put it behind a reverse proxy (nginx / caddy /
+Cloudflare Tunnel / etc.) — the startup `tracing::warn!` will remind you.
+
+### Where to read more
+
+- Architecture rationale + 7 decisions + 4 implementation notes:
+  [ADR-0024](../../docs/internals/adr-0024-web-dashboard-architecture.md)
+- Cross-crate feature index:
+  [`docs/features/web-dashboard.md`](../../docs/features/web-dashboard.md)
+- L1 CLI protocol entry: [`docs/architecture.md`](../../docs/architecture.md) §8
+
 ## Public interface
 
 This crate produces a binary, not a library. The user-facing protocol is the CLI itself:
@@ -505,6 +577,8 @@ agentprof ingest-otlp [--grpc 127.0.0.1:4317] [--http 127.0.0.1:4318]
                       [--max-logs-request-bytes N] [--max-metrics-request-bytes N]
                       [--max-traces-request-bytes N] [--max-open-sessions N]
                       [--store PATH]                                          # ✓ shipped (M2.2; M2.4 hardening; feature: otlp)
+agentprof serve       [--storage-path PATH] [--bind 127.0.0.1:4329]
+                      [--interval-default 5] [--no-open] [--quiet]            # ✓ shipped (M2.3; feature: web)
 agentprof config     [show | edit | path]                                  # planned (Phase 2)
 ```
 
@@ -528,6 +602,7 @@ See [`docs/architecture.md`](../../docs/architecture.md) §8 for the canonical s
 | `data_source` | `DualPathDataSource` composer — fans out `SessionDataSource` calls to an adapter + optional `SQLite` store, merges by session id (adapter wins), and records divergence warnings. (An async re-upsert callback was prototyped in M2.1 T4.2 and removed by the M2.1 audit followup — see `data_source.rs` module docs; proper async refresh is deferred to M2.1.1.) | ✓ shipped (M2.1 T4.2; re-upsert callback removed in audit followup) |
 | `data_source_factory` | `build_data_source(agent, root, &StorageConfig, no_cache) -> anyhow::Result<(Box<dyn SessionDataSource>, WarningsHandle)>` — single composition seam used by every subcommand. Returns a `DualPathDataSource` when storage is reachable, falls back to a bare `AdapterDataSource` when `--no-cache` is set **or** storage open fails (`tracing::warn!` + graceful degradation, never a hard error). The second tuple element is an `Arc<Mutex<Vec<DualPathWarning>>>` shared with the inner dual-path source (empty for adapter-only returns) — callers drain it and emit one stderr line per warning unless `--quiet`. | ✓ shipped (M2.1 T5.1, warnings handle M2.1 T5.2) |
 | `cmd::ingest_otlp` | The `ingest-otlp` subcommand: reads the `[otlp]` block from `~/.config/agentprof/config.toml` (or `$AGENTPROF_CONFIG`), folds CLI flags + env on top to build an `OtlpServerConfig` (priority: CLI > env > file > defaults), opens the SQLite store, wires `StorageFlushSink → SessionRouter → IngestPipeline → serve_{grpc,http}` + `spawn_idle_sweeper`, and drains gracefully on SIGINT / SIGTERM. Feature-gated under `otlp`; dispatcher in `main.rs` spins a multi-thread tokio runtime via `block_on` so the rest of the CLI stays sync. A hidden `--sweeper-interval-seconds` flag (test-only, omitted from `--help`) overrides the 30 s sweeper tick so end-to-end tests in `tests/cli_ingest_otlp_e2e.rs` can fire idle flushes within a few seconds. | ✓ shipped (M2.2 T8.1 + T8.2; e2e tests M2.2 T9.1) |
+| `cmd::serve` (feature `web`) | The `serve` subcommand: reads the `[serve]` block (`bind` / `interval_default` / `auto_open`), folds CLI flags on top, opens the SQLite store, builds the axum `Router` (12 routes: 5 dashboard pages × 2 chunk endpoints + `/healthz` + `/static/:name` + `/` → `/sessions` redirect), and drives `axum::serve(...).with_graceful_shutdown(...)` until SIGINT / SIGTERM. Submodules: `mod` (clap + entry + signal), `state` (`Arc<Mutex<Db>>` + `interval_default`), `router`, `handlers` (5 views × 2 routes), `static_assets` (`include_str!` / `include_bytes!` bundling). Templates under `templates/dashboard/**`. Adds `format::html::render_body_only` + `format::aggregate_html::render_body_only` for embedding the existing static HTML report markup inside the dashboard chrome, plus `cmd::aggregate::compute_aggregate_from_store` and `cmd::mcp_waste::compute_aggregate_waste_from_store` (store-mode parallels to the existing adapter-mode `compute_*` fns). See [ADR-0024](../../docs/internals/adr-0024-web-dashboard-architecture.md). | ✓ shipped (M2.3; e2e tests `tests/cli_serve_e2e.rs`) |
 | `cmd::config` | One module per planned subcommand | planned (Phase 2) |
 | `config` | TOML loader / writer for `~/.config/agentprof/config.toml` | planned (M1.5+) |
 | `report_html` | `askama` templates for the HTML report | planned (M1.5+) |
@@ -537,9 +612,10 @@ See [`docs/architecture.md`](../../docs/architecture.md) §8 for the canonical s
 
 | Feature | Default | Effect |
 |---|---|---|
-| `full` | on | Enables both `anthropic-api` and `otlp`. |
+| `full` | on | Enables `anthropic-api`, `otlp`, and `web`. |
 | `anthropic-api` | via `full` | Forwards to `agentprof-core/anthropic-api`. |
 | `otlp` | via `full` | Forwards to `agentprof-storage/otlp`; required for the `ingest-otlp` subcommand. |
+| `web` | via `full` | M2.3 — compiles `cmd::serve` + dashboard templates + bundled CSS/JS. Pulls in `axum`, `tower`, `tower-http`, `tokio`, `open` (axum / tower / tokio shared with `otlp`). Required for the `serve` subcommand. See [ADR-0024](../../docs/internals/adr-0024-web-dashboard-architecture.md). |
 
 To build a minimal binary: `cargo build -p agentprof-cli --no-default-features`.
 

@@ -16,7 +16,7 @@ license      = "MIT OR Apache-2.0"
 repository   = "https://github.com/agentprof/agentprof"
 homepage     = "https://github.com/agentprof/agentprof"
 authors      = ["agentprof contributors"]
-version      = "0.3.2"
+version      = "0.3.3"
 
 # -----------------------------------------------------------------------------
 # Workspace-wide lints (see docs/architecture.md §16 for the full coding rules).

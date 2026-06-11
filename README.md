@@ -183,6 +183,23 @@ These tools block on the human, not on agent or machine work; their `Total` refl
 See [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) for
 full CLI documentation.
 
+### Live dashboard (M2.3 — `agentprof serve`)
+
+After ingesting sessions into the SQLite store
+(`agentprof db init && agentprof db ingest --agent copilot --all`), run
+
+```sh
+agentprof serve --storage-path ~/.local/share/agentprof/store.db
+```
+
+A localhost dashboard opens at `http://127.0.0.1:4329/sessions` with
+live polling on every view (sessions list, single session, aggregate,
+MCP waste). Built on the same axum + askama stack as the M2.2 OTLP
+receiver — the JS poller is ~80 LOC of plain vanilla JavaScript, no
+framework. See
+[ADR-0024](docs/internals/adr-0024-web-dashboard-architecture.md) and
+[`docs/features/web-dashboard.md`](docs/features/web-dashboard.md).
+
 ---
 
 ## CLI Subcommands
@@ -196,6 +213,7 @@ full CLI documentation.
 - `agentprof mcp-waste` (M1.6.5) — cross-session report of MCP tools loaded into the context window but never called (md / json / html). Pairs with `analyze --section mcp-waste` (single session) and the `[5] McpWaste` TUI view. See [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) `## agentprof mcp-waste` and [ADR-0015](docs/internals/adr-0015-mcp-waste-architecture.md).
 - `agentprof db <init|stats|ingest|prune|vacuum|export>` (M2.1) — SQLite cache lifecycle and inspection.
 - `agentprof ingest-otlp` (M2.2, feature `otlp`) — embedded OTLP receiver (gRPC `127.0.0.1:4317` + HTTP/protobuf `127.0.0.1:4318`) that decodes Claude Code / Codex / Copilot CLI OpenTelemetry envelopes, fans them per-`session.id` into in-memory `SessionBuffer`s (OOM-capped on bytes + event count), and persists finalized sessions to the same SQLite store used by `analyze` (reusing M2.1's `upsert_report`; `raw_path = "otlp://<id>"`). Bearer / TLS / mTLS auth + `[otlp]` config-file block; drains gracefully on SIGINT / SIGTERM. **OTLP does not implement the `Adapter` trait** — push semantics and cross-session routing are structurally incompatible with the file-pull model; see [ADR-0021](docs/internals/adr-0021-otlp-receiver-architecture.md) §Decision 3 for the rationale. Subcommand reference: [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) `## agentprof ingest-otlp`.
+- `agentprof serve` (M2.3, feature `web`) — live localhost dashboard backed by the SQLite store. Five polling views (sessions list, single session, aggregate, MCP-waste list + detail) served from a single axum process on `127.0.0.1:4329` by default. Vanilla-JS poller (~80 LOC, no framework) swaps each view's `#main` innerHTML every 5 s via the matching `/api/<view>.html` chunk endpoint; toolbar pauses or changes interval. Store mode required (errors with a `agentprof db ingest` hint if missing). Bundled CSS / JS / favicon via `include_str!` — zero runtime FS reads, no CDN. See [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) `## agentprof serve` and [ADR-0024](docs/internals/adr-0024-web-dashboard-architecture.md).
 
 ### MCP server waste analysis (M1.6.5+)
 
