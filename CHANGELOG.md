@@ -13,69 +13,107 @@ prefix used in commit messages).
 
 ## [Unreleased]
 
-### Added (M2.5 observational cache analytics — T3)
+### Added — M2.5 observational cache analytics
 
+> Surfaces the prompt-cache token data (Anthropic `cache_read` /
+> `cache_creation`) that the storage layer has been capturing since
+> M1.6.x + M2.x but only the TUI Models view displayed. Closes
+> [`docs/architecture.md`](docs/architecture.md) §18 Q4a and audit
+> finding F-NEW-2 (write-only `total_cache_read` / `total_cache_creation`
+> schema columns now have a read path). **ZERO schema change** — all
+> wiring uses existing M2.1 columns + M1.6.x `model_metrics`. Design
+> codified in
+> [ADR-0023](docs/internals/adr-0023-cache-metrics.md).
+
+- **core: new `agentprof_core::analyzer::cache` module** —
+  `CacheMetrics` struct (6 fields: `creation_tokens` / `read_tokens` /
+  `hit_pct_honest` / `hit_pct_naive` / `saved_tokens_net` /
+  `saved_tokens_gross`) + 2 pricing constants
+  (`CACHE_READ_DISCOUNT = 0.9` and `CACHE_WRITE_PREMIUM = 0.25`,
+  Claude Sonnet 4.x 2026-06 rates). Dual hit-rate formulas
+  ([ADR-0023](docs/internals/adr-0023-cache-metrics.md) D-2): honest
+  (`read / (read + creation)`) + naive (`read / (read + input)`).
+  Dual saved-token formulas: net (`read * 0.9 − creation * 0.25`,
+  can be negative) + gross (`read * 0.9`). `CacheMetrics::from_totals`
+  returns `Option<CacheMetrics>`, `None` on zero cache activity so
+  render layers can skip cleanly (ADR-0023 D-1).
+- **core: `AnalysisReport::cache_metrics() -> Option<CacheMetrics>`** —
+  per-session accessor wrapping the existing M2.1 T2.4
+  `total_*` accumulators.
 - **core: per-bucket cache attribution for `--by model` / `--by day`**
-  ([ADR-0023](docs/internals/adr-0023-observational-cache-analytics.md) D-3).
-  New `CacheAttributable` trait + `AggregateReport::cache_metrics_per_bucket()`
+  ([ADR-0023](docs/internals/adr-0023-cache-metrics.md) D-3). New
+  `CacheAttributable` trait + `AggregateReport::cache_metrics_per_bucket()`
   accessor (trait-bound, available only on `AggregateReport<ModelBucket>`
   and `AggregateReport<DayBucket>`) returning per-bucket
   `CacheMetrics`. New `supports_cache_attribution(AggregateKey) -> bool`
   helper for render-layer / `AnyAggregateReport` dispatch where the
   bucket type has been erased. `ToolBucket` + `McpServerBucket`
-  deliberately do **not** implement `CacheAttributable` (per-tool /
-  per-server cache attribution is undefined — cache tokens are
-  prompt-level). New fields on `ModelBucket` + `DayBucket`:
-  `total_input_tokens`, `total_cache_read`, `total_cache_creation`
-  (all `#[serde(default)]` for cached-JSON backward-compat). New
-  `with_cache_metrics(input, read, creation)` builder method on both
-  bucket types. 4 new integration tests in
-  `crates/agentprof-core/tests/cache_metrics.rs`.
-
-### Added (M2.5 observational cache analytics — T5)
-
-- **cli: `analyze --export md` now renders a `## Cache` section**
-  ([ADR-0023](docs/internals/adr-0023-observational-cache-analytics.md)
-  D-2). When `AnalysisReport::cache_metrics()` returns `Some`, the
-  markdown renderer appends a 6-row table (creation tokens, read
+  deliberately do **not** implement `CacheAttributable` — per-tool /
+  per-server cache attribution is undefined because cache tokens are
+  accumulated per API call, not per tool invocation. New fields on
+  `ModelBucket` + `DayBucket`: `total_input_tokens`,
+  `total_cache_read`, `total_cache_creation` (all `#[serde(default)]`
+  for cached-JSON backward-compat). New `with_cache_metrics(input,
+  read, creation)` builder method on both bucket types.
+- **cli: `analyze --export md` renders a `## Cache` section** when
+  `cache_metrics()` is `Some` — 6-row table (creation tokens, read
   tokens, honest hit %, naive hit %, net saved tokens, gross saved
-  tokens) after the MCP-waste section and before warnings. When the
-  report has no cache activity, the section is omitted entirely (no
-  all-zero table). 2 new e2e tests in
-  `crates/agentprof-cli/tests/cli_analyze_cache_md.rs`.
-
-### Added (M2.5 observational cache analytics — T7)
-
-- **cli: `analyze --export html` now renders a `<section id="cache">`
-  block** ([ADR-0023](docs/internals/adr-0023-observational-cache-analytics.md)
-  D-2). Mirrors the markdown surface (T5): when
-  `AnalysisReport::cache_metrics()` returns `Some`, the askama
-  template renders a 6-row metrics table after the MCP-waste section
-  and before warnings; otherwise the section is omitted and HTML
-  output is byte-identical to v0.3.0 for reports without cache
-  activity (all 5 existing `analyze_html__*` snapshots unchanged).
-  Percentages are pre-formatted in Rust (`"55.6%"`) and exposed via
-  a `CacheSection` template helper, avoiding askama 0.16
-  format-filter dialect concerns. 2 new e2e tests in
-  `crates/agentprof-cli/tests/cli_analyze_cache_html.rs`.
-
-### Added (M2.5 observational cache analytics — T9)
-
-- **cli: `aggregate --by model` and `--by day` now render 4 cache
-  columns** (`CacheCr` / `CacheRd` / `Hit%` / `NetSaved`) across all
-  three render formats (md, csv, html)
-  ([ADR-0023](docs/internals/adr-0023-observational-cache-analytics.md)
-  D-3, D-5). `--by tool` and `--by mcp-server` deliberately omit
-  these columns (per-tool / per-server cache attribution is undefined
-  — cache tokens are prompt-level). Cells are blank when a bucket
-  has no cache activity. CSV header keys are snake_case
-  (`cache_creation` / `cache_read` / `hit_pct_honest` / `saved_net`)
-  per CSV convention; md/html keep the CamelCase user-facing labels.
-  4 new e2e tests in
-  `crates/agentprof-cli/tests/cli_aggregate_cache.rs`. Existing
+  tokens) appended after the MCP-waste section and before warnings.
+  Reports without cache activity omit the section entirely (no
+  all-zero table) so default md output stays byte-identical to v0.3.0.
+- **cli: `analyze --export html` renders a `<section id="cache">`
+  block** mirroring the md surface. Percentages are pre-formatted in
+  Rust (`"55.6%"`) via a `CacheSection` template helper, avoiding
+  askama 0.16 format-filter dialect concerns. All 5 existing
+  `analyze_html__*` snapshots unchanged (omission path verified
+  byte-identical).
+- **cli: `analyze --export json` always emits a top-level
+  `cache_metrics` field** (`null` when no cache activity, the
+  `CacheMetrics` object otherwise; ADR-0023 D-6 snake_case).
+- **cli: `list` gains a `Cache%` column** (8th column) showing each
+  session's honest cache hit rate (empty cell when no cache activity).
+- **cli: `aggregate --by model` and `--by day` render 4 cache columns**
+  (`CacheCr` / `CacheRd` / `Hit%` / `NetSaved`) across md, csv, and
+  html ([ADR-0023](docs/internals/adr-0023-cache-metrics.md) D-3 +
+  D-5). `--by tool` and `--by mcp-server` deliberately omit these
+  columns. Cells are blank when a bucket has no cache activity. CSV
+  header keys are snake_case (`cache_creation` / `cache_read` /
+  `hit_pct_honest` / `saved_net`); md / html keep the CamelCase
+  user-facing labels. Existing
   `aggregate__aggregate_md__by_day` snapshot regenerated to include
-  the 4 new columns (all rows with empty cache cells); `by_tool` and
-  `by_mcp_server` snapshots byte-identical.
+  the 4 new columns (all rows with empty cache cells);
+  `by_tool` / `by_mcp_server` snapshots byte-identical.
+- **tui: Models view gains a `NetSaved` column** showing per-model
+  net saved tokens (`read * 0.9 − creation * 0.25`). The existing
+  cache_read column is unchanged.
+
+### Documentation
+
+- [ADR-0023](docs/internals/adr-0023-cache-metrics.md) codifies the
+  6 cache-metrics design decisions (D-1 `None`-on-zero-activity
+  semantics, D-2 honest + naive formula choice, D-3 per-tool /
+  per-server omission policy, D-4 render rules per surface, D-5
+  CSV / md / html / json field naming conventions, D-6 forward
+  compatibility for future `cost_usd` field).
+- `docs/architecture.md` §17 roadmap row for Phase 2 (M2.5) +
+  §18 split of Q4 → Q4a (closed by M2.5) + Q4b (recommendation
+  engine, deferred).
+- `docs/plan.md` §6 Phase 2 (M2.5 entry) + §7.2 Q4a / Q4b split.
+- `crates/agentprof-core/README.md` modules table gains an
+  `analyzer::cache` row.
+- `crates/agentprof-cli/README.md` `analyze` / `list` / `aggregate`
+  flag tables gain M2.5 footnotes.
+
+### Tests
+
+- **+36 tests** (workspace total 1226 → **1262**, 0 failures across
+  `cargo test --workspace --all-features`). Coverage spans
+  `agentprof-core` (unit tests for `CacheMetrics::from_totals`
+  formulas + `AggregateReport::cache_metrics_per_bucket` + trait-bound
+  inaccessibility for `ToolBucket` / `McpServerBucket`) and
+  `agentprof-cli` (insta snapshots for md / html / json render +
+  e2e via `assert_cmd` for `list` / `aggregate` cache columns +
+  cache-activity vs no-cache-activity branches).
 
 > Next milestone TBD. See [`docs/plan.md`](docs/plan.md) roadmap.
 

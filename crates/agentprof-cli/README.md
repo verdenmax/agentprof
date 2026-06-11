@@ -25,6 +25,13 @@ Subcommand wiring (current):
   id="mcp-waste">` (html) populated via
   `agentprof_core::analyzer::compute_waste`.)
 
+> **M2.5**: `--export md` / `html` / `json` automatically include a
+> Cache section (md: `## Cache` 6-row table / html: `<section id="cache">` /
+> json: top-level `cache_metrics` field) **only when the session had any
+> `cache_read` or `cache_creation` tokens**. Reports without cache
+> activity are byte-identical to v0.3.0. See
+> [ADR-0023](../../docs/internals/adr-0023-cache-metrics.md) D-2.
+
 Markdown structure (after all M1.4 iterations):
 
 ```
@@ -141,7 +148,7 @@ agentprof analyze --export html --output report.html --section turn-summary,tool
 
 ## `agentprof list`
 
-Discover recent agent sessions in a compact 7-column plain-text table.
+Discover recent agent sessions in a compact 8-column plain-text table.
 
 ```sh
 agentprof list                              # default: --since 7d --limit 20 --agent copilot
@@ -150,7 +157,7 @@ agentprof list --since all --root /custom/session-state-dir
 agentprof list --since 24h --limit 5
 ```
 
-**Columns:** `ID` / `Started (UTC)` / `Model` / `Turns` / `Out-tokens` / `Duration` / `Size`
+**Columns:** `ID` / `Started (UTC)` / `Model` / `Turns` / `Out-tokens` / `Duration` / `Size` / **`Cache%`** (M2.5 — honest hit-rate `read / (read + creation)`; empty cell when the session had no cache activity; see [ADR-0023](../../docs/internals/adr-0023-cache-metrics.md) D-2)
 
 **Flags:**
 
@@ -199,6 +206,13 @@ agentprof aggregate --by tool --since all --export json | jq '.data.buckets | le
 | `--low-utilization-threshold` | `20.0` | Day bucket warn threshold; rows below are flagged |
 | `--tokens-per-tool` | `200` | M1.6.6 — heuristic token cost per MCP tool when no sidecar covers a tool. Only consulted by `--by mcp-server`. |
 | `--tool-descriptions` | _(none)_ | M1.6.6 — sidecar path (file or dir) with per-tool descriptions for exact token counts. See `analyze --tool-descriptions` for the on-disk schema. Only consulted by `--by mcp-server`. |
+
+> **M2.5**: `--by model` and `--by day` automatically add 4 cache columns
+> (`CacheCr` / `CacheRd` / `Hit%` / `NetSaved`) across md / csv / html.
+> `--by tool` and `--by mcp-server` deliberately do **not** — cache tokens
+> are prompt-level (accumulated per API call, not per tool invocation),
+> so per-tool / per-server attribution is undefined. See
+> [ADR-0023 D-3](../../docs/internals/adr-0023-cache-metrics.md).
 
 **Per-key output**:
 
