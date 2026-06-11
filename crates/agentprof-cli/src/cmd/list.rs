@@ -75,6 +75,9 @@ struct ListRow {
     model: Option<String>,
     turns: usize,
     out_tokens: u64,
+    /// Honest cache hit rate (`cache_read / (cache_read + cache_creation)`);
+    /// `None` when the session had no cache activity.
+    cache_pct: Option<f64>,
     duration: Option<chrono::Duration>,
     size_bytes: u64,
 }
@@ -271,12 +274,14 @@ fn analyze_one(ds: &dyn SessionDataSource, sref: &SessionRef) -> anyhow::Result<
         .as_deref()
         .and_then(|p| std::fs::metadata(p).ok())
         .map_or(0, |m| m.len());
+    let cache_pct = report.cache_metrics().map(|m| m.hit_rate_honest_pct);
     Ok(ListRow {
         id: sref.id.clone(),
         started_at: report.meta.started_at,
         model,
         turns,
         out_tokens,
+        cache_pct,
         duration,
         size_bytes,
     })
@@ -332,7 +337,7 @@ fn human_duration(d: chrono::Duration) -> String {
     }
 }
 
-/// Render the 7-column table.
+/// Render the 8-column table.
 fn format_table(rows: &[ListRow], use_bold: bool) -> String {
     let headers = [
         "ID",
@@ -340,10 +345,11 @@ fn format_table(rows: &[ListRow], use_bold: bool) -> String {
         "Model",
         "Turns",
         "Out-tokens",
+        "Cache%",
         "Duration",
         "Size",
     ];
-    let cells: Vec<[String; 7]> = rows
+    let cells: Vec<[String; 8]> = rows
         .iter()
         .map(|r| {
             [
@@ -352,12 +358,13 @@ fn format_table(rows: &[ListRow], use_bold: bool) -> String {
                 r.model.clone().unwrap_or_else(|| "-".to_string()),
                 format!("{}", r.turns),
                 compact_count(r.out_tokens),
+                r.cache_pct.map_or_else(String::new, |p| format!("{p:.1}%")),
                 r.duration.map_or_else(|| "-".to_string(), human_duration),
                 compact_size(r.size_bytes),
             ]
         })
         .collect();
-    let mut widths = [0usize; 7];
+    let mut widths = [0usize; 8];
     for (i, h) in headers.iter().enumerate() {
         widths[i] = h.len();
     }
@@ -454,6 +461,7 @@ mod tests {
                 model: Some("model-a".to_string()),
                 turns: 5,
                 out_tokens: 100,
+                cache_pct: None,
                 duration: Some(chrono::Duration::seconds(3)),
                 size_bytes: 1024,
             },
@@ -463,6 +471,7 @@ mod tests {
                 model: None,
                 turns: 50,
                 out_tokens: 1_234_567,
+                cache_pct: Some(82.3),
                 duration: None,
                 size_bytes: 42_000_000,
             },
