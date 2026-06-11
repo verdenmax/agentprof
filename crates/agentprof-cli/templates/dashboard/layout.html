@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{% block page_title %}agentprof{% endblock %} · agentprof dashboard</title>
+  <link rel="stylesheet" href="/static/dashboard.css">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+</head>
+<body data-interval-default="{{ interval_default }}">
+  <header>
+    <h1 class="brand">agentprof dashboard</h1>
+    <nav>
+      <a href="/sessions" {% if active_nav == "sessions" %}class="active"{% endif %}>Sessions</a>
+      <a href="/aggregate" {% if active_nav == "aggregate" %}class="active"{% endif %}>Aggregate</a>
+      <a href="/waste" {% if active_nav == "waste" %}class="active"{% endif %}>Waste</a>
+    </nav>
+  </header>
+  <main id="main">
+    {% block content %}{% endblock %}
+  </main>
+  <footer>
+    <span>agentprof v{{ version }} · poll every {{ interval_default }}s</span>
+  </footer>
+  <script src="/static/dashboard.js"></script>
+</body>
+</html>

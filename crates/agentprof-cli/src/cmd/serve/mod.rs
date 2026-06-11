@@ -530,4 +530,110 @@ mod router_tests {
         let resp = app.oneshot(req).await.expect("oneshot");
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
+
+    #[tokio::test]
+    async fn root_redirects_to_sessions() {
+        let (_tmp, state) = empty_db_state();
+        let app = build_router(state);
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/")
+            .body(Body::empty())
+            .expect("build req");
+        let resp = app.oneshot(req).await.expect("oneshot");
+        assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            resp.headers()
+                .get("location")
+                .expect("location header")
+                .to_str()
+                .expect("ascii"),
+            "/sessions"
+        );
+    }
+
+    #[tokio::test]
+    async fn sessions_page_returns_200_with_dashboard_chrome() {
+        let (_tmp, state) = empty_db_state();
+        let app = build_router(state);
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/sessions")
+            .body(Body::empty())
+            .expect("build req");
+        let resp = app.oneshot(req).await.expect("oneshot");
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = String::from_utf8(
+            resp.into_body()
+                .collect()
+                .await
+                .expect("collect body")
+                .to_bytes()
+                .to_vec(),
+        )
+        .expect("utf8");
+        assert!(body.contains("<!DOCTYPE html>"), "missing doctype");
+        assert!(
+            body.contains("agentprof dashboard"),
+            "missing dashboard chrome brand"
+        );
+        assert!(body.contains("Sessions"), "missing Sessions heading");
+    }
+
+    #[tokio::test]
+    async fn api_sessions_chunk_returns_main_only_no_chrome() {
+        let (_tmp, state) = empty_db_state();
+        let app = build_router(state);
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/api/sessions.html")
+            .body(Body::empty())
+            .expect("build req");
+        let resp = app.oneshot(req).await.expect("oneshot");
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = String::from_utf8(
+            resp.into_body()
+                .collect()
+                .await
+                .expect("collect body")
+                .to_bytes()
+                .to_vec(),
+        )
+        .expect("utf8");
+        assert!(
+            !body.contains("<!DOCTYPE html>"),
+            "chunk must not include doctype"
+        );
+        assert!(!body.contains("<nav"), "chunk must not include nav");
+        assert!(
+            body.contains("<h1>Sessions</h1>"),
+            "chunk must include sessions heading"
+        );
+    }
+
+    #[tokio::test]
+    async fn sessions_page_html_snapshot_empty_store() {
+        let (_tmp, state) = empty_db_state();
+        let app = build_router(state);
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/sessions")
+            .body(Body::empty())
+            .expect("build req");
+        let resp = app.oneshot(req).await.expect("oneshot");
+        let body = String::from_utf8(
+            resp.into_body()
+                .collect()
+                .await
+                .expect("collect body")
+                .to_bytes()
+                .to_vec(),
+        )
+        .expect("utf8");
+        let normalized = body.replace(
+            concat!("agentprof v", env!("CARGO_PKG_VERSION")),
+            "agentprof v<VERSION>",
+        );
+        insta::assert_snapshot!("sessions_empty_store", normalized);
+    }
 }

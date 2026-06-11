@@ -1,0 +1,35 @@
+---
+source: crates/agentprof-cli/src/cmd/serve/mod.rs
+expression: normalized
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Sessions · agentprof dashboard</title>
+  <link rel="stylesheet" href="/static/dashboard.css">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+</head>
+<body data-interval-default="5">
+  <header>
+    <h1 class="brand">agentprof dashboard</h1>
+    <nav>
+      <a href="/sessions" class="active">Sessions</a>
+      <a href="/aggregate" >Aggregate</a>
+      <a href="/waste" >Waste</a>
+    </nav>
+  </header>
+  <main id="main">
+    
+<h1>Sessions</h1>
+
+<p>No sessions in the store. Use <code>agentprof db ingest --all</code> to populate.</p>
+
+
+  </main>
+  <footer>
+    <span>agentprof v<VERSION> · poll every 5s</span>
+  </footer>
+  <script src="/static/dashboard.js"></script>
+</body>
+</html>

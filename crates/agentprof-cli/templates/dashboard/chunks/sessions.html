@@ -1,0 +1,33 @@
+<h1>Sessions</h1>
+{% if sessions.is_empty() %}
+<p>No sessions in the store. Use <code>agentprof db ingest --all</code> to populate.</p>
+{% else %}
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Started</th>
+      <th>Model</th>
+      <th class="num">Turns</th>
+      <th class="num">Out-tokens</th>
+      <th class="num">Cache%</th>
+      <th class="num">Duration</th>
+      <th class="num">Size</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for s in sessions %}
+    <tr>
+      <td><a href="/session/{{ s.id }}">{{ s.id_short }}</a></td>
+      <td>{{ s.started_at_utc }}</td>
+      <td>{{ s.model }}</td>
+      <td class="num">{{ s.turns }}</td>
+      <td class="num">{{ s.out_tokens }}</td>
+      <td class="num">{{ s.cache_pct_str }}</td>
+      <td class="num">{{ s.duration }}</td>
+      <td class="num">{{ s.size_human }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
