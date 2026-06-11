@@ -88,6 +88,9 @@ enum SubCmd {
     /// to the local store (M2.2 T8.1).
     #[cfg(feature = "otlp")]
     IngestOtlp(cmd::ingest_otlp::IngestOtlpCmd),
+    /// Run the embedded HTTP dashboard (`agentprof serve`, M2.3).
+    #[cfg(feature = "web")]
+    Serve(cmd::serve::ServeCmd),
 }
 
 fn main() -> ExitCode {
@@ -130,6 +133,8 @@ fn run(
         SubCmd::Db(c) => cmd::db::run(c, storage_path),
         #[cfg(feature = "otlp")]
         SubCmd::IngestOtlp(c) => cmd::ingest_otlp::run(c, storage_path),
+        #[cfg(feature = "web")]
+        SubCmd::Serve(c) => cmd::serve::run(c),
     }
 }
 

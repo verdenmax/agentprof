@@ -27,6 +27,8 @@ pub mod ingest_otlp;
 pub mod list;
 pub mod mcp_waste;
 pub mod model_hint;
+#[cfg(feature = "web")]
+pub mod serve;
 pub mod since;
 pub mod watch;
 
