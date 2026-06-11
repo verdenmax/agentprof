@@ -719,3 +719,272 @@ pub async fn aggregate_chunk(
         }
     }
 }
+
+// ----------------------------------------------------------------------------
+// /mcp-waste list + detail views (M2.3 T10)
+// ----------------------------------------------------------------------------
+
+/// Query string for `GET /mcp-waste*` routes (list + detail).
+///
+/// `since` defaults to `"7d"`, matching the documented
+/// `agentprof mcp-waste --since` CLI default.
+#[derive(serde::Deserialize)]
+pub struct McpWasteQuery {
+    #[serde(default = "default_since")]
+    since: String,
+}
+
+/// Per-server row in the `/mcp-waste` list view.
+///
+/// `tool_usage_len` is pre-computed in the handler because askama
+/// templates can't call `.len()` on a `Vec` without the `len` filter
+/// (not enabled in this project).
+struct ServerRowVm {
+    server: String,
+    sessions_loaded: usize,
+    sessions_with_zero_calls: usize,
+    tool_usage_len: usize,
+    total_unused_tokens: u64,
+}
+
+/// Full-page render for `GET /mcp-waste` (extends `layout.html`).
+#[derive(Template)]
+#[template(path = "dashboard/mcp_waste_list.html")]
+struct McpWasteListPage {
+    active_nav: &'static str,
+    interval_default: u8,
+    version: &'static str,
+    since_label: String,
+    session_count: usize,
+    per_server: Vec<ServerRowVm>,
+}
+
+/// Chunk-only render for `GET /api/mcp-waste.html`.
+#[derive(Template)]
+#[template(path = "dashboard/chunks/mcp_waste_list.html")]
+struct McpWasteListChunk {
+    since_label: String,
+    session_count: usize,
+    per_server: Vec<ServerRowVm>,
+}
+
+/// Per-tool row in the `/mcp-waste/:server` detail view.
+struct ToolRowVm {
+    tool_name: String,
+    sessions_loaded: usize,
+    sessions_called: usize,
+    total_call_count: usize,
+}
+
+/// Full-page render for `GET /mcp-waste/:server` (extends `layout.html`).
+#[derive(Template)]
+#[template(path = "dashboard/mcp_waste_detail.html")]
+struct McpWasteDetailPage {
+    active_nav: &'static str,
+    interval_default: u8,
+    version: &'static str,
+    server_name: String,
+    since_label: String,
+    session_count: usize,
+    sessions_loaded: usize,
+    sessions_with_zero_calls: usize,
+    total_unused_tokens: u64,
+    tool_usage: Vec<ToolRowVm>,
+}
+
+/// Chunk-only render for `GET /api/mcp-waste/:server` (the `.html`
+/// suffix is captured into the `:server` parameter and stripped by
+/// the handler — see [`mcp_waste_detail_chunk`]).
+#[derive(Template)]
+#[template(path = "dashboard/chunks/mcp_waste_detail.html")]
+struct McpWasteDetailChunk {
+    server_name: String,
+    since_label: String,
+    session_count: usize,
+    sessions_loaded: usize,
+    sessions_with_zero_calls: usize,
+    total_unused_tokens: u64,
+    tool_usage: Vec<ToolRowVm>,
+}
+
+/// Shared loader for both `mcp-waste` routes: parses `since`,
+/// acquires the DB lock, calls
+/// [`crate::cmd::mcp_waste::compute_aggregate_waste_from_store`], and
+/// maps errors onto HTTP status codes (400 for bad `since`, 500 for
+/// compute failures).
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "db_guard is dropped explicitly after the heuristic compute"
+)]
+fn load_mcp_waste(
+    state: &AppState,
+    since_str: &str,
+) -> Result<agentprof_core::model::AggregateWasteReport, (StatusCode, String)> {
+    let since_dur = crate::cmd::since::parse_since(since_str).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            format!("invalid since={since_str}: {e}"),
+        )
+    })?;
+    let db_guard = state
+        .db
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let agg = crate::cmd::mcp_waste::compute_aggregate_waste_from_store(&db_guard, since_dur)
+        .map_err(|e| {
+            tracing::error!(error = %e, "compute_aggregate_waste_from_store failed");
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("{e}"))
+        })?;
+    drop(db_guard);
+    Ok(agg)
+}
+
+fn server_rows(agg: &agentprof_core::model::AggregateWasteReport) -> Vec<ServerRowVm> {
+    agg.per_server
+        .iter()
+        .map(|s| ServerRowVm {
+            server: s.server.clone(),
+            sessions_loaded: s.sessions_loaded,
+            sessions_with_zero_calls: s.sessions_with_zero_calls,
+            tool_usage_len: s.tool_usage.len(),
+            total_unused_tokens: s.total_unused_tokens,
+        })
+        .collect()
+}
+
+fn tool_rows(server: &agentprof_core::model::McpServerCrossWaste) -> Vec<ToolRowVm> {
+    server
+        .tool_usage
+        .iter()
+        .map(|t| ToolRowVm {
+            tool_name: t.tool_name.clone(),
+            sessions_loaded: t.sessions_loaded,
+            sessions_called: t.sessions_called,
+            total_call_count: t.total_call_count,
+        })
+        .collect()
+}
+
+/// `GET /mcp-waste?since=...` — full page (chrome + server-list chunk).
+///
+/// Heuristic-only mode: no `--tool-descriptions` sidecar, no
+/// `mcp.json` config. Banner on the page directs users to the
+/// `agentprof mcp-waste` CLI for accurate counts. `since` defaults
+/// to `"7d"` and accepts the same syntax as the CLI flag (see
+/// [`crate::cmd::since::parse_since`]).
+#[allow(clippy::unused_async, reason = "axum handler signature requires async")]
+pub async fn mcp_waste_list_page(
+    State(state): State<AppState>,
+    axum::extract::Query(q): axum::extract::Query<McpWasteQuery>,
+) -> impl IntoResponse {
+    let agg = match load_mcp_waste(&state, &q.since) {
+        Ok(v) => v,
+        Err((code, msg)) => return (code, msg).into_response(),
+    };
+    let tmpl = McpWasteListPage {
+        active_nav: "mcp-waste",
+        interval_default: state.interval_default,
+        version: env!("CARGO_PKG_VERSION"),
+        since_label: q.since,
+        session_count: agg.sessions,
+        per_server: server_rows(&agg),
+    };
+    render_html(&tmpl, "mcp_waste_list_page")
+}
+
+/// `GET /api/mcp-waste.html?since=...` — chunk-only fragment for the
+/// JS poller's `innerHTML` swap. Same data as
+/// [`mcp_waste_list_page`] minus the chrome, plus `Cache-Control: no-store`.
+#[allow(clippy::unused_async, reason = "axum handler signature requires async")]
+pub async fn mcp_waste_list_chunk(
+    State(state): State<AppState>,
+    axum::extract::Query(q): axum::extract::Query<McpWasteQuery>,
+) -> impl IntoResponse {
+    let agg = match load_mcp_waste(&state, &q.since) {
+        Ok(v) => v,
+        Err((code, msg)) => return (code, msg).into_response(),
+    };
+    let tmpl = McpWasteListChunk {
+        since_label: q.since,
+        session_count: agg.sessions,
+        per_server: server_rows(&agg),
+    };
+    render_html_no_store(&tmpl, "mcp_waste_list_chunk")
+}
+
+/// `GET /mcp-waste/:server?since=...` — per-server detail page
+/// (tool-usage table).
+///
+/// Returns `404` when the named server is not present in the
+/// `since`-window aggregate.
+#[allow(clippy::unused_async, reason = "axum handler signature requires async")]
+pub async fn mcp_waste_detail_page(
+    State(state): State<AppState>,
+    Path(server): Path<String>,
+    axum::extract::Query(q): axum::extract::Query<McpWasteQuery>,
+) -> impl IntoResponse {
+    let agg = match load_mcp_waste(&state, &q.since) {
+        Ok(v) => v,
+        Err((code, msg)) => return (code, msg).into_response(),
+    };
+    let Some(found) = agg.per_server.iter().find(|s| s.server == server) else {
+        return (
+            StatusCode::NOT_FOUND,
+            format!("server {server} not found in window"),
+        )
+            .into_response();
+    };
+    let tmpl = McpWasteDetailPage {
+        active_nav: "mcp-waste",
+        interval_default: state.interval_default,
+        version: env!("CARGO_PKG_VERSION"),
+        server_name: found.server.clone(),
+        since_label: q.since,
+        session_count: agg.sessions,
+        sessions_loaded: found.sessions_loaded,
+        sessions_with_zero_calls: found.sessions_with_zero_calls,
+        total_unused_tokens: found.total_unused_tokens,
+        tool_usage: tool_rows(found),
+    };
+    render_html(&tmpl, "mcp_waste_detail_page")
+}
+
+/// `GET /api/mcp-waste/:server?since=...` — chunk-only fragment for
+/// the JS poller's `innerHTML` swap.
+///
+/// matchit 0.7 (axum 0.7's router) treats `:server.html` as a single
+/// parameter whose value is the whole path segment, so we strip the
+/// trailing `.html` here to recover the bare server name (mirrors
+/// the [`session_chunk`] deviation pattern).
+#[allow(clippy::unused_async, reason = "axum handler signature requires async")]
+pub async fn mcp_waste_detail_chunk(
+    State(state): State<AppState>,
+    Path(server_raw): Path<String>,
+    axum::extract::Query(q): axum::extract::Query<McpWasteQuery>,
+) -> impl IntoResponse {
+    let server = server_raw
+        .strip_suffix(".html")
+        .unwrap_or(&server_raw)
+        .to_owned();
+    let agg = match load_mcp_waste(&state, &q.since) {
+        Ok(v) => v,
+        Err((code, msg)) => return (code, msg).into_response(),
+    };
+    let Some(found) = agg.per_server.iter().find(|s| s.server == server) else {
+        return (
+            StatusCode::NOT_FOUND,
+            format!("server {server} not found in window"),
+        )
+            .into_response();
+    };
+    let tmpl = McpWasteDetailChunk {
+        server_name: found.server.clone(),
+        since_label: q.since,
+        session_count: agg.sessions,
+        sessions_loaded: found.sessions_loaded,
+        sessions_with_zero_calls: found.sessions_with_zero_calls,
+        total_unused_tokens: found.total_unused_tokens,
+        tool_usage: tool_rows(found),
+    };
+    render_html_no_store(&tmpl, "mcp_waste_detail_chunk")
+}

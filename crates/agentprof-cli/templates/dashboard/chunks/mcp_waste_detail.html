@@ -1,0 +1,32 @@
+<h1>MCP Waste · <code>{{ server_name }}</code></h1>
+<p class="banner">Heuristic-only · {{ session_count }} sessions analyzed in {{ since_label }} window ·
+   <a href="/mcp-waste?since={{ since_label }}">← all servers</a></p>
+<div class="server-meta">
+  <span><strong>Sessions loaded:</strong> {{ sessions_loaded }}</span>
+  <span> · <strong>Sessions w/ 0 calls:</strong> {{ sessions_with_zero_calls }}</span>
+  <span> · <strong>Unused tokens (est):</strong> {{ total_unused_tokens }}</span>
+</div>
+{% if tool_usage.is_empty() %}
+<p>No tools recorded for this server.</p>
+{% else %}
+<table>
+  <thead>
+    <tr>
+      <th>Tool</th>
+      <th class="num">Sessions loaded</th>
+      <th class="num">Sessions called</th>
+      <th class="num">Total calls</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for t in tool_usage %}
+    <tr>
+      <td><code>{{ t.tool_name }}</code></td>
+      <td class="num">{{ t.sessions_loaded }}</td>
+      <td class="num">{{ t.sessions_called }}</td>
+      <td class="num">{{ t.total_call_count }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}

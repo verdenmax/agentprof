@@ -744,3 +744,114 @@ fn render_html(
     };
     Ok(tpl.render()?)
 }
+
+/// Store-mode aggregate waste over all sessions in a `since` window.
+///
+/// Heuristic-only — no sidecar, no MCP config. Token counts use the
+/// per-session tokenizer inferred from the dominant model and the
+/// default `tokens_per_tool` heuristic
+/// ([`agentprof_core::analyzer::waste::DEFAULT_HEURISTIC_TOKENS`]).
+/// The dashboard surfaces a banner clarifying this; the full CLI
+/// command [`run`] retains the sidecar + `mcp.json` plumbing required
+/// for exact counts.
+///
+/// Per-session `load_session` failures are logged and skipped; only
+/// when *every* session fails to load do we surface an error.
+///
+/// A single shared [`agentprof_core::analyzer::waste::build_bpe`]
+/// encoder per [`agentprof_core::model::TokenizerKind`] is built once
+/// and reused across all sessions to avoid the per-call BPE setup
+/// cost.
+///
+/// # Errors
+///
+/// - [`ExitKind::DataError`] when the `query_sessions_since` query
+///   fails, or when every session in the window failed to load.
+///
+/// # Examples
+///
+/// ```ignore
+/// # use std::time::Duration;
+/// # fn demo(db: &agentprof_storage::Db) -> anyhow::Result<()> {
+/// // cli is bin-only; this helper is consumed by the dashboard
+/// // handlers in `cmd::serve::handlers`.
+/// let agg = agentprof_cli::cmd::mcp_waste::compute_aggregate_waste_from_store(
+///     db,
+///     Duration::from_secs(7 * 86_400),
+/// )?;
+/// assert!(agg.sessions <= usize::MAX);
+/// # Ok(()) }
+/// ```
+pub fn compute_aggregate_waste_from_store(
+    db: &agentprof_storage::Db,
+    since: std::time::Duration,
+) -> anyhow::Result<agentprof_core::model::AggregateWasteReport> {
+    use std::sync::Arc;
+
+    use agentprof_core::analyzer::waste::{build_bpe, infer_tokenizer, WasteComputeContext};
+    use agentprof_core::analyzer::{aggregate_waste, compute_waste};
+    use agentprof_core::model::{AggregateWasteReport, TokenizerKind, WasteReport};
+
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let refs = agentprof_storage::query::query_sessions_since(db, since, now_ms)
+        .map_err(|e| ExitKind::DataError.into_anyhow(format!("query_sessions_since: {e}")))?;
+
+    // Build the two possible BPE encoders once; reuse across all sessions.
+    let bpe_cl100k = build_bpe(TokenizerKind::Cl100kBase).map(Arc::new);
+    let bpe_o200k = build_bpe(TokenizerKind::O200kBase).map(Arc::new);
+
+    // `aggregate_waste` takes `(adapter::SessionRef, WasteReport)`
+    // pairs; the storage layer yields `datasource::SessionRef`, so we
+    // build the legacy adapter ref here. The synthesised ref carries
+    // only the id + a placeholder path; `aggregate_waste` reads
+    // neither `path` nor `modified_at` (see the equivalent shim in
+    // [`run`]'s store-mode branch).
+    let mut per_session: Vec<(agentprof_core::adapter::SessionRef, WasteReport)> =
+        Vec::with_capacity(refs.len());
+    let mut failed: usize = 0;
+    for sref in &refs {
+        let report = match agentprof_storage::query::load_session(db, &sref.id) {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(
+                    session_id = %sref.id,
+                    error = %e,
+                    "load_session failed during mcp-waste; skipping"
+                );
+                failed += 1;
+                continue;
+            }
+        };
+        let model_hint = crate::cmd::model_hint::dominant_model(&report);
+        let tokenizer = infer_tokenizer(model_hint.as_deref());
+        let mut ctx = WasteComputeContext::new(&report.loaded_mcp_tools).with_tokenizer(tokenizer);
+        let shared = match tokenizer {
+            TokenizerKind::Cl100kBase => bpe_cl100k.as_ref(),
+            TokenizerKind::O200kBase => bpe_o200k.as_ref(),
+            // `TokenizerKind` is `#[non_exhaustive]`; future variants
+            // fall back to no shared encoder (per-call construction).
+            _ => None,
+        };
+        if let Some(b) = shared {
+            ctx = ctx.with_bpe(Arc::clone(b));
+        }
+        // No config, no sidecar — heuristic-only mode for the dashboard.
+        let waste = compute_waste(&report, &ctx);
+        let legacy_ref = agentprof_core::adapter::SessionRef::new(
+            sref.id.clone(),
+            sref.agent,
+            sref.raw_path.clone().unwrap_or_default(),
+            SystemTime::UNIX_EPOCH,
+            0,
+            false,
+        );
+        per_session.push((legacy_ref, waste));
+    }
+
+    if per_session.is_empty() && failed > 0 {
+        return Err(ExitKind::DataError
+            .into_anyhow(format!("all {failed} session(s) failed to load from store")));
+    }
+    let agg: AggregateWasteReport = aggregate_waste(&per_session);
+    Ok(agg)
+}

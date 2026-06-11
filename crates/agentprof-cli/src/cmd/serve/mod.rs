@@ -902,4 +902,142 @@ mod router_tests {
         );
         assert!(!body.contains("<nav"), "chunk must not include nav");
     }
+
+    // ------------------------------------------------------------------
+    // /mcp-waste list + detail views (M2.3 T10)
+    // ------------------------------------------------------------------
+
+    fn seed_one_session_with_mcp(state: &AppState, id: &str, mcp_tools: &[&str]) {
+        use std::collections::BTreeSet;
+
+        use agentprof_core::adapter::AgentKind;
+        use agentprof_core::analyzer::AnalysisReport;
+        use agentprof_core::model::SessionMeta;
+        use chrono::{TimeZone, Utc};
+
+        let started = Utc
+            .timestamp_millis_opt(1_700_000_000_000)
+            .single()
+            .expect("ts");
+        let meta = SessionMeta::new(id.to_owned(), AgentKind::Copilot, started, false);
+        let mut report = AnalysisReport::new(meta);
+        report.loaded_mcp_tools = mcp_tools
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect::<BTreeSet<_>>();
+
+        let mut db = state.db.lock().expect("lock");
+        agentprof_storage::upsert::upsert_report(
+            &mut db,
+            &report,
+            std::path::Path::new("/tmp/agentprof-fixture-mcp.jsonl"),
+            1_700_000_000,
+        )
+        .expect("upsert_report");
+    }
+
+    #[tokio::test]
+    async fn mcp_waste_list_empty_store_returns_200_with_empty_message() {
+        let (_tmp, state) = empty_db_state();
+        let app = build_router(state);
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/mcp-waste")
+            .body(Body::empty())
+            .expect("build req");
+        let resp = app.oneshot(req).await.expect("oneshot");
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = String::from_utf8(
+            resp.into_body()
+                .collect()
+                .await
+                .expect("collect body")
+                .to_bytes()
+                .to_vec(),
+        )
+        .expect("utf8");
+        assert!(
+            body.contains("No MCP servers loaded"),
+            "missing empty message"
+        );
+    }
+
+    #[tokio::test]
+    async fn api_mcp_waste_list_chunk_omits_dashboard_chrome() {
+        let (_tmp, state) = empty_db_state();
+        let app = build_router(state);
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/api/mcp-waste.html")
+            .body(Body::empty())
+            .expect("build req");
+        let resp = app.oneshot(req).await.expect("oneshot");
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = String::from_utf8(
+            resp.into_body()
+                .collect()
+                .await
+                .expect("collect body")
+                .to_bytes()
+                .to_vec(),
+        )
+        .expect("utf8");
+        assert!(
+            !body.contains("<!DOCTYPE html>"),
+            "chunk must not include doctype"
+        );
+        assert!(!body.contains("<nav"), "chunk must not include nav");
+        assert!(body.contains("<h1>MCP Waste</h1>"), "missing chunk heading");
+    }
+
+    #[tokio::test]
+    async fn mcp_waste_detail_returns_404_for_unknown_server() {
+        let (_tmp, state) = empty_db_state();
+        let app = build_router(state);
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/mcp-waste/does-not-exist")
+            .body(Body::empty())
+            .expect("build req");
+        let resp = app.oneshot(req).await.expect("oneshot");
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn mcp_waste_invalid_since_returns_400() {
+        let (_tmp, state) = empty_db_state();
+        let app = build_router(state);
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/mcp-waste?since=garbage")
+            .body(Body::empty())
+            .expect("build req");
+        let resp = app.oneshot(req).await.expect("oneshot");
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn mcp_waste_detail_returns_200_for_known_server() {
+        let (_tmp, state) = empty_db_state();
+        seed_one_session_with_mcp(&state, "fixture-mcp-1", &["mcp__github__list"]);
+        let app = build_router(state);
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/mcp-waste/github?since=all")
+            .body(Body::empty())
+            .expect("build req");
+        let resp = app.oneshot(req).await.expect("oneshot");
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = String::from_utf8(
+            resp.into_body()
+                .collect()
+                .await
+                .expect("collect body")
+                .to_bytes()
+                .to_vec(),
+        )
+        .expect("utf8");
+        assert!(body.contains("MCP Waste"), "missing detail heading");
+        assert!(body.contains("github"), "missing server name");
+    }
 }

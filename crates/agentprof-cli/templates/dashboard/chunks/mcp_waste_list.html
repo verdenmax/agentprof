@@ -1,0 +1,30 @@
+<h1>MCP Waste</h1>
+<p class="banner">Heuristic-only token estimates · for accurate counts run
+   <code>agentprof mcp-waste --tool-descriptions &lt;sidecar&gt;.json</code> in the CLI.
+   Since window: <strong>{{ since_label }}</strong> · {{ session_count }} sessions analyzed.</p>
+{% if per_server.is_empty() %}
+<p>No MCP servers loaded in this window.</p>
+{% else %}
+<table>
+  <thead>
+    <tr>
+      <th>Server</th>
+      <th class="num">Sessions loaded</th>
+      <th class="num">Sessions w/ 0 calls</th>
+      <th class="num">Tools loaded</th>
+      <th class="num">Unused tokens (est)</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for s in per_server %}
+    <tr>
+      <td><a href="/mcp-waste/{{ s.server }}?since={{ since_label }}">{{ s.server }}</a></td>
+      <td class="num">{{ s.sessions_loaded }}</td>
+      <td class="num">{{ s.sessions_with_zero_calls }}</td>
+      <td class="num">{{ s.tool_usage_len }}</td>
+      <td class="num">{{ s.total_unused_tokens }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}

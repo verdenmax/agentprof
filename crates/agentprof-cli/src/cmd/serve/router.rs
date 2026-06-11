@@ -10,8 +10,8 @@ use super::state::AppState;
 /// Build the dashboard router. All routes share [`AppState`] via
 /// axum's `State` extractor. T7 adds the `/sessions` view (plus a
 /// `/` → `/sessions` redirect and the chunk endpoint that the JS
-/// poller hits); T8+ adds the session-detail / aggregate / waste
-/// views on top.
+/// poller hits); T8 adds the session-detail view; T9 adds
+/// `/aggregate`; T10 adds `/mcp-waste` list + per-server detail.
 ///
 /// # Examples
 ///
@@ -35,6 +35,13 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/session/:id.html", get(handlers::session_chunk))
         .route("/aggregate", get(handlers::aggregate_page))
         .route("/api/aggregate.html", get(handlers::aggregate_chunk))
+        .route("/mcp-waste", get(handlers::mcp_waste_list_page))
+        .route("/api/mcp-waste.html", get(handlers::mcp_waste_list_chunk))
+        .route("/mcp-waste/:server", get(handlers::mcp_waste_detail_page))
+        .route(
+            "/api/mcp-waste/:server",
+            get(handlers::mcp_waste_detail_chunk),
+        )
         .route("/healthz", get(handlers::healthz))
         .route("/static/:name", get(handlers::static_asset))
         .with_state(state)
