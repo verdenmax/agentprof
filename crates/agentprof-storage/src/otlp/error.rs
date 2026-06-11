@@ -122,6 +122,18 @@ pub enum MapperError {
         /// What went wrong.
         message: String,
     },
+    /// `session.id` exceeded the 256-byte cap (ADR-0022 D-5).
+    ///
+    /// The mapper rejects the offending record before any router buffer is
+    /// allocated so an attacker cannot consume memory via pathologically
+    /// long session ids.
+    #[error("session.id too long on {signal:?} signal: {len} bytes (cap 256)")]
+    SessionIdTooLong {
+        /// Which OTLP signal carried the offending record.
+        signal: crate::otlp::typed::SignalKind,
+        /// Actual byte length of the rejected session id.
+        len: usize,
+    },
 }
 
 /// Errors raised by the per-session router during ingest / flush.

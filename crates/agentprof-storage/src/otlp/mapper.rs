@@ -165,7 +165,8 @@ fn map_log_record(
     // for events we WOULD have mapped.
     match event_name {
         "session.start" => {
-            let session_id = extract_session_id(resource_attrs, &record.attributes)?;
+            let session_id =
+                extract_session_id(SignalKind::Log, resource_attrs, &record.attributes)?;
             Ok(TypedEvent::SessionStart {
                 session_id,
                 agent,
@@ -179,14 +180,16 @@ fn map_log_record(
             })
         }
         "session.end" => {
-            let session_id = extract_session_id(resource_attrs, &record.attributes)?;
+            let session_id =
+                extract_session_id(SignalKind::Log, resource_attrs, &record.attributes)?;
             Ok(TypedEvent::SessionEnd {
                 session_id,
                 ended_at: timestamp,
             })
         }
         "user.prompt" | "user_prompt" => {
-            let session_id = extract_session_id(resource_attrs, &record.attributes)?;
+            let session_id =
+                extract_session_id(SignalKind::Log, resource_attrs, &record.attributes)?;
             let turn_id = find_attr(&record.attributes, "turn.id")
                 .or_else(|| find_attr(&record.attributes, "turn_id"))
                 .and_then(attr_as_str)
@@ -202,7 +205,8 @@ fn map_log_record(
             })
         }
         "tool.decision_start" | "tool_decision" | "tool.decision" => {
-            let session_id = extract_session_id(resource_attrs, &record.attributes)?;
+            let session_id =
+                extract_session_id(SignalKind::Log, resource_attrs, &record.attributes)?;
             Ok(TypedEvent::ToolDecisionStart {
                 session_id,
                 turn_id: find_attr(&record.attributes, "turn.id")
@@ -220,7 +224,8 @@ fn map_log_record(
             })
         }
         "tool.result" | "tool_result" => {
-            let session_id = extract_session_id(resource_attrs, &record.attributes)?;
+            let session_id =
+                extract_session_id(SignalKind::Log, resource_attrs, &record.attributes)?;
             let success = find_attr(&record.attributes, "success")
                 .and_then(attr_as_bool)
                 .unwrap_or(true);
@@ -295,7 +300,7 @@ fn map_token_point(
     point: &NumberDataPoint,
     resource_attrs: &[KeyValue],
 ) -> Result<TypedEvent, MapperError> {
-    let session_id = extract_session_id(resource_attrs, &point.attributes)?;
+    let session_id = extract_session_id(SignalKind::Metric, resource_attrs, &point.attributes)?;
     let timestamp = parse_unix_nano(point.time_unix_nano)?;
     let direction = find_attr(&point.attributes, "gen_ai.token.type")
         .or_else(|| find_attr(&point.attributes, "direction"))
@@ -406,7 +411,7 @@ fn make_session_start_from_span(
     resource_attrs: &[KeyValue],
     agent: AgentKind,
 ) -> Result<TypedEvent, MapperError> {
-    let session_id = extract_session_id(resource_attrs, &span.attributes)?;
+    let session_id = extract_session_id(SignalKind::Trace, resource_attrs, &span.attributes)?;
     let started_at = parse_unix_nano(span.start_time_unix_nano)?;
     Ok(TypedEvent::SessionStart {
         session_id,
@@ -425,7 +430,7 @@ fn make_session_end_from_span(
     span: &Span,
     resource_attrs: &[KeyValue],
 ) -> Result<TypedEvent, MapperError> {
-    let session_id = extract_session_id(resource_attrs, &span.attributes)?;
+    let session_id = extract_session_id(SignalKind::Trace, resource_attrs, &span.attributes)?;
     let ended_at = parse_unix_nano(span.end_time_unix_nano.max(span.start_time_unix_nano))?;
     Ok(TypedEvent::SessionEnd {
         session_id,
@@ -437,7 +442,7 @@ fn make_tool_pair_from_span(
     span: &Span,
     resource_attrs: &[KeyValue],
 ) -> [Result<TypedEvent, MapperError>; 2] {
-    let session_id = match extract_session_id(resource_attrs, &span.attributes) {
+    let session_id = match extract_session_id(SignalKind::Trace, resource_attrs, &span.attributes) {
         Ok(id) => id,
         Err(e) => return [Err(e.clone()), Err(e)],
     };
@@ -500,6 +505,7 @@ fn resource_attrs(resource: Option<&Resource>) -> &[KeyValue] {
 }
 
 fn extract_session_id(
+    signal: SignalKind,
     resource_attrs: &[KeyValue],
     record_attrs: &[KeyValue],
 ) -> Result<String, MapperError> {
@@ -509,9 +515,19 @@ fn extract_session_id(
         (record_attrs, "session.id"),
     ] {
         if let Some(s) = find_attr(scope, key).and_then(attr_as_str) {
-            if !s.is_empty() {
-                return Ok(s.to_owned());
+            if s.is_empty() {
+                continue;
             }
+            // ADR-0022 D-5: cap session_id at 256 bytes BEFORE allocating
+            // any router buffer keyed on it. Pathologically long ids would
+            // amplify F3 (unbounded-session) attacks.
+            if s.len() > 256 {
+                return Err(MapperError::SessionIdTooLong {
+                    signal,
+                    len: s.len(),
+                });
+            }
+            return Ok(s.to_owned());
         }
     }
     Err(MapperError::MissingResourceAttr { name: "session.id" })

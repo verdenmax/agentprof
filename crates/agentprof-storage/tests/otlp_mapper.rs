@@ -463,3 +463,41 @@ fn traces_unknown_span_is_unrecognized() {
         other => panic!("expected Unrecognized, got {other:?}"),
     }
 }
+
+#[test]
+fn rejects_oversized_session_id() {
+    // 257 bytes — one over the 256-byte cap (ADR-0022 D-5).
+    let huge_id = "a".repeat(257);
+    let req = wrap_logs(
+        vec![kv_string("session.id", &huge_id)],
+        vec![log_record("session.end", vec![])],
+    );
+
+    let out = map_logs(&req);
+    assert_eq!(out.len(), 1);
+    match &out[0] {
+        Err(MapperError::SessionIdTooLong { signal, len }) => {
+            assert_eq!(*len, 257);
+            assert_eq!(*signal, SignalKind::Log);
+        }
+        other => panic!("expected SessionIdTooLong, got {other:?}"),
+    }
+}
+
+#[test]
+fn accepts_256_byte_session_id_at_boundary() {
+    let boundary_id = "b".repeat(256);
+    let req = wrap_logs(
+        vec![kv_string("session.id", &boundary_id)],
+        vec![log_record("session.end", vec![])],
+    );
+
+    let out = map_logs(&req);
+    assert_eq!(out.len(), 1);
+    // The point is the session-id length check did NOT fire.
+    assert!(
+        out[0].is_ok(),
+        "boundary 256-byte session_id must be accepted, got {:?}",
+        out[0]
+    );
+}
