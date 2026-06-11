@@ -734,6 +734,12 @@ listen_token = "shared-secret"
 session_idle_timeout = "5m"
 shutdown_grace       = "10s"
 
+# M2.4 hardening (v0.3.0, ADR-0022): per-signal request size caps + session cap.
+max_logs_request_bytes    = 8388608    # 8 MiB (ADR-0022 D-2)
+max_metrics_request_bytes = 2097152    # 2 MiB
+max_traces_request_bytes  = 8388608    # 8 MiB
+max_open_sessions         = 1024       # ADR-0022 D-3 (LRU evict above this)
+
 # Priority for [otlp] fields: CLI flag > env (AGENTPROF_OTLP_TOKEN) > this
 # config-file block > built-in defaults documented above.
 ```

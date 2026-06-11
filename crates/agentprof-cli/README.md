@@ -404,6 +404,10 @@ agentprof ingest-otlp \
 | `--client-ca <PATH>` | none | Implies mTLS; requires `--tls-cert`. |
 | `--max-session-bytes <N>` | `16 777 216` (16 MiB) | Force-flush threshold per `SessionBuffer`. |
 | `--max-session-events <N>` | `100 000` | Force-flush threshold per `SessionBuffer`. |
+| `--max-logs-request-bytes <BYTES>` | `8 388 608` (8 MiB) | M2.4 ADR-0022 D-2: max decoded protobuf size on `POST /v1/logs` / `LogsService.Export`. Overflows → gRPC `OutOfRange`/`ResourceExhausted`; HTTP `413`. |
+| `--max-metrics-request-bytes <BYTES>` | `2 097 152` (2 MiB) | M2.4: same for Metrics. |
+| `--max-traces-request-bytes <BYTES>` | `8 388 608` (8 MiB) | M2.4: same for Traces. |
+| `--max-open-sessions <N>` | `1024` | M2.4 ADR-0022 D-3: max distinct sessions; exceed triggers LRU evict with `CloseReason::CapacityEvict`. |
 | `--idle-seconds <SECONDS>` | `300` | Idle flush threshold (sweeper interval is 30 s). |
 | `--store <PATH>` | resolved via `[storage] path` | Overrides the resolved `SQLite` location. |
 
@@ -445,6 +449,12 @@ listen_token = "shared-secret"
 # Humantime-style durations (Ns / Nm / Nh).
 session_idle_timeout = "5m"
 shutdown_grace       = "10s"
+
+# M2.4 hardening (v0.3.0, ADR-0022): per-signal request size caps + session cap.
+max_logs_request_bytes    = 8388608    # 8 MiB (ADR-0022 D-2)
+max_metrics_request_bytes = 2097152    # 2 MiB
+max_traces_request_bytes  = 8388608    # 8 MiB
+max_open_sessions         = 1024       # ADR-0022 D-3 (LRU evict above this)
 ```
 
 The `max_session_bytes` / `max_session_events` buffer caps stay
@@ -475,7 +485,9 @@ agentprof ingest-otlp [--grpc 127.0.0.1:4317] [--http 127.0.0.1:4318]
                       [--bearer-token TOKEN] [--tls-cert ...] [--tls-key ...]
                       [--client-ca ...] [--max-session-bytes N]
                       [--max-session-events N] [--idle-seconds N]
-                      [--store PATH]                                          # ✓ shipped (M2.2; feature: otlp)
+                      [--max-logs-request-bytes N] [--max-metrics-request-bytes N]
+                      [--max-traces-request-bytes N] [--max-open-sessions N]
+                      [--store PATH]                                          # ✓ shipped (M2.2; M2.4 hardening; feature: otlp)
 agentprof config     [show | edit | path]                                  # planned (Phase 2)
 ```
 

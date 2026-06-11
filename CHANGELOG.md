@@ -16,6 +16,73 @@ prefix used in commit messages).
 > Accumulates M2.4 OTLP hardening (F1/F2/F3) entries. Flipped to
 > `[0.3.0]` at the end of the M2.4 wave.
 
+### Added (M2.4 OTLP hardening — security)
+
+- **F1 — Constant-time bearer compare** (`storage::otlp::auth`, M2.4 T5,
+  `4a37cfa`): replaced `==` on `str` (timing oracle) with
+  `subtle::ConstantTimeEq::ct_eq` on raw byte slices, applied
+  symmetrically to the gRPC interceptor and the axum middleware. New
+  workspace dep: `subtle = "2"` (no transitive deps, BSD-3-Clause OR
+  Apache-2.0). 1 new regression test.
+
+- **F2 — Per-signal request size caps** on both transports
+  (`storage::otlp::config` + `server_grpc` + `server_http`, M2.4 T6,
+  `ede2f98`): three new `OtlpServerConfig` fields
+  (`max_{logs,metrics,traces}_request_bytes`, defaults 8/2/8 MiB per
+  [ADR-0022](docs/internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md)
+  D-2). Wired into tonic via `.max_decoding_message_size(N)` per service
+  and into axum via `DefaultBodyLimit::max(N)` per route. gRPC overflows
+  surface as `OutOfRange` / `ResourceExhausted`; HTTP overflows as
+  `413`. 6 new integration tests in `otlp_caps_smoke` + 2 round-trip
+  tests.
+
+- **F3a — `session.id` length cap** (`storage::otlp::mapper` +
+  `error`, M2.4 T7, `a9f6720`): mapper now rejects `session.id` values
+  longer than 256 bytes with `MapperError::SessionIdTooLong { signal,
+  len }` BEFORE allocating a router buffer (ADR-0022 D-5).
+  `extract_session_id` signature gains a `SignalKind` parameter for
+  accurate error reporting. 2 new mapper tests (256-byte boundary +
+  257-byte rejection).
+
+- **F3b — LRU session eviction** (`storage::otlp::router` + `error`,
+  M2.4 T8, `b12dc29`): `SessionRouter` now caps the number of
+  concurrent sessions at `max_open_sessions` (default 1024 per ADR-0022
+  D-3). When the cap is reached, the least-recently-active buffer is
+  flushed with new `CloseReason::CapacityEvict` to make room for the
+  incoming session. LRU tracked via a `VecDeque<SessionId>` behind
+  `std::sync::Mutex` (no new dep; ~30 lines). 3 new router tests (LRU
+  evict, LRU touch, LRU under pressure).
+
+- **CLI surface** (`agentprof-cli::cmd::ingest_otlp`, M2.4 T9,
+  `b0d9f63`): 4 new flags (`--max-logs-request-bytes`,
+  `--max-metrics-request-bytes`, `--max-traces-request-bytes`,
+  `--max-open-sessions`) with matching `[otlp]` config-file keys.
+  Standard CLI > env > file > defaults priority preserved. 2 new CLI
+  surface tests + 2 new config round-trip tests.
+
+### Documentation
+
+- [ADR-0022](docs/internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md)
+  OTLP receiver capacity caps + LRU eviction (10 sections, 6 decisions,
+  3 alternatives considered per decision) — committed in M2.4 T4
+  (`30443fe`).
+- L1 `docs/architecture.md` §10: `[otlp]` example block extended with
+  the 4 new keys.
+- L1 `docs/plan.md`: M2.4 roadmap entry added after M2.2.
+- L2 `crates/agentprof-storage/README.md`: status block gains an "M2.4
+  hardening" paragraph; `otlp` modules row annotates auth (T5), mapper
+  (T7), router (T8), server_grpc / server_http (T6); reference-ADRs
+  table adds ADR-0022.
+- L2 `crates/agentprof-cli/README.md`: `ingest-otlp` flag table gains
+  the 4 new flags; `[otlp]` example block extended; CLI signature line
+  in §"Public interface" updated to show the new flags.
+
+### Tests
+
+- **19 new tests** across storage + cli (1207 baseline → **1226 total,
+  0 failures**) — verified via `cargo test --workspace --all-features`
+  after M2.4 T9.
+
 ## [0.2.1] - 2026-06-10
 
 ### ⚠️ Security Notice

@@ -14,6 +14,14 @@
 > listeners, per-`session.id` in-memory buffering with OOM caps, idle /
 > size / shutdown flush triggers, and a `StorageFlushSink` that reuses
 > the M2.1 `upsert_report` pipeline. Architecture: [ADR-0021](../../docs/internals/adr-0021-otlp-receiver-architecture.md).
+>
+> **M2.4 hardening** (v0.3.0): constant-time bearer compare via the
+> `subtle` crate (auth module); per-signal request-size caps wired into
+> both gRPC (`max_decoding_message_size`) and HTTP (`DefaultBodyLimit`)
+> transports (`server_grpc`, `server_http`); LRU session eviction with
+> `CloseReason::CapacityEvict` (router module); 256-byte `session.id`
+> length cap in mapper. Closes audit findings F1/F2/F3. See
+> [ADR-0022](../../docs/internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md).
 
 ## Position in the agentprof architecture
 
@@ -113,7 +121,7 @@ cache-vs-store policy.
 | `datasource` | `SqliteDataSource` impl of `agentprof_core::datasource::SessionDataSource` (M2.1 T2.6) |
 | `admin`      | `stats` / `prune_before` / `vacuum` / `export_session_json` (M2.1 T2.7) backing the `agentprof db` family |
 | `error`      | `SqliteError` for every fallible API |
-| `otlp` (feature `otlp`, M2.2 ✅) | OTLP receiver subsystem. Submodules: `config` (`OtlpServerConfig` + `PartialOtlpServerConfig`), `error` (`OtlpServerError` / `MapperError` / `RouterError`), `pipeline` (`IngestPipeline` end-to-end fan-in: mapper → router → flush sink), `server_grpc` (tonic gRPC listener with 3 collector services), `server_http` (axum HTTP/protobuf listener with `/v1/{logs,metrics,traces}`), `auth` (bearer-token tonic interceptor + axum middleware applied to both transports), `tls` (rustls server config + optional mTLS), `typed` (`TypedEvent` IR + `SignalKind` + `TokenDirection`), `mapper` (OTLP wire types → `TypedEvent`), `router` (`SessionRouter` + `SessionBuffer` + OOM caps + `FlushSink` trait + tool-call pairing in `into_persistable`), `sweeper` (`spawn_idle_sweeper` async wrapper that periodically calls `router.sweep_idle()` and drains via `flush_all(Shutdown)` on cancellation), `sink_storage` (`StorageFlushSink` that persists closed buffers via `upsert_report` with `raw_path = "otlp://<id>"`). Internal `proto` submodule holds tonic-generated server stubs (mirrors `opentelemetry::proto::*` layout). See [ADR-0021](../../docs/internals/adr-0021-otlp-receiver-architecture.md). |
+| `otlp` (feature `otlp`, M2.2 ✅, M2.4 hardened) | OTLP receiver subsystem. Submodules: `config` (`OtlpServerConfig` + `PartialOtlpServerConfig`; M2.4 T9 adds `max_{logs,metrics,traces}_request_bytes` + `max_open_sessions` fields), `error` (`OtlpServerError` / `MapperError` / `RouterError`; M2.4 T7 adds `MapperError::SessionIdTooLong`, T8 adds `CloseReason::CapacityEvict`), `pipeline` (`IngestPipeline` end-to-end fan-in: mapper → router → flush sink), `server_grpc` (tonic gRPC listener with 3 collector services; M2.4 T6 wires `max_decoding_message_size` per service), `server_http` (axum HTTP/protobuf listener with `/v1/{logs,metrics,traces}`; M2.4 T6 wires `DefaultBodyLimit` per route), `auth` (bearer-token tonic interceptor + axum middleware applied to both transports; **M2.4 T5: constant-time compare via `subtle::ConstantTimeEq`**), `tls` (rustls server config + optional mTLS), `typed` (`TypedEvent` IR + `SignalKind` + `TokenDirection`), `mapper` (OTLP wire types → `TypedEvent`; M2.4 T7 rejects `session.id` longer than 256 bytes), `router` (`SessionRouter` + `SessionBuffer` + OOM caps + `FlushSink` trait + tool-call pairing in `into_persistable`; **M2.4 T8: LRU eviction with `CloseReason::CapacityEvict` when `max_open_sessions` exceeded**), `sweeper` (`spawn_idle_sweeper` async wrapper that periodically calls `router.sweep_idle()` and drains via `flush_all(Shutdown)` on cancellation), `sink_storage` (`StorageFlushSink` that persists closed buffers via `upsert_report` with `raw_path = "otlp://<id>"`). Internal `proto` submodule holds tonic-generated server stubs (mirrors `opentelemetry::proto::*` layout). See [ADR-0021](../../docs/internals/adr-0021-otlp-receiver-architecture.md) + [ADR-0022](../../docs/internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md). |
 
 ## Features
 
@@ -150,6 +158,7 @@ resolution for both modes.
 | [0018](../../docs/internals/adr-0018-session-datasource-trait.md) | `SessionDataSource` trait + dual-path semantics |
 | [0019](../../docs/internals/adr-0019-hybrid-storage-mode.md) | Hybrid cache vs store mode |
 | [0021](../../docs/internals/adr-0021-otlp-receiver-architecture.md) | OTLP receiver architecture (M2.2) — push path, per-session buffering, why it does **not** implement `Adapter` |
+| [0022](../../docs/internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md) | OTLP capacity caps + LRU eviction (M2.4) — constant-time auth, per-signal request size caps, `max_open_sessions` LRU evict, 256-byte `session.id` cap |
 
 ## Change history
 
