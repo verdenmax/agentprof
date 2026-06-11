@@ -195,6 +195,19 @@ LRU entry first via `close_buffer(oldest, CapacityEvict)`. Touch
 the LRU index on every event ingest (not just session creation) so
 "recency" reflects actual activity, not just admission time.
 
+**Addendum (M2.4 T11.5, post-merge fix `cf33b91`):** the as-shipped
+admission check was rewritten to use `DashMap::entry()` + the
+`Entry::Vacant` arm rather than a `len()` pre-check + later
+`insert_or_modify`. The earlier shape was racy under concurrent first
+events from the same `session.id` (two tasks could both observe
+`len() < cap` and admit, briefly overshooting the cap by 1). Gating
+admission on the `Vacant` variant collapses the check + insert into a
+single atomic per-shard operation, eliminating the race. The user-
+visible semantics are unchanged: at most one buffer is evicted per
+admission, and `CapacityEvict` is still reported for the evicted
+session. See `crates/agentprof-storage/src/otlp/router.rs` around
+the `Entry::Vacant` match arm.
+
 ## References
 
 - Parent design ADR: [ADR-0021](adr-0021-otlp-receiver-architecture.md)

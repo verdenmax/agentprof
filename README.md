@@ -17,23 +17,33 @@ tracing 2026-06-02 [ADR-0010](docs/internals/adr-0010-tracing-infrastructure.md)
 and the 2026-06-03 follow-up wave shipped before v0.1.0. Claude /
 Codex adapters remain Phase 3 post-MVP.
 
-**M2.1 (v0.2.0, merged on `main`)** — SQLite cache/store persistence
-with dual-path reads: a hybrid mode (default cache at `$XDG_CACHE_HOME`,
-opt-in store at `$XDG_DATA_HOME`), a new `SessionDataSource` trait
-composing adapter + storage with adapter-wins conflict resolution and
-`--quiet`-suppressible divergence warnings, the
-`agentprof db {init,stats,ingest,prune,vacuum,export}` lifecycle family,
-three global flags (`--no-cache` / `--storage-path` / `--quiet`), and
-the post-merge audit followup (ingest exits 2 on full failure, O(N)
-ingest hot loop, mutex-poison recovery, ReUpsertFn dead-code removal,
-plus 12 regression tests). `list` / `analyze` / `mcp-waste` are
-dual-path-wired; `aggregate` stays single-path until M2.1.1 hoists
-`Episodes` into `AnalysisReport`. See [`docs/architecture.md`](docs/architecture.md)
-§9 / §10, ADR-0017 / ADR-0018 / ADR-0019 under
-[`docs/internals/`](docs/internals/), and the M2.1 spec under
-[`docs/superpowers/specs/`](docs/superpowers/specs/). Pending **v0.2.0 tag**.
+**M2.1 (v0.2.0 ✅ tagged) + M2.1.1 (aggregate dual-path ✅)** —
+SQLite cache/store persistence with dual-path reads: a hybrid mode
+(default cache at `$XDG_CACHE_HOME`, opt-in store at `$XDG_DATA_HOME`),
+a new `SessionDataSource` trait composing adapter + storage with
+adapter-wins conflict resolution and `--quiet`-suppressible divergence
+warnings, the `agentprof db {init,stats,ingest,prune,vacuum,export}`
+lifecycle family, three global flags (`--no-cache` / `--storage-path` /
+`--quiet`); M2.1.1 added the additive `episodes_json` column (migration
+002) and `load_episodes` so `aggregate` joins `list` / `analyze` /
+`mcp-waste` on the dual-path fleet. See ADR-0017 / ADR-0018 / ADR-0019 /
+ADR-0020 under [`docs/internals/`](docs/internals/).
 
-Next milestone: **v0.3.0 tag** (M2.2 OTLP receiver shipped on `feat/m2.2-otlp-receiver` — see [ADR-0021](docs/internals/adr-0021-otlp-receiver-architecture.md)) → Phase 3 adapters (Claude / Codex).
+**M2.2 (v0.2.1 ✅ tagged, feature `otlp`) + M2.4 (v0.3.0 ✅ tagged,
+hardening)** — embedded OTLP receiver: gRPC (`:4317`) + HTTP/protobuf
+(`:4318`) listeners subscribe to Claude / Codex / Copilot CLI
+OpenTelemetry signals, fan into per-`session.id` `SessionBuffer`s with
+OOM caps, flush via `StorageFlushSink → upsert_report` (no new
+migration; `raw_path = "otlp://<id>"`). M2.4 closes the audit
+findings on the M2.2 ship — constant-time bearer compare (`subtle`
+crate), per-signal decoded request size caps wired on both transports
+(8/2/8 MiB defaults), LRU session eviction at `max_open_sessions =
+1024` with the new `CloseReason::CapacityEvict`, and a 256-byte
+`session.id` length cap in the mapper. 4 new CLI flags + 4 new
+`[otlp]` config keys. See [ADR-0021](docs/internals/adr-0021-otlp-receiver-architecture.md)
++ [ADR-0022](docs/internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md).
+
+Next milestone: Phase 3 adapters (Claude — M3.1; Codex — M3.2).
 See [`docs/plan.md`](docs/plan.md) for the roadmap and
 [`docs/architecture.md`](docs/architecture.md) for the architecture (L1).
 

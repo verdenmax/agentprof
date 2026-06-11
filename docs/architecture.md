@@ -483,6 +483,10 @@ ingest-otlp [OPTIONS]                          # ✅ M2.2 (v0.3.0, feature: otlp
       --client-ca <PATH>         client CA bundle → 启用 mTLS
       --max-session-bytes <N>    单 session buffer 上限（默认 16 MiB）
       --max-session-events <N>   单 session 事件上限（默认 100000）
+      --max-logs-request-bytes <BYTES>     M2.4 ADR-0022 D-2: Logs 端点单请求 decoded 上限（默认 8 MiB）
+      --max-metrics-request-bytes <BYTES>  Metrics 端点（默认 2 MiB）
+      --max-traces-request-bytes <BYTES>   Traces 端点（默认 8 MiB）
+      --max-open-sessions <N>    M2.4 ADR-0022 D-3: router 同时跟踪的最大 session 数；超过触发 LRU evict（默认 1024）
       --idle-seconds <SECONDS>   idle flush 阈值（默认 300）
       --store <PATH>             覆写 SQLite 存储路径
     至少必须启用 gRPC 或 HTTP 其一；同时 --no-grpc + --no-http → UserError。
@@ -1163,7 +1167,7 @@ todo        = "warn"
 ### 15.4 Feature flags
 
 - `agentprof-core/features = ["anthropic-api"]` —— 启用真实 token API 精确化
-- `agentprof-storage/features = ["otlp"]` —— **启用 OTLP receiver 子系统**（M2.2 ✅，feature-gated）。打开后编译 `agentprof_storage::otlp` 整个 module 树（config / error / typed / mapper / router / sweeper / sink_storage / pipeline / server_grpc / server_http / auth / tls / proto），引入 `tonic` + `prost` + `axum` + `tokio` + `opentelemetry-proto` + `dashmap` + `rustls` 等运行时依赖，以及 `tonic-build` + `prost-build` 的 build-deps（OTLP collector `.proto` 编译生成 server stubs）。架构总览见 [ADR-0021](internals/adr-0021-otlp-receiver-architecture.md)。无 feature 时这些依赖完全不编译，binary 显著瘦身。
+- `agentprof-storage/features = ["otlp"]` —— **启用 OTLP receiver 子系统**（M2.2 ✅，M2.4 hardened ✅，feature-gated）。打开后编译 `agentprof_storage::otlp` 整个 module 树（config / error / typed / mapper / router / sweeper / sink_storage / pipeline / server_grpc / server_http / auth / tls / proto），引入 `tonic` + `prost` + `axum` + `tokio` + `opentelemetry-proto` + `dashmap` + `rustls` + `subtle`（M2.4 T5：constant-time bearer compare，[ADR-0022](internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md) D-4）等运行时依赖，以及 `tonic-build` + `prost-build` 的 build-deps（OTLP collector `.proto` 编译生成 server stubs）。架构总览见 [ADR-0021](internals/adr-0021-otlp-receiver-architecture.md)；M2.4 容量加固见 [ADR-0022](internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md)。无 feature 时这些依赖完全不编译，binary 显著瘦身。
 - `agentprof-cli/features = ["full"]` = `core/anthropic-api + storage/otlp`（默认 on）。`ingest-otlp` 子命令需要 `otlp`；关闭 `full` 后该子命令在 dispatcher 中被 cfg-gated 移除。
 
 ### 15.5 Observability (M1.6.4)

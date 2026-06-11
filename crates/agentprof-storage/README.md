@@ -127,7 +127,7 @@ cache-vs-store policy.
 
 | Feature | Default | Effect |
 |---|---|---|
-| `otlp` | off | Pulls in `opentelemetry-proto`, `tonic`, `prost`, `tokio`, `axum`, `bytes`, `dashmap`, `rustls`, `rustls-pemfile`, `tower`; compiles the OTLP collector `.proto`s into server stubs at build time (build-dep on `tonic-build` + `prost-build`); enables the receiver subsystem under `agentprof_storage::otlp` (M2.2 ✅ — full gRPC + HTTP/protobuf transport, per-`session.id` buffering with OOM caps, idle/size/shutdown flush, bearer + TLS + mTLS auth, `StorageFlushSink` reusing `upsert_report`). See [ADR-0021](../../docs/internals/adr-0021-otlp-receiver-architecture.md). |
+| `otlp` | off | Pulls in `opentelemetry-proto`, `tonic`, `prost`, `tokio`, `axum`, `bytes`, `dashmap`, `rustls`, `rustls-pemfile`, `tower`, **`subtle`** (M2.4 T5: constant-time bearer compare); compiles the OTLP collector `.proto`s into server stubs at build time (build-dep on `tonic-build` + `prost-build`); enables the receiver subsystem under `agentprof_storage::otlp` (M2.2 ✅ — full gRPC + HTTP/protobuf transport, per-`session.id` buffering with OOM caps, idle/size/shutdown flush, bearer + TLS + mTLS auth, `StorageFlushSink` reusing `upsert_report`; **M2.4 ✅ hardened** — constant-time bearer, per-signal request size caps wired on both transports, LRU session eviction with `CloseReason::CapacityEvict`, 256-byte `session.id` cap in mapper). See [ADR-0021](../../docs/internals/adr-0021-otlp-receiver-architecture.md) + [ADR-0022](../../docs/internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md). |
 
 ## Dependencies
 
@@ -136,7 +136,9 @@ cache-vs-store policy.
   `directories`, `rusqlite` (bundled)
 - Optional (feature `otlp`): `opentelemetry-proto`, `tonic`, `prost`,
   `tokio`, `axum`, `bytes`, `dashmap`, `rustls`, `rustls-pemfile`,
-  `tower`; build-dep `tonic-build` + `prost-build` for `.proto` codegen
+  `tower`, `subtle` (M2.4 T5 — constant-time bearer compare,
+  [ADR-0022](../../docs/internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md) D-4);
+  build-dep `tonic-build` + `prost-build` for `.proto` codegen
 
 ## Local commands
 

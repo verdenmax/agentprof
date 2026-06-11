@@ -32,8 +32,6 @@ documentation system.
 
 ## Planned files
 
-- `otlp-receiver.md` — OpenTelemetry receiver spanning storage + cli (Phase 2;
-  blocked on `agentprof-storage` leaving stub state)
 - `tool-roi-matrix.md` — analyzer + tui + cli integration (post-MVP)
 
 ## Shipped without a dedicated L2 feature doc
@@ -41,6 +39,20 @@ documentation system.
 These features touch multiple crates but were captured fully in a single ADR +
 the affected crate READMEs, so no separate `docs/features/*.md` was needed.
 
+- **OTLP receiver** (`agentprof ingest-otlp`, feature `otlp`, M2.2 ✅ /
+  M2.4 ✅ hardened) — covered by
+  [ADR-0021](../internals/adr-0021-otlp-receiver-architecture.md)
+  (architecture — gRPC + HTTP transports, per-`session.id` buffering,
+  flush triggers, `StorageFlushSink → upsert_report`, deliberately
+  not an `Adapter`) + [ADR-0022](../internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md)
+  (capacity hardening — constant-time bearer, per-signal request caps,
+  LRU session eviction, 256-byte `session.id` cap) plus the L2
+  surfaces in
+  [`crates/agentprof-storage/README.md`](../../crates/agentprof-storage/README.md)
+  (otlp module table row, `[otlp]` config block) and
+  [`crates/agentprof-cli/README.md`](../../crates/agentprof-cli/README.md)
+  (`ingest-otlp` flag table). L1: `docs/architecture.md` §7 (dataflow)
+  + §8 (CLI) + §10 (config) + §15.4 (feature flags).
 - **HTML report** (`agentprof analyze --export html`, M1.6.4) — covered by
   [ADR-0007](../internals/adr-0007-speedscope-export.md) (same export path) plus
   `crates/agentprof-cli/README.md`. No JS / no external assets / no d3 bundling
