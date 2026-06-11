@@ -11,9 +11,12 @@
 //!
 //! - `None` → passthrough (auth disabled), used when
 //!   [`crate::otlp::config::OtlpServerConfig::listen_token`] is `None`.
-//! - `Some(t)` → require `Authorization: Bearer <t>` (exact, ASCII case
-//!   sensitive on the token; the `Bearer ` prefix itself is matched
-//!   verbatim per RFC 6750 §2.1).
+//! - `Some(t)` → require `Authorization: Bearer <t>`; the token is
+//!   compared in constant time via [`subtle::ConstantTimeEq`] to avoid
+//!   timing oracles (see [ADR-0022]). The `Bearer ` prefix itself is
+//!   matched verbatim per RFC 6750 §2.1, ASCII case sensitive.
+//!
+//! [ADR-0022]: ../../../docs/internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md
 //!
 //! On failure the gRPC variant returns [`tonic::Status::unauthenticated`]
 //! and the HTTP variant returns [`StatusCode::UNAUTHORIZED`] (`401`). The
@@ -32,6 +35,7 @@ use axum::extract::Request as AxumRequest;
 use axum::http::{header, StatusCode};
 use axum::middleware::Next;
 use axum::response::Response;
+use subtle::ConstantTimeEq;
 use tonic::{Request, Status};
 
 /// RFC 6750 §2.1 scheme prefix for `Authorization` headers carrying a
@@ -87,7 +91,10 @@ pub fn bearer_interceptor(
         let token = s
             .strip_prefix(BEARER_PREFIX)
             .ok_or_else(|| Status::unauthenticated("authorization missing `Bearer ` prefix"))?;
-        if token == expected.as_str() {
+        // Constant-time compare (ADR-0022 D-4) — avoids timing oracle on
+        // the bearer token. `ct_eq` returns 0/1 wrapped in a `Choice`;
+        // `bool::from` does the constant-time unwrap.
+        if bool::from(token.as_bytes().ct_eq(expected.as_bytes())) {
             Ok(req)
         } else {
             Err(Status::unauthenticated("bearer token mismatch"))
@@ -148,7 +155,8 @@ pub async fn bearer_middleware(
     let token = s
         .strip_prefix(BEARER_PREFIX)
         .ok_or(StatusCode::UNAUTHORIZED)?;
-    if token == expected.as_str() {
+    // Constant-time compare (ADR-0022 D-4) — see notes on the gRPC twin above.
+    if bool::from(token.as_bytes().ct_eq(expected.as_bytes())) {
         Ok(next.run(req).await)
     } else {
         Err(StatusCode::UNAUTHORIZED)

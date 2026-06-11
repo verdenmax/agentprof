@@ -177,3 +177,65 @@ async fn http_rejects_request_without_bearer_when_token_configured() {
         .expect("server task join")
         .expect("server inner");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn grpc_constant_time_bearer_compare_still_rejects_wrong_token() {
+    // Setup mirrors grpc_rejects_request_without_bearer_when_token_configured
+    // but supplies a wrong token of the *same length* as the expected one
+    // to exercise the path where naive `==` would still short-circuit late
+    // (so functional behavior is identical but the constant-time variant
+    // is the one actually running).
+    use agentprof_storage::otlp::config::{OtlpServerConfig, PartialOtlpServerConfig};
+    use agentprof_storage::otlp::pipeline::IngestPipeline;
+    use agentprof_storage::otlp::server_grpc::serve_grpc;
+    use opentelemetry_proto::tonic::collector::logs::v1::logs_service_client::LogsServiceClient;
+    use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
+    use std::net::{SocketAddr, TcpListener};
+    use std::sync::Arc;
+    use tonic::metadata::MetadataValue;
+    use tonic::transport::Channel;
+    use tonic::Request;
+
+    let lis = TcpListener::bind("127.0.0.1:0").expect("bind ephemeral");
+    let addr: SocketAddr = lis.local_addr().expect("local_addr");
+    drop(lis);
+
+    let mut cfg = OtlpServerConfig::from_partial(PartialOtlpServerConfig::default())
+        .expect("default partial");
+    cfg.listen_grpc = Some(addr);
+    cfg.listen_http = None;
+    cfg.listen_token = Some("expected-secret-XYZ".to_owned());
+
+    let pipeline = Arc::new(IngestPipeline::noop_for_test());
+    let (join, shutdown) = serve_grpc(cfg, pipeline.clone()).await.expect("serve");
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let channel = Channel::from_shared(format!("http://{addr}"))
+        .expect("uri")
+        .connect()
+        .await
+        .expect("connect");
+    let mut client = LogsServiceClient::with_interceptor(channel, |mut req: Request<()>| {
+        // Same length as expected, last byte differs — naive `==` short-circuits at the last byte;
+        // constant-time scans the whole slice. Behavior must be identical (Unauthenticated).
+        let v: MetadataValue<_> = "Bearer expected-secret-XYY".parse().expect("metadata");
+        req.metadata_mut().insert("authorization", v);
+        Ok(req)
+    });
+
+    let err = client
+        .export(ExportLogsServiceRequest {
+            resource_logs: vec![],
+        })
+        .await
+        .expect_err("must reject");
+    assert_eq!(err.code(), tonic::Code::Unauthenticated);
+    assert_eq!(
+        pipeline.counts_for_test(),
+        (0, 0, 0),
+        "pipeline must not be invoked on rejected request"
+    );
+
+    let _ = shutdown.send(());
+    let _ = join.await;
+}

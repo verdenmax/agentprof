@@ -30,6 +30,7 @@ otlp = [
     "dep:rustls",
     "dep:tower",
     "dep:dashmap",
+    "dep:subtle",
 ]
 axum-server = ["dep:axum-server"]
 
@@ -58,6 +59,7 @@ rustls              = { workspace = true, optional = true }
 tower               = { workspace = true, optional = true }
 axum-server         = { workspace = true, optional = true }
 dashmap             = { workspace = true, optional = true }
+subtle              = { workspace = true, optional = true }
 
 [build-dependencies]
 tonic-build = { workspace = true }
