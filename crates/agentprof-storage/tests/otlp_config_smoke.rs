@@ -271,3 +271,27 @@ async fn http_rejects_malformed_protobuf_body() {
         .expect("server task join")
         .expect("server inner");
 }
+
+#[test]
+fn partial_round_trips_request_size_caps() {
+    let toml = r"
+        max_logs_request_bytes    = 4194304
+        max_metrics_request_bytes = 1048576
+        max_traces_request_bytes  = 16777216
+    ";
+    let partial: agentprof_storage::otlp::config::PartialOtlpServerConfig =
+        toml::from_str(toml).expect("parse");
+    let cfg =
+        agentprof_storage::otlp::config::OtlpServerConfig::from_partial(partial).expect("resolve");
+    assert_eq!(cfg.max_logs_request_bytes, 4 * 1024 * 1024);
+    assert_eq!(cfg.max_metrics_request_bytes, 1024 * 1024);
+    assert_eq!(cfg.max_traces_request_bytes, 16 * 1024 * 1024);
+}
+
+#[test]
+fn defaults_match_adr_0022_d2() {
+    let cfg = agentprof_storage::otlp::config::OtlpServerConfig::default();
+    assert_eq!(cfg.max_logs_request_bytes, 8 * 1024 * 1024);
+    assert_eq!(cfg.max_metrics_request_bytes, 2 * 1024 * 1024);
+    assert_eq!(cfg.max_traces_request_bytes, 8 * 1024 * 1024);
+}

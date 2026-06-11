@@ -98,20 +98,26 @@ pub async fn serve_grpc(
     let token = cfg.listen_token.clone().map(Arc::new);
     let interceptor = bearer_interceptor(token);
 
+    // Per-signal decode caps (ADR-0022 D-2): apply BEFORE wrapping in
+    // InterceptedService so tonic enforces the cap during decode, not
+    // post-auth.
     let logs = InterceptedService::new(
         LogsServiceServer::new(LogsImpl {
             pipeline: pipeline.clone(),
-        }),
+        })
+        .max_decoding_message_size(cfg.max_logs_request_bytes),
         interceptor.clone(),
     );
     let metrics = InterceptedService::new(
         MetricsServiceServer::new(MetricsImpl {
             pipeline: pipeline.clone(),
-        }),
+        })
+        .max_decoding_message_size(cfg.max_metrics_request_bytes),
         interceptor.clone(),
     );
     let traces = InterceptedService::new(
-        TraceServiceServer::new(TracesImpl { pipeline }),
+        TraceServiceServer::new(TracesImpl { pipeline })
+            .max_decoding_message_size(cfg.max_traces_request_bytes),
         interceptor,
     );
 

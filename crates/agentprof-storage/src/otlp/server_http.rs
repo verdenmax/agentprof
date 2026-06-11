@@ -32,7 +32,7 @@
 use std::sync::Arc;
 
 use axum::body::Bytes;
-use axum::extract::State;
+use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
@@ -106,10 +106,21 @@ pub async fn serve_http(
         .map_err(|source| OtlpServerError::Bind { addr, source })?;
 
     let token = cfg.listen_token.clone().map(Arc::new);
+    // Per-signal body limits (ADR-0022 D-2): each route gets its own
+    // DefaultBodyLimit layer. The body limit applies BEFORE the bearer
+    // middleware runs (`.layer` order: closest to the route runs last,
+    // so DefaultBodyLimit is innermost and fires first on inbound
+    // requests). 413 returns immediately; bearer middleware never sees
+    // an oversized request.
+    let logs_route = post(handle_logs).layer(DefaultBodyLimit::max(cfg.max_logs_request_bytes));
+    let metrics_route =
+        post(handle_metrics).layer(DefaultBodyLimit::max(cfg.max_metrics_request_bytes));
+    let traces_route =
+        post(handle_traces).layer(DefaultBodyLimit::max(cfg.max_traces_request_bytes));
     let app: Router = Router::new()
-        .route("/v1/logs", post(handle_logs))
-        .route("/v1/metrics", post(handle_metrics))
-        .route("/v1/traces", post(handle_traces))
+        .route("/v1/logs", logs_route)
+        .route("/v1/metrics", metrics_route)
+        .route("/v1/traces", traces_route)
         .layer(axum::middleware::from_fn(move |req, next| {
             let t = token.clone();
             async move { bearer_middleware(t, req, next).await }

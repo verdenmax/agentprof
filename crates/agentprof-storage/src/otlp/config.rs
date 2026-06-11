@@ -20,6 +20,9 @@ const DEFAULT_GRPC_PORT: u16 = 4317;
 const DEFAULT_HTTP_PORT: u16 = 4318;
 const DEFAULT_IDLE_SECS: u64 = 300;
 const DEFAULT_GRACE_SECS: u64 = 10;
+const DEFAULT_MAX_LOGS_BYTES: usize = 8 * 1024 * 1024;
+const DEFAULT_MAX_METRICS_BYTES: usize = 2 * 1024 * 1024;
+const DEFAULT_MAX_TRACES_BYTES: usize = 8 * 1024 * 1024;
 
 /// Resolved OTLP receiver configuration.
 ///
@@ -56,6 +59,17 @@ pub struct OtlpServerConfig {
     pub session_idle_timeout: Duration,
     /// Maximum graceful shutdown wait after SIGINT / SIGTERM. Default 10s.
     pub shutdown_grace: Duration,
+    /// Maximum decoded protobuf size accepted on the Logs endpoint
+    /// (both gRPC and HTTP). Default 8 MiB. See [ADR-0022] D-2.
+    ///
+    /// [ADR-0022]: ../../../docs/internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md
+    pub max_logs_request_bytes: usize,
+    /// Maximum decoded protobuf size accepted on the Metrics endpoint.
+    /// Default 2 MiB.
+    pub max_metrics_request_bytes: usize,
+    /// Maximum decoded protobuf size accepted on the Traces endpoint.
+    /// Default 8 MiB.
+    pub max_traces_request_bytes: usize,
 }
 
 impl Default for OtlpServerConfig {
@@ -70,6 +84,9 @@ impl Default for OtlpServerConfig {
             tls_client_ca: None,
             session_idle_timeout: Duration::from_secs(DEFAULT_IDLE_SECS),
             shutdown_grace: Duration::from_secs(DEFAULT_GRACE_SECS),
+            max_logs_request_bytes: DEFAULT_MAX_LOGS_BYTES,
+            max_metrics_request_bytes: DEFAULT_MAX_METRICS_BYTES,
+            max_traces_request_bytes: DEFAULT_MAX_TRACES_BYTES,
         }
     }
 }
@@ -112,6 +129,15 @@ impl OtlpServerConfig {
         }
         if let Some(s) = p.shutdown_grace {
             cfg.shutdown_grace = parse_duration(&s, "shutdown_grace")?;
+        }
+        if let Some(n) = p.max_logs_request_bytes {
+            cfg.max_logs_request_bytes = n;
+        }
+        if let Some(n) = p.max_metrics_request_bytes {
+            cfg.max_metrics_request_bytes = n;
+        }
+        if let Some(n) = p.max_traces_request_bytes {
+            cfg.max_traces_request_bytes = n;
         }
 
         Ok(cfg)
@@ -194,6 +220,12 @@ pub struct PartialOtlpServerConfig {
     pub session_idle_timeout: Option<String>,
     /// Shutdown grace as humantime string.
     pub shutdown_grace: Option<String>,
+    /// Maximum decoded bytes accepted on Logs endpoint (e.g. 8388608 for 8 MiB).
+    pub max_logs_request_bytes: Option<usize>,
+    /// Maximum decoded bytes accepted on Metrics endpoint.
+    pub max_metrics_request_bytes: Option<usize>,
+    /// Maximum decoded bytes accepted on Traces endpoint.
+    pub max_traces_request_bytes: Option<usize>,
 }
 
 fn parse_optional_addr(
