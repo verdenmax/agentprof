@@ -13,9 +13,29 @@ prefix used in commit messages).
 
 ## [Unreleased]
 
-> This block covers M2.2 OTLP receiver as-shipped (118 new tests);
-> released separately as v0.2.1 in the next release cycle. M2.4
-> OTLP hardening (F1/F2/F3) entries appear here once that wave lands.
+> Accumulates M2.4 OTLP hardening (F1/F2/F3) entries. Flipped to
+> `[0.3.0]` at the end of the M2.4 wave.
+
+## [0.2.1] - 2026-06-10
+
+### ⚠️ Security Notice
+
+> **The OTLP receiver shipped in v0.2.1 has known DoS risks**:
+>
+> - Bearer-token comparison uses `==` and is vulnerable to timing
+>   oracle attacks (audit finding F1).
+> - Neither gRPC nor HTTP transports cap decoded message size; a
+>   single ~4 MiB protobuf bomb can balloon to 100s of MiB of typed
+>   events before per-session buffers trip (F2).
+> - `SessionRouter` has no upper bound on the number of distinct
+>   sessions tracked; UUID-spam exhausts memory before the 30 s idle
+>   sweeper triggers (F3).
+>
+> All three are fixed in **v0.3.0** ([ADR-0022](docs/internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md)).
+> Operators running the receiver bound to non-loopback addresses
+> should upgrade to v0.3.0+ before exposing the listeners. v0.2.1 is
+> safe for `127.0.0.1`-only deployments with no untrusted neighbors.
+
 
 ### Added
 
