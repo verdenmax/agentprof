@@ -295,3 +295,19 @@ fn defaults_match_adr_0022_d2() {
     assert_eq!(cfg.max_metrics_request_bytes, 2 * 1024 * 1024);
     assert_eq!(cfg.max_traces_request_bytes, 8 * 1024 * 1024);
 }
+
+#[test]
+fn partial_round_trips_max_open_sessions() {
+    let toml = "max_open_sessions = 64\n";
+    let partial: agentprof_storage::otlp::config::PartialOtlpServerConfig =
+        toml::from_str(toml).expect("parse");
+    let cfg =
+        agentprof_storage::otlp::config::OtlpServerConfig::from_partial(partial).expect("resolve");
+    assert_eq!(cfg.max_open_sessions, 64);
+}
+
+#[test]
+fn default_max_open_sessions_matches_adr_0022_d3() {
+    let cfg = agentprof_storage::otlp::config::OtlpServerConfig::default();
+    assert_eq!(cfg.max_open_sessions, 1024);
+}

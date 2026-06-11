@@ -45,8 +45,8 @@
 //! M2.2 T7.1. This module produces an opaque [`PersistableSession`] that
 //! T7.1 will lower.
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::collections::{HashMap, VecDeque};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use agentprof_core::episode::tool::ToolCallStatus;
@@ -117,6 +117,12 @@ pub enum CloseReason {
     Idle,
     /// [`SessionRouter::flush_all`] drained the buffer during shutdown.
     Shutdown,
+    /// Router exceeded [`SessionBufferCaps::max_open_sessions`] and
+    /// evicted this (least-recently-active) buffer to admit a new
+    /// session. See [ADR-0022] D-1.
+    ///
+    /// [ADR-0022]: ../../../docs/internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md
+    CapacityEvict,
 }
 
 /// Per-buffer OOM ceilings and idle timeout.
@@ -149,6 +155,10 @@ pub struct SessionBufferCaps {
     /// Maximum gap between two ingests before a sweeper closes the
     /// buffer with [`CloseReason::Idle`].
     pub idle_timeout: Duration,
+    /// Maximum number of distinct sessions tracked concurrently.
+    /// When exceeded, the LRU buffer is evicted with
+    /// [`CloseReason::CapacityEvict`]. Default 1024.
+    pub max_open_sessions: usize,
 }
 
 impl Default for SessionBufferCaps {
@@ -157,6 +167,7 @@ impl Default for SessionBufferCaps {
             max_bytes: 16 * 1024 * 1024,
             max_events: 100_000,
             idle_timeout: Duration::from_secs(5 * 60),
+            max_open_sessions: 1024,
         }
     }
 }
@@ -208,6 +219,21 @@ impl SessionBufferCaps {
     #[must_use]
     pub const fn with_idle_timeout(mut self, idle_timeout: Duration) -> Self {
         self.idle_timeout = idle_timeout;
+        self
+    }
+
+    /// Returns `self` with `max_open_sessions` overridden.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_storage::otlp::router::SessionBufferCaps;
+    /// let caps = SessionBufferCaps::default().with_max_open_sessions(8);
+    /// assert_eq!(caps.max_open_sessions, 8);
+    /// ```
+    #[must_use]
+    pub const fn with_max_open_sessions(mut self, n: usize) -> Self {
+        self.max_open_sessions = n;
         self
     }
 }
@@ -501,12 +527,23 @@ pub struct SessionRouter {
     buffers: DashMap<SessionId, SessionBuffer>,
     cap: SessionBufferCaps,
     flush_sink: Arc<dyn FlushSink>,
+    /// LRU ordering of currently-open sessions; front = oldest,
+    /// back = newest. Touched on every `ingest` event so "recency"
+    /// reflects activity, not just admission time. Guarded by
+    /// `std::sync::Mutex` (no new dep); critical sections are short
+    /// (push/pop a `String`, linear scan ≤ `max_open_sessions`).
+    /// See [ADR-0022] D-1.
+    ///
+    /// [ADR-0022]: ../../../docs/internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md
+    lru: Mutex<VecDeque<SessionId>>,
 }
 
 impl std::fmt::Debug for SessionRouter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let lru_len = self.lru.lock().map_or(0, |g| g.len());
         f.debug_struct("SessionRouter")
             .field("buffers_open", &self.buffers.len())
+            .field("lru_len", &lru_len)
             .field("cap", &self.cap)
             .finish_non_exhaustive()
     }
@@ -524,6 +561,7 @@ impl SessionRouter {
             buffers: DashMap::new(),
             cap,
             flush_sink,
+            lru: Mutex::new(VecDeque::new()),
         }
     }
 
@@ -580,6 +618,33 @@ impl SessionRouter {
                 continue;
             };
 
+            // ADR-0022 D-1: before admitting a NEW session, evict the
+            // least-recently-active buffer if we are already at the cap.
+            // Existing sessions skip this branch — they are already
+            // counted, and admission control only applies to admissions.
+            let is_new = !self.buffers.contains_key(&sid);
+            if is_new {
+                let victim = {
+                    let mut lru = match self.lru.lock() {
+                        Ok(g) => g,
+                        // Recover from poisoning: the LRU index is
+                        // strictly advisory; a panic on another thread
+                        // must not take down the receiver.
+                        Err(poisoned) => poisoned.into_inner(),
+                    };
+                    if self.buffers.len() >= self.cap.max_open_sessions {
+                        lru.pop_front()
+                    } else {
+                        None
+                    }
+                };
+                if let Some(evicted) = victim {
+                    // Drop the lock before `close_buffer`, which re-acquires
+                    // it via `evict_from_lru` on the close path.
+                    let _ = self.close_buffer(&evicted, CloseReason::CapacityEvict);
+                }
+            }
+
             let close_reason: Option<CloseReason> = {
                 let mut entry = self
                     .buffers
@@ -601,9 +666,41 @@ impl SessionRouter {
                 reason
             };
 
+            // Touch LRU index — moves `sid` to the back (most-recent).
+            self.touch_lru(&sid);
+
             if let Some(reason) = close_reason {
                 let _ = self.close_buffer(&sid, reason);
             }
+        }
+    }
+
+    /// Move `sid` to the back of the LRU index (most-recently-used).
+    /// Adds `sid` if not present. Linear scan over the deque; cost is
+    /// bounded by `cap.max_open_sessions` (default 1024).
+    ///
+    /// Recovers from a poisoned mutex — the LRU index is advisory and
+    /// a panic on a sibling thread must not take down the receiver.
+    fn touch_lru(&self, sid: &SessionId) {
+        let mut lru = match self.lru.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if let Some(pos) = lru.iter().position(|s| s == sid) {
+            lru.remove(pos);
+        }
+        lru.push_back(sid.clone());
+    }
+
+    /// Remove `sid` from the LRU index. No-op if absent. Recovers from
+    /// a poisoned mutex (see [`SessionRouter::touch_lru`]).
+    fn evict_from_lru(&self, sid: &SessionId) {
+        let mut lru = match self.lru.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if let Some(pos) = lru.iter().position(|s| s == sid) {
+            lru.remove(pos);
         }
     }
 
@@ -625,8 +722,12 @@ impl SessionRouter {
     /// See the type-level example on [`SessionRouter`].
     pub fn close_buffer(&self, session_id: &SessionId, reason: CloseReason) -> FlushResult {
         let Some((_, buf)) = self.buffers.remove(session_id) else {
+            // Keep the LRU consistent even if the buffer is already gone
+            // (eviction races with explicit close).
+            self.evict_from_lru(session_id);
             return Ok(());
         };
+        self.evict_from_lru(session_id);
         let persistable = buf.into_persistable(reason);
         self.flush_sink.flush(session_id, persistable)
     }

@@ -23,6 +23,7 @@ const DEFAULT_GRACE_SECS: u64 = 10;
 const DEFAULT_MAX_LOGS_BYTES: usize = 8 * 1024 * 1024;
 const DEFAULT_MAX_METRICS_BYTES: usize = 2 * 1024 * 1024;
 const DEFAULT_MAX_TRACES_BYTES: usize = 8 * 1024 * 1024;
+const DEFAULT_MAX_OPEN_SESSIONS: usize = 1024;
 
 /// Resolved OTLP receiver configuration.
 ///
@@ -70,6 +71,15 @@ pub struct OtlpServerConfig {
     /// Maximum decoded protobuf size accepted on the Traces endpoint.
     /// Default 8 MiB.
     pub max_traces_request_bytes: usize,
+    /// Maximum number of distinct sessions [`crate::otlp::router::SessionRouter`]
+    /// may track concurrently. When this cap is reached, the
+    /// least-recently-active session is flushed with
+    /// [`CloseReason::CapacityEvict`] to make room for the incoming
+    /// session. Default 1024. See [ADR-0022] D-3.
+    ///
+    /// [`CloseReason::CapacityEvict`]: crate::otlp::router::CloseReason::CapacityEvict
+    /// [ADR-0022]: ../../../docs/internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md
+    pub max_open_sessions: usize,
 }
 
 impl Default for OtlpServerConfig {
@@ -87,6 +97,7 @@ impl Default for OtlpServerConfig {
             max_logs_request_bytes: DEFAULT_MAX_LOGS_BYTES,
             max_metrics_request_bytes: DEFAULT_MAX_METRICS_BYTES,
             max_traces_request_bytes: DEFAULT_MAX_TRACES_BYTES,
+            max_open_sessions: DEFAULT_MAX_OPEN_SESSIONS,
         }
     }
 }
@@ -138,6 +149,9 @@ impl OtlpServerConfig {
         }
         if let Some(n) = p.max_traces_request_bytes {
             cfg.max_traces_request_bytes = n;
+        }
+        if let Some(n) = p.max_open_sessions {
+            cfg.max_open_sessions = n;
         }
 
         Ok(cfg)
@@ -226,6 +240,9 @@ pub struct PartialOtlpServerConfig {
     pub max_metrics_request_bytes: Option<usize>,
     /// Maximum decoded bytes accepted on Traces endpoint.
     pub max_traces_request_bytes: Option<usize>,
+    /// Maximum concurrent sessions tracked by the router (LRU eviction
+    /// triggers when exceeded).
+    pub max_open_sessions: Option<usize>,
 }
 
 fn parse_optional_addr(

@@ -309,3 +309,50 @@ fn router_close_unknown_session_is_noop() {
     assert!(res.is_ok());
     assert_eq!(sink.len(), 0);
 }
+
+// -- F3b / ADR-0022 D-1: LRU eviction ----------------------------------------
+
+#[test]
+fn lru_evicts_oldest_on_capacity() {
+    let caps = SessionBufferCaps::default().with_max_open_sessions(2);
+    let (router, sink) = router(caps);
+
+    // Push 3 distinct sessions in order: s1, s2, s3.
+    // s3's admission must evict s1 (oldest, never touched after admit).
+    router.ingest(vec![Ok(start("s1", 0))]);
+    router.ingest(vec![Ok(start("s2", 1))]);
+    router.ingest(vec![Ok(start("s3", 2))]);
+
+    let flushed = sink.take();
+    assert_eq!(
+        flushed.len(),
+        1,
+        "exactly one buffer evicted; got {:?}",
+        flushed
+            .iter()
+            .map(|p| (&p.session_id, p.close_reason))
+            .collect::<Vec<_>>(),
+    );
+    assert_eq!(flushed[0].session_id, "s1");
+    assert_eq!(flushed[0].close_reason, CloseReason::CapacityEvict);
+    assert_eq!(router.open_buffers(), 2);
+}
+
+#[test]
+fn lru_touch_keeps_recent() {
+    let caps = SessionBufferCaps::default().with_max_open_sessions(2);
+    let (router, sink) = router(caps);
+
+    // Without the touch, s1 (oldest) would be evicted by s3.
+    // Touching s1 AFTER s2 promotes s1 to most-recent, so s3's
+    // admission evicts s2 instead.
+    router.ingest(vec![Ok(start("s1", 0))]);
+    router.ingest(vec![Ok(start("s2", 1))]);
+    router.ingest(vec![Ok(prompt("s1", 2, "t1"))]); // touch s1
+    router.ingest(vec![Ok(start("s3", 3))]);
+
+    let flushed = sink.take();
+    assert_eq!(flushed.len(), 1);
+    assert_eq!(flushed[0].session_id, "s2", "s2 should be evicted, not s1");
+    assert_eq!(flushed[0].close_reason, CloseReason::CapacityEvict);
+}
