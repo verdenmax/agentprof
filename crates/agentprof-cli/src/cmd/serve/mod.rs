@@ -12,6 +12,9 @@
 
 pub mod state;
 
+mod handlers;
+mod router;
+
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -51,9 +54,15 @@ pub struct ServeCmd {
     pub quiet: bool,
 }
 
-/// Sync entry point: T5 will wrap this in a tokio runtime + the axum
-/// listener. T3 wires the storage-path resolution + DB open so the
-/// downstream handler tasks have an [`state::AppState`] to share.
+/// Entry point for `agentprof serve`.
+///
+/// Builds a multi-threaded tokio runtime and dispatches to
+/// [`run_async`], which:
+///
+/// 1. resolves the merged `[serve]` config (CLI > file > defaults);
+/// 2. opens (and migrates) the `SQLite` store at `--storage-path`;
+/// 3. assembles an [`state::AppState`] and builds the axum router;
+/// 4. binds a TCP listener and serves until SIGINT/SIGTERM.
 ///
 /// # Errors
 ///
@@ -64,11 +73,20 @@ pub struct ServeCmd {
 ///   is missing or points to a non-existent file.
 /// - [`crate::cmd::exit::ExitKind::DataError`] when the `SQLite` store
 ///   cannot be opened or migrated.
-#[allow(
-    clippy::needless_pass_by_value,
-    reason = "T5 will move `cmd` into the axum runtime; consuming by value keeps the signature stable"
-)]
+/// - [`crate::cmd::exit::ExitKind::OutputError`] when the tokio
+///   runtime cannot be built, the listener cannot bind, or
+///   `axum::serve` returns an I/O error.
 pub fn run(cmd: ServeCmd) -> Result<()> {
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| {
+            crate::cmd::exit::ExitKind::OutputError.into_anyhow(format!("build tokio runtime: {e}"))
+        })?;
+    rt.block_on(run_async(cmd))
+}
+
+async fn run_async(cmd: ServeCmd) -> Result<()> {
     // T4: read the optional [serve] block from the user's config file
     // (best-effort: missing/malformed → ignored with a warn log) and
     // merge with CLI flags via the same priority chain documented on
@@ -76,9 +94,8 @@ pub fn run(cmd: ServeCmd) -> Result<()> {
     let file_partial = load_partial_serve_from_disk();
     let resolved = resolve_serve_config(&cmd, file_partial.as_ref())?;
 
-    // Resolve storage path: CLI flag > env > config-file > default XDG.
-    // (T4 adds config-file resolution; this commit handles CLI flag + env only —
-    // the `AGENTPROF_STORAGE_PATH` env var is wired via clap `env = ...` on the field.)
+    // Resolve storage path: CLI flag > env (wired via clap `env = ...`).
+    // T4-config-file storage-path resolution is out of scope for T5.
     let storage_path = cmd.storage_path.ok_or_else(|| {
         crate::cmd::exit::ExitKind::UserError.into_anyhow(
             "agentprof serve requires --storage-path (or AGENTPROF_STORAGE_PATH env / [storage] path config); \
@@ -99,20 +116,76 @@ pub fn run(cmd: ServeCmd) -> Result<()> {
         ))
     })?;
 
-    let _state = state::AppState {
-        db: Arc::new(Mutex::new(db)),
-        interval_default: resolved.interval_default,
-    };
+    let state = state::AppState::new(Arc::new(Mutex::new(db)), resolved.interval_default);
+    let app = router::build_router(state);
 
-    // T5 wires the actual axum listener; for now, prove the DB opens cleanly.
+    if resolved.bind.ip().is_loopback() {
+        tracing::info!(addr = %resolved.bind, "agentprof serve listening");
+    } else {
+        tracing::warn!(
+            addr = %resolved.bind,
+            "agentprof serve binding to non-loopback address — recommend reverse proxy for auth"
+        );
+    }
+
+    let listener = tokio::net::TcpListener::bind(resolved.bind)
+        .await
+        .map_err(|e| {
+            crate::cmd::exit::ExitKind::OutputError
+                .into_anyhow(format!("bind {}: {e}", resolved.bind))
+        })?;
+
+    if resolved.auto_open {
+        let url = format!("http://{}", resolved.bind);
+        if let Err(e) = open::that(&url) {
+            tracing::warn!(url = %url, error = %e, "failed to open browser (continuing)");
+        }
+    }
+
+    axum::serve(listener, app)
+        .with_graceful_shutdown(wait_for_shutdown())
+        .await
+        .map_err(|e| {
+            crate::cmd::exit::ExitKind::OutputError.into_anyhow(format!("axum::serve: {e}"))
+        })?;
+
     tracing::info!(
         path = %storage_path.display(),
-        bind = %resolved.bind,
-        interval_default = resolved.interval_default,
-        auto_open = resolved.auto_open,
-        "agentprof serve: store opened (T5 wires the listener)"
+        "agentprof serve stopped cleanly"
     );
     Ok(())
+}
+
+/// Await SIGINT (Ctrl-C) or SIGTERM on Unix; returns when either
+/// arrives. If installing the SIGTERM handler fails (rare — would
+/// require an exhausted FD table or seccomp), falls back to Ctrl-C
+/// only after logging an error.
+#[cfg(unix)]
+async fn wait_for_shutdown() {
+    use tokio::signal::unix::{signal, SignalKind};
+    let mut sigterm = match signal(SignalKind::terminate()) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!(
+                error = %e,
+                "failed to install SIGTERM handler; falling back to Ctrl-C only"
+            );
+            let _ = tokio::signal::ctrl_c().await;
+            return;
+        }
+    };
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => tracing::info!("SIGINT received"),
+        _ = sigterm.recv() => tracing::info!("SIGTERM received"),
+    }
+}
+
+/// Non-Unix fallback: only Ctrl-C is wired (SIGTERM has no Windows
+/// equivalent that tokio surfaces uniformly).
+#[cfg(not(unix))]
+async fn wait_for_shutdown() {
+    let _ = tokio::signal::ctrl_c().await;
+    tracing::info!("Ctrl-C received");
 }
 
 /// Merged `serve` runtime config — CLI args overlaid on top of the
@@ -338,5 +411,70 @@ mod state_wire_tests {
             .downcast_ref::<crate::cmd::exit::ExitKind>()
             .copied();
         assert!(matches!(kind, Some(crate::cmd::exit::ExitKind::UserError)));
+    }
+}
+
+#[cfg(test)]
+mod router_tests {
+    //! Per-route unit tests via [`tower::ServiceExt::oneshot`] — no
+    //! TCP listener, no signal handling. T5 covers `/healthz` plus a
+    //! 404 sanity check; T6+ extends with view-handler tests.
+    //!
+    //! Lives inline (rather than in `tests/cli_serve_router_unit.rs`)
+    //! because `cmd::serve::{build_router, AppState}` are only
+    //! reachable from within the bin crate — the lib facade in
+    //! `src/lib.rs` deliberately omits `mod cmd` to avoid colliding
+    //! with the `agentprof_cli::config::...` self-references that
+    //! sibling subcommand files (`db/*.rs`, `analyze.rs`, etc.)
+    //! depend on being resolved as an extern crate.
+
+    use std::sync::{Arc, Mutex};
+
+    use axum::body::Body;
+    use axum::http::{Method, Request, StatusCode};
+    use http_body_util::BodyExt;
+    use tower::ServiceExt;
+
+    use super::router::build_router;
+    use super::state::AppState;
+
+    fn empty_db_state() -> (tempfile::NamedTempFile, AppState) {
+        let tmp = tempfile::NamedTempFile::new().expect("tempfile");
+        let db = agentprof_storage::Db::open_and_migrate(tmp.path()).expect("open");
+        let state = AppState::new(Arc::new(Mutex::new(db)), 5);
+        (tmp, state)
+    }
+
+    #[tokio::test]
+    async fn healthz_returns_200_with_healthy_body() {
+        let (_tmp, state) = empty_db_state();
+        let app = build_router(state);
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/healthz")
+            .body(Body::empty())
+            .expect("build req");
+        let resp = app.oneshot(req).await.expect("oneshot");
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = resp
+            .into_body()
+            .collect()
+            .await
+            .expect("collect body")
+            .to_bytes();
+        assert_eq!(&body[..], b"healthy");
+    }
+
+    #[tokio::test]
+    async fn unknown_route_returns_404() {
+        let (_tmp, state) = empty_db_state();
+        let app = build_router(state);
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/nonexistent")
+            .body(Body::empty())
+            .expect("build req");
+        let resp = app.oneshot(req).await.expect("oneshot");
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 }

@@ -71,6 +71,12 @@ insta      = { workspace = true }
 tempfile   = { workspace = true }
 rusqlite   = { workspace = true }
 
+# Body collection helper for `axum::Router::oneshot` integration tests
+# in `tests/cli_serve_router_unit.rs` (M2.3 T5). Not promoted to the
+# workspace `[workspace.dependencies]` block because `agentprof-cli`
+# is currently the only consumer.
+http-body-util = "0.1"
+
 # End-to-end OTLP receiver tests (`tests/cli_ingest_otlp_e2e.rs`) spawn
 # the `agentprof ingest-otlp` binary and push wire-format envelopes via
 # a real OTel client. All deps are workspace-pinned; no new entries in
