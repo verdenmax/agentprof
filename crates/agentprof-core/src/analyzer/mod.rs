@@ -21,6 +21,7 @@
 //! | [`mod@hook_rank`] | Per-hook-name row: call counts, p50/p95 duration, success/failure |
 
 pub mod aggregate;
+pub mod cache;
 pub mod hook_rank;
 pub mod pending;
 pub mod stats;
