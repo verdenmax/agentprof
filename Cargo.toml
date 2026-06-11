@@ -16,7 +16,7 @@ license      = "MIT OR Apache-2.0"
 repository   = "https://github.com/agentprof/agentprof"
 homepage     = "https://github.com/agentprof/agentprof"
 authors      = ["agentprof contributors"]
-version      = "0.4.0"
+version      = "0.3.1"
 
 # -----------------------------------------------------------------------------
 # Workspace-wide lints (see docs/architecture.md §16 for the full coding rules).
@@ -107,10 +107,10 @@ insta      = { version = "1", features = ["json"] }
 tempfile   = "3"
 
 # Internal (workspace path deps)
-agentprof-core     = { path = "crates/agentprof-core",     version = "0.4.0" }
-agentprof-adapters = { path = "crates/agentprof-adapters", version = "0.4.0" }
-agentprof-storage  = { path = "crates/agentprof-storage",  version = "0.4.0" }
-agentprof-tui      = { path = "crates/agentprof-tui",      version = "0.4.0" }
+agentprof-core     = { path = "crates/agentprof-core",     version = "0.3.1" }
+agentprof-adapters = { path = "crates/agentprof-adapters", version = "0.3.1" }
+agentprof-storage  = { path = "crates/agentprof-storage",  version = "0.3.1" }
+agentprof-tui      = { path = "crates/agentprof-tui",      version = "0.3.1" }
 
 # -----------------------------------------------------------------------------
 # Release profile.

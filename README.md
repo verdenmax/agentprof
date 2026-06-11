@@ -3,7 +3,7 @@
 > Perf flamegraph and ROI profiler for AI coding agents (Claude Code / Codex CLI / Copilot CLI).
 > Tell which tools earn their `tools_schema` tokens — and which ones you can safely kill.
 
-**Status: v0.4.0 shipped 2026-06-11** (M2.5 observational cache analytics — cache hit-rate + saved-tokens across analyze/list/aggregate/TUI; closes §18 Q4a + audit F-NEW-2. See [ADR-0023](docs/internals/adr-0023-cache-metrics.md)).
+**Status: v0.3.1 shipped 2026-06-11** (post-v0.3.0 consolidated wave — audit fixes [constant-time bearer / `#[non_exhaustive]` sweep / spec realign + LRU race fix + §18 closure] **plus** M2.5 observational cache analytics across analyze/list/aggregate/TUI; closes audit F-NEW-1/3/4 + F-NEW-2 + §18 Q1/Q2/Q3/Q4a. v0.4.0 number is reserved for the future Phase 3 multi-agent milestone (Claude + Codex adapters). See [ADR-0023](docs/internals/adr-0023-cache-metrics.md) + [ADR-0022](docs/internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md) §post-v0.3.1 addendum).
 MVP feature work complete (8/8 shippable surface ≈ 98%; M1.1–M1.6.4
 ✅ + M1.7 v0.1.0); `analyze` / `list` / `aggregate` / `watch` all
 functional end-to-end against real Copilot CLI sessions, with five

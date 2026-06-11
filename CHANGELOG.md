@@ -13,16 +13,84 @@ prefix used in commit messages).
 
 ## [Unreleased]
 
-> Next milestone TBD. See [`docs/plan.md`](docs/plan.md) roadmap.
+> Next milestone TBD. v0.4.0 reserved for Phase 3 multi-agent completion (Claude + Codex adapters).
 
-## [0.4.0] - 2026-06-11
+## [0.3.1] - 2026-06-11
 
-> M2.5 observational cache analytics — surfaces Anthropic prompt-cache
-> token data (`cache_read` / `cache_creation`) across `analyze` / `list`
-> / `aggregate` / TUI with hit-rate and saved-tokens. Zero schema change
-> (reuses M2.1 columns + M1.6.x `model_metrics`). Closes
-> `docs/architecture.md` §18 Q4a + audit finding F-NEW-2. See
-> [ADR-0023](docs/internals/adr-0023-cache-metrics.md).
+> Consolidated wave bundling two post-v0.3.0 efforts under one tag:
+>
+> 1. **Audit fixes** from the post-v0.3.0 comprehensive review
+>    (originally on `fix/v0.3.1-audit-findings` branch, never
+>    independently released): PII path redaction, `#[non_exhaustive]`
+>    sweep on 5 pub types, exit-code-3 spec realignment, plus the
+>    M1 LRU admission race fix + M2 HTTP layer-order doc that
+>    already shipped in v0.3.0 (cf33b91) and the §18 open-question
+>    closure (Q1/Q2/Q3/Q4).
+>
+> 2. **M2.5 observational cache analytics** — surfaces Anthropic
+>    prompt-cache token data (`cache_read` / `cache_creation`)
+>    across `analyze` / `list` / `aggregate` / TUI with hit-rate
+>    and saved-tokens. Zero schema change (reuses M2.1 columns +
+>    M1.6.x `model_metrics`). Closes `docs/architecture.md` §18 Q4a
+>    + audit finding F-NEW-2. See
+>    [ADR-0023](docs/internals/adr-0023-cache-metrics.md).
+>
+> The numbering jump from v0.3.0 → v0.3.1 (skipping the originally
+> announced v0.4.0 for M2.5 alone) reflects the product decision to
+> reserve v0.4.0 for the Phase 3 multi-agent milestone (Claude +
+> Codex adapter completion). M2.5 is incremental render-surface
+> polish on cache token data already in the schema since M2.1 —
+> it belongs on the v0.3.x line.
+
+### Fixed (audit-fixes wave)
+
+- **`adapters,copilot`** — `tool_sidecar.rs` now redacts filesystem paths
+  through `agentprof_core::observability::pii::hash_path` in the
+  `#[tracing::instrument]` span field and in the two `tracing::warn!`
+  sites for unreadable / malformed sidecar files. Closes audit
+  finding F-NEW-3 (ADR-0010 D-4 compliance gap surfaced in the
+  post-v0.3.0 comprehensive review). The companion `mcp_config.rs`
+  `#[tracing::instrument]` span was redacted in the same pass.
+
+### Changed (audit-fixes wave)
+
+- **API ergonomics** — added `#[non_exhaustive]` to 5 previously
+  exhaustive pub types to allow future additive variants/fields
+  without major version bumps:
+  - `agentprof_core::export::speedscope::EventType`
+  - `agentprof_tui::{Event, Action, View}`
+  - `agentprof_storage::otlp::config::PartialOtlpServerConfig`
+  Closes audit finding F-NEW-4 (project rule §7-5).
+  Cross-crate literal-init sites for `PartialOtlpServerConfig` (in
+  `agentprof-cli` tests, `agentprof-storage` integration tests, and
+  the rustdoc example) were refactored to `Default::default()` +
+  mut-assign; behavior unchanged.
+
+### Documentation (audit-fixes wave)
+
+- **Exit code 3 — spec realignment.** `docs/architecture.md` §8.1
+  and `.github/copilot-instructions.md` §7-11 both stated that
+  exit code `3` meant "external service error". The actual code
+  has used exit `3` consistently since M1.x for any
+  output / I/O class failure (file write, non-TTY TUI start, OTLP
+  listener bind, TUI runtime, JSON render, external service call —
+  27 call sites). The docs now reflect that reality, and
+  `crates/agentprof-cli/src/cmd/exit.rs` module rustdoc was
+  broadened to match. **No user-visible behavior change**; scripts
+  relying on `case $? in 3) ...` continue to work. The future option
+  of splitting external-service failures to a separate code (e.g.
+  `4`) is now spelled out as v0.4.0+ minor bump territory. Closes
+  audit finding F-NEW-1.
+- **`docs/architecture.md` §18 open-question closure.** Q1
+  (Speedscope evented format), Q2 (HTML single-file), Q3 (OTLP
+  receiver as `agentprof ingest-otlp` subcommand) all back-marked
+  with rationale + citations to ADRs / implementing commits. Q4
+  split into Q4a (observational cache analytics — closed by this
+  release's M2.5 wave) + Q4b (prompt-prefix recommendation engine —
+  deferred with explicit trigger criteria).
+- **ADR-0021** — post-v0.3.1 addendum codifying the
+  receiver-as-subcommand decision with escape-hatch note for any
+  future standalone-binary use case.
 
 ### Added — M2.5 observational cache analytics
 
