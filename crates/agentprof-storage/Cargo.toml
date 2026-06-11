@@ -64,6 +64,13 @@ subtle              = { workspace = true, optional = true }
 [build-dependencies]
 tonic-build = { workspace = true }
 prost-build = "0.13"
+# Vendored `protoc` binaries for linux/macos/windows (x86_64 + aarch64).
+# Lets `tonic_build` compile the OTLP `.proto` files without requiring a
+# system `protoc` install (which the GitHub-hosted CI runners lack out
+# of the box). `build.rs` only consumes this when the `otlp` feature is
+# enabled, so default builds still pay only the dep-resolution cost,
+# not the binary-fetch cost.
+protoc-bin-vendored = "3"
 
 [dev-dependencies]
 tempfile = { workspace = true }

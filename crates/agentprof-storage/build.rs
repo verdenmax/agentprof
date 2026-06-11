@@ -19,6 +19,11 @@ fn main() {
 fn compile_otlp_protos() {
     use std::path::PathBuf;
 
+    // Ensure tonic_build / prost_build can locate a `protoc` binary even on
+    // hosts that don't have one installed system-wide (notably the
+    // GitHub-hosted CI runners). User-set `PROTOC` always wins.
+    set_vendored_protoc();
+
     let proto_root = locate_otel_proto_root();
     println!("cargo:rerun-if-changed={}", proto_root.display());
 
@@ -55,6 +60,41 @@ fn compile_otlp_protos() {
         .compile_protos_with_config(prost_cfg, &proto_paths, &include_dirs)
     {
         panic!("failed to compile OTLP collector .proto files with tonic_build: {e}");
+    }
+}
+
+/// Point `prost_build` at a vendored `protoc` binary if no `PROTOC` env var
+/// is already set.
+///
+/// `protoc-bin-vendored` ships precompiled `protoc` binaries for the common
+/// CI targets (`linux` / `macos` / `windows` × `x86_64` / `aarch64`). On
+/// platforms it doesn't cover (e.g. linux musl, freebsd), `protoc_bin_path()`
+/// returns `Err` and we silently fall through to whatever `prost_build` finds
+/// on `PATH` — the user can also force a specific binary via the `PROTOC` env
+/// var, which we always honor.
+#[cfg(feature = "otlp")]
+fn set_vendored_protoc() {
+    if std::env::var_os("PROTOC").is_some() {
+        // Honor caller's choice (e.g. `nix-shell -p protobuf` exports).
+        return;
+    }
+    match protoc_bin_vendored::protoc_bin_path() {
+        Ok(path) => {
+            // SAFETY: setting an env var from build.rs is sound — Cargo
+            // spawns each build script in a fresh process, so we're not
+            // racing other threads.
+            std::env::set_var("PROTOC", &path);
+            println!("cargo:rerun-if-env-changed=PROTOC");
+        }
+        Err(err) => {
+            // Not fatal — fall back to system protoc. The subsequent
+            // `tonic_build` call will produce a clear error if neither
+            // source works.
+            println!(
+                "cargo:warning=protoc-bin-vendored unavailable for this target ({err}); \
+                 falling back to system protoc on PATH"
+            );
+        }
     }
 }
 
