@@ -32,6 +32,18 @@ prefix used in commit messages).
   bucket types. 4 new integration tests in
   `crates/agentprof-core/tests/cache_metrics.rs`.
 
+### Added (M2.5 observational cache analytics — T5)
+
+- **cli: `analyze --export md` now renders a `## Cache` section**
+  ([ADR-0023](docs/internals/adr-0023-observational-cache-analytics.md)
+  D-2). When `AnalysisReport::cache_metrics()` returns `Some`, the
+  markdown renderer appends a 6-row table (creation tokens, read
+  tokens, honest hit %, naive hit %, net saved tokens, gross saved
+  tokens) after the MCP-waste section and before warnings. When the
+  report has no cache activity, the section is omitted entirely (no
+  all-zero table). 2 new e2e tests in
+  `crates/agentprof-cli/tests/cli_analyze_cache_md.rs`.
+
 > Next milestone TBD. See [`docs/plan.md`](docs/plan.md) roadmap.
 
 ## [0.3.0] - 2026-06-10

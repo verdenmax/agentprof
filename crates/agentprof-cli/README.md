@@ -42,6 +42,9 @@ Markdown structure (after all M1.4 iterations):
 | ask_user | ... |
 ## Hook Rank (by total duration)
 | Hook | Calls | OK | Fail | Synth | Total | p50 | p95 |
+## Cache                                                        ← M2.5 (only when cache_metrics() is Some; ADR-0023 D-2)
+| Metric | Value |
+| Creation tokens / Read tokens / Hit% (honest) / Hit% (naive) / Net saved tokens / Gross saved tokens |
 ## Warnings
 Parse-stage warnings: N
 - Json (line failed to parse): n

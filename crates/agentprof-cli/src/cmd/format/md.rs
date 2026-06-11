@@ -1,9 +1,10 @@
 //! Markdown renderer for [`AnalysisReport`].
 //!
 //! Produces a tabular, human-readable report with a fixed structure:
-//! Session header → Turn Summary → Tool Rank → Hook Rank → Warnings.
-//! Sections can be filtered via the `--section` CLI flag (Session and
-//! Warnings are always included).
+//! Session header → Turn Summary → Tool Rank → Hook Rank → MCP Waste
+//! (opt-in) → Cache (only when `report.cache_metrics()` is `Some`,
+//! per ADR-0023 D-2) → Warnings. Sections can be filtered via the
+//! `--section` CLI flag (Session and Warnings are always included).
 
 use std::borrow::Cow;
 use std::fmt::Write as _;
@@ -70,9 +71,46 @@ pub fn render(
         }
     }
 
+    if let Some(cache_md) = render_cache_section(report) {
+        out.push_str(&cache_md);
+    }
+
     write_warnings(&mut out, report);
 
     out
+}
+
+/// Render the `## Cache` section as a 6-row markdown table when the
+/// report has any cache activity.
+///
+/// Returns `Some(string)` containing a leading blank line, the `## Cache`
+/// header, and a two-column table (Metric / Value) with rows for creation
+/// tokens, read tokens, honest hit rate, naive hit rate, net saved tokens,
+/// and gross saved tokens (per ADR-0023). Returns `None` when
+/// [`AnalysisReport::cache_metrics`] reports no cache activity, so callers
+/// can skip the section entirely rather than emit an all-zero table.
+///
+/// # Examples
+///
+/// ```ignore
+/// // agentprof-cli is a bin-only crate so this is rendered, not compiled.
+/// use agentprof_cli::cmd::format::md::render;
+/// // When the report has cache activity, `render` includes a `## Cache`
+/// // section near the end of the markdown output.
+/// ```
+fn render_cache_section(report: &AnalysisReport) -> Option<String> {
+    let m = report.cache_metrics()?;
+    let mut s = String::with_capacity(256);
+    let _ = writeln!(s, "\n## Cache\n");
+    let _ = writeln!(s, "| Metric | Value |");
+    let _ = writeln!(s, "|---|---:|");
+    let _ = writeln!(s, "| Creation tokens | {} |", m.creation);
+    let _ = writeln!(s, "| Read tokens | {} |", m.read);
+    let _ = writeln!(s, "| Hit% (honest) | {:.1}% |", m.hit_rate_honest_pct);
+    let _ = writeln!(s, "| Hit% (naive) | {:.1}% |", m.hit_rate_naive_pct);
+    let _ = writeln!(s, "| Net saved tokens | {} |", m.saved_net);
+    let _ = writeln!(s, "| Gross saved tokens | {} |", m.saved_gross);
+    Some(s)
 }
 
 fn write_header(out: &mut String, report: &AnalysisReport) {
