@@ -4,10 +4,10 @@ assertion_line: 81
 expression: buffer_to_symbol_grid(&buffer)
 ---
 ┌ Models — session token usage ────────────────────────────────────────────────────────────────────┐
-│Model                                                  Input      Output     Cache R    Cache W   │
-│claude-opus-4.7-1m-internal                            98.3k      47.5k       3.4M       721k     │
-│gpt-5-mini                                             12.5k       3.4k       8.2k          0     │
-│Total                                                   110k      50.9k       3.4M       721k     │
+│Model                                     Input      Output     Cache R    Cache W    NetSaved    │
+│claude-opus-4.7-1m-internal               98.3k      47.5k       3.4M       721k      2919710     │
+│gpt-5-mini                                12.5k       3.4k       8.2k          0      7380        │
+│Total                                      110k      50.9k       3.4M       721k      2927090     │
 │                                                                                                  │
 │                                                                                                  │
 │                                                                                                  │

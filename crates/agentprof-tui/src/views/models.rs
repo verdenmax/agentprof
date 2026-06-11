@@ -16,7 +16,28 @@ use ratatui::text::{Line, Span as TextSpan};
 use ratatui::widgets::{Block, Borders, Paragraph, Row, Table};
 use ratatui::Frame;
 
+use agentprof_core::analyzer::cache::CacheMetrics;
 use agentprof_core::analyzer::ModelUsage;
+
+/// Format the `NetSaved` token-equivalent cell for a single row.
+///
+/// Returns the decimal string of [`CacheMetrics::saved_net`] when cache
+/// metrics are computable, or an empty string when the row has no cache
+/// activity (which mirrors how CLI render surfaces blank the column —
+/// see `agentprof-cli/src/cmd/format/aggregate_md.rs`).
+///
+/// M2.5 Task 10: column added for parity with CLI `aggregate` / `list`
+/// render surfaces; logic delegated to
+/// [`agentprof_core::analyzer::cache::CacheMetrics::from_raw`] so the
+/// math is identical across TUI / CLI.
+fn netsaved_cell(usage: &ModelUsage) -> String {
+    CacheMetrics::from_raw(
+        usage.cache_write_tokens,
+        usage.cache_read_tokens,
+        usage.input_tokens,
+    )
+    .map_or_else(String::new, |m| m.saved_net.to_string())
+}
 
 /// Render the Models view body.
 ///
@@ -111,8 +132,10 @@ fn render_with_data(
     // Header row + data rows + totals. Use `Table::header()` so the header
     // is pinned outside the scrollable body (future-proof for T10 watch mode
     // + small terminals where the body may scroll).
-    let header = Row::new(vec!["Model", "Input", "Output", "Cache R", "Cache W"])
-        .style(Style::default().add_modifier(Modifier::BOLD));
+    let header = Row::new(vec![
+        "Model", "Input", "Output", "Cache R", "Cache W", "NetSaved",
+    ])
+    .style(Style::default().add_modifier(Modifier::BOLD));
 
     let totals_style = Style::default()
         .fg(Color::Cyan)
@@ -134,6 +157,7 @@ fn render_with_data(
                 format_token_u64_short(u.output_tokens),
                 format_token_u64_short(u.cache_read_tokens),
                 format_token_u64_short(u.cache_write_tokens),
+                netsaved_cell(u),
             ])
             .style(style)
         })
@@ -144,6 +168,7 @@ fn render_with_data(
                 format_token_u64_short(totals.output_tokens),
                 format_token_u64_short(totals.cache_read_tokens),
                 format_token_u64_short(totals.cache_write_tokens),
+                netsaved_cell(&totals),
             ])
             .style(totals_style),
         ))
@@ -155,6 +180,7 @@ fn render_with_data(
         Constraint::Length(10),
         Constraint::Length(10),
         Constraint::Length(10),
+        Constraint::Length(12),
     ];
     let table = Table::new(data_rows, widths)
         .header(header)
@@ -372,6 +398,38 @@ mod tests {
 
         // Empty BTreeMap should trigger empty-state branch (not table).
         assert!(grid.contains("no model usage data"));
+    }
+
+    #[test]
+    fn render_netsaved_column_present_with_value() {
+        // M2.5 Task 10: per-model NetSaved column rendered in header +
+        // data row. Formula: saved_net = read*0.9 - write*0.25 (i64).
+        // read=5000, write=1000, input=2000 → 5000*0.9 - 1000*0.25
+        //                                   = 4500 - 250 = 4250.
+        let mut report = AnalysisReport::new(fixture_meta());
+        let mut m = BTreeMap::new();
+        let mut usage = ModelUsage::new();
+        usage.input_tokens = 2_000;
+        usage.cache_read_tokens = 5_000;
+        usage.cache_write_tokens = 1_000;
+        m.insert("claude-opus-4.7-1m-internal".into(), usage);
+        report.model_metrics = Some(m);
+        let episodes = Episodes::default();
+        let state = AppState::new(&report, &episodes);
+
+        let backend = TestBackend::new(120, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| render(f, f.area(), &state)).unwrap();
+        let grid = buffer_to_symbol_grid(terminal.backend().buffer());
+
+        assert!(
+            grid.contains("NetSaved"),
+            "missing NetSaved header column: {grid}"
+        );
+        assert!(
+            grid.contains("4250"),
+            "missing NetSaved=4250 cell value: {grid}"
+        );
     }
 
     #[test]
