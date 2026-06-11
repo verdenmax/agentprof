@@ -14,6 +14,7 @@ pub mod state;
 
 mod handlers;
 mod router;
+mod static_assets;
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -472,6 +473,58 @@ mod router_tests {
         let req = Request::builder()
             .method(Method::GET)
             .uri("/nonexistent")
+            .body(Body::empty())
+            .expect("build req");
+        let resp = app.oneshot(req).await.expect("oneshot");
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn static_css_returns_200_with_correct_mime_type() {
+        let (_tmp, state) = empty_db_state();
+        let app = build_router(state);
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/static/dashboard.css")
+            .body(Body::empty())
+            .expect("build req");
+        let resp = app.oneshot(req).await.expect("oneshot");
+        assert_eq!(resp.status(), StatusCode::OK);
+        let ct = resp
+            .headers()
+            .get("content-type")
+            .expect("content-type header");
+        assert_eq!(ct.to_str().expect("ascii"), "text/css; charset=utf-8");
+    }
+
+    #[tokio::test]
+    async fn static_js_returns_200_with_correct_mime_type() {
+        let (_tmp, state) = empty_db_state();
+        let app = build_router(state);
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/static/dashboard.js")
+            .body(Body::empty())
+            .expect("build req");
+        let resp = app.oneshot(req).await.expect("oneshot");
+        assert_eq!(resp.status(), StatusCode::OK);
+        let ct = resp
+            .headers()
+            .get("content-type")
+            .expect("content-type header");
+        assert_eq!(
+            ct.to_str().expect("ascii"),
+            "application/javascript; charset=utf-8"
+        );
+    }
+
+    #[tokio::test]
+    async fn static_unknown_asset_returns_404() {
+        let (_tmp, state) = empty_db_state();
+        let app = build_router(state);
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/static/does-not-exist.css")
             .body(Body::empty())
             .expect("build req");
         let resp = app.oneshot(req).await.expect("oneshot");
