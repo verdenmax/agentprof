@@ -150,6 +150,63 @@ pub fn render(
     })
 }
 
+/// Render the report body (no `<html><head><body>` wrapper) suitable
+/// for embedding inside the M2.3 dashboard chrome.
+///
+/// Returns `<style>...</style>` (the bundled report CSS) immediately
+/// followed by the report body markup, derived by slicing the output
+/// of [`render`]. The bundled CSS scopes itself via report-internal
+/// class names (`.flamegraph`, `.turn-row`, etc.) that do not collide
+/// with dashboard chrome classes (`.dashboard-top`, `.dashboard-footer`).
+///
+/// Chosen over a templated split (a separate `report_body.html`) so
+/// the existing M1.6.4 static-HTML snapshot tests for [`render`] stay
+/// untouched: this helper is a pure post-processor.
+///
+/// # Examples
+///
+/// ```ignore
+/// // agentprof-cli is bin-only; this doctest is illustrative only.
+/// let chunk = render_body_only(&report, &episodes, &meta, &sections, None, "0.3.3");
+/// assert!(chunk.starts_with("<style>"));
+/// assert!(!chunk.contains("<!DOCTYPE"));
+/// ```
+#[must_use]
+pub fn render_body_only(
+    report: &AnalysisReport,
+    episodes: &Episodes,
+    meta: &SessionMeta,
+    sections: &[AnalysisSection],
+    mcp_waste: Option<&WasteReport>,
+    agentprof_version: &str,
+) -> String {
+    let full = render(
+        report,
+        episodes,
+        meta,
+        sections,
+        mcp_waste,
+        agentprof_version,
+    );
+    let style_start = full.find("<style>").unwrap_or(0);
+    let style_end = full
+        .find("</style>")
+        .map_or(style_start, |i| i + "</style>".len());
+    let body_start = full.find("<body>").map_or(0, |i| i + "<body>".len());
+    let body_end = full.rfind("</body>").unwrap_or(full.len());
+    if style_start < style_end && body_start < body_end {
+        format!(
+            "{}\n{}",
+            &full[style_start..style_end],
+            &full[body_start..body_end]
+        )
+    } else {
+        // Fallback: return the whole document; the embed will still
+        // render correctly (browsers tolerate nested wrappers).
+        full
+    }
+}
+
 /// Build the optional [`CacheSection`] template context from the report.
 ///
 /// Returns `Some(CacheSection)` with pre-formatted percentage strings

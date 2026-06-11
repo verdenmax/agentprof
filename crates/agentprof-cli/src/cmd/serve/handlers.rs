@@ -114,7 +114,10 @@ const SESSIONS_RENDER_LIMIT: usize = 200;
     reason = "db_guard is held across the loop intentionally to amortize lock acquisition"
 )]
 fn load_sessions(state: &AppState) -> Vec<SessionRow> {
-    let db_guard = state.db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let db_guard = state
+        .db
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let now_ms = chrono::Utc::now().timestamp_millis();
     let refs = match agentprof_storage::query::query_sessions_since(
         &db_guard,
@@ -277,6 +280,216 @@ fn render_html_no_store<T: Template>(tmpl: &T, name: &str) -> axum::response::Re
         Err(e) => {
             tracing::error!(template = %name, error = %e, "chunk render failed");
             (StatusCode::INTERNAL_SERVER_ERROR, "render error").into_response()
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+// /session/:id view (M2.3 T8)
+// ----------------------------------------------------------------------------
+
+/// Full-page render for `GET /session/:id` (extends the dashboard
+/// `layout.html` and includes `chunks/session.html`).
+#[derive(Template)]
+#[template(path = "dashboard/session.html")]
+struct SessionPage {
+    active_nav: &'static str,
+    interval_default: u8,
+    version: &'static str,
+    session_id_short: String,
+    agent: String,
+    model: String,
+    started_at: String,
+    duration: String,
+    turn_count: usize,
+    report_body_html: String,
+}
+
+/// Chunk-only render for `GET /api/session/:id.html` — main-panel
+/// fragment used by the JS poller's `innerHTML` swap.
+#[derive(Template)]
+#[template(path = "dashboard/chunks/session.html")]
+struct SessionChunk {
+    session_id_short: String,
+    agent: String,
+    model: String,
+    started_at: String,
+    duration: String,
+    turn_count: usize,
+    report_body_html: String,
+}
+
+/// Outcome of [`load_session_for_dashboard`] — three-valued because
+/// the unknown-id path must surface as `404` while real `SQLite`
+/// failures must surface as `500`.
+enum SessionLoadOutcome {
+    Found {
+        agent: String,
+        model: String,
+        started_at: String,
+        duration: String,
+        turn_count: usize,
+        report_body_html: String,
+        session_id_short: String,
+    },
+    NotFound,
+    Error(String),
+}
+
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "db_guard is dropped explicitly before the (heavy) render call"
+)]
+fn load_session_for_dashboard(state: &AppState, id: &str) -> SessionLoadOutcome {
+    let db_guard = state
+        .db
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let report = match agentprof_storage::query::load_session(&db_guard, id) {
+        Ok(r) => r,
+        Err(agentprof_storage::error::SqliteError::Rusqlite { source, .. })
+            // `rusqlite` is not a direct dep of agentprof-cli (only
+            // pulled in via agentprof-storage), so we match on the
+            // `Display` of the underlying error rather than its
+            // variant. The exact text is fixed in rusqlite — see
+            // `rusqlite::Error`'s `Display` impl for
+            // `QueryReturnedNoRows`.
+            if source.to_string() == "Query returned no rows" =>
+        {
+            return SessionLoadOutcome::NotFound;
+        }
+        Err(e) => {
+            tracing::error!(session_id = %id, error = %e, "load_session failed");
+            return SessionLoadOutcome::Error(format!("load_session: {e}"));
+        }
+    };
+    let episodes = agentprof_storage::query::load_episodes(&db_guard, id).unwrap_or_default();
+    drop(db_guard); // release lock before the (heavy) render
+
+    // Render ALL non-MCP analysis sections — the dashboard chunk
+    // should be informationally complete. MCP-waste is deliberately
+    // omitted: the /mcp-waste/* views (T10) own that surface and
+    // computing the WasteReport from a single stored session is
+    // non-trivial without the adapter context.
+    let sections = [
+        crate::cmd::analyze::AnalysisSection::TurnSummary,
+        crate::cmd::analyze::AnalysisSection::ToolRank,
+        crate::cmd::analyze::AnalysisSection::HookRank,
+    ];
+    let report_body_html = crate::cmd::format::html::render_body_only(
+        &report,
+        &episodes,
+        &report.meta,
+        &sections,
+        None,
+        env!("CARGO_PKG_VERSION"),
+    );
+
+    let agent = report.meta.agent.to_string();
+    let model = report
+        .turn_summary
+        .iter()
+        .find_map(|t| t.model.clone())
+        .unwrap_or_else(|| "-".to_owned());
+    let started_at = report.meta.started_at.to_rfc3339();
+    let duration = match (report.turn_summary.first(), report.turn_summary.last()) {
+        (Some(f), Some(l)) => format_chrono_duration(Some(l.started_at - f.started_at)),
+        _ => String::new(),
+    };
+    let turn_count = report.turn_summary.len();
+    let session_id_short: String = id.chars().take(8).collect();
+
+    SessionLoadOutcome::Found {
+        agent,
+        model,
+        started_at,
+        duration,
+        turn_count,
+        report_body_html,
+        session_id_short,
+    }
+}
+
+/// `GET /session/:id` — full page (chrome + per-session chunk).
+///
+/// Renders the dashboard layout with a session meta header followed
+/// by the full analytical report body (flamegraph + turn / tool /
+/// hook tables + cache section). Returns `404` for unknown ids and
+/// `500` for real `SQLite` failures (see [`SessionLoadOutcome`]).
+#[allow(clippy::unused_async, reason = "axum handler signature requires async")]
+pub async fn session_page(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match load_session_for_dashboard(&state, &id) {
+        SessionLoadOutcome::NotFound => {
+            (StatusCode::NOT_FOUND, "session not found").into_response()
+        }
+        SessionLoadOutcome::Error(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response(),
+        SessionLoadOutcome::Found {
+            agent,
+            model,
+            started_at,
+            duration,
+            turn_count,
+            report_body_html,
+            session_id_short,
+        } => {
+            let tmpl = SessionPage {
+                active_nav: "sessions",
+                interval_default: state.interval_default,
+                version: env!("CARGO_PKG_VERSION"),
+                session_id_short,
+                agent,
+                model,
+                started_at,
+                duration,
+                turn_count,
+                report_body_html,
+            };
+            render_html(&tmpl, "session_page")
+        }
+    }
+}
+
+/// `GET /api/session/:id.html` — chunk-only fragment for the JS
+/// poller's `innerHTML` swap. Same data as [`session_page`] minus
+/// the chrome, plus `Cache-Control: no-store`.
+///
+/// matchit 0.7 (axum 0.7's router) treats `:id.html` as a single
+/// parameter whose name is `id.html` and whose value is the whole
+/// path segment, so we strip the trailing `.html` here to recover
+/// the bare session id.
+#[allow(clippy::unused_async, reason = "axum handler signature requires async")]
+pub async fn session_chunk(
+    State(state): State<AppState>,
+    Path(id_with_ext): Path<String>,
+) -> impl IntoResponse {
+    let id = id_with_ext.strip_suffix(".html").unwrap_or(&id_with_ext);
+    match load_session_for_dashboard(&state, id) {
+        SessionLoadOutcome::NotFound => {
+            (StatusCode::NOT_FOUND, "session not found").into_response()
+        }
+        SessionLoadOutcome::Error(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response(),
+        SessionLoadOutcome::Found {
+            agent,
+            model,
+            started_at,
+            duration,
+            turn_count,
+            report_body_html,
+            session_id_short,
+        } => {
+            let tmpl = SessionChunk {
+                session_id_short,
+                agent,
+                model,
+                started_at,
+                duration,
+                turn_count,
+                report_body_html,
+            };
+            render_html_no_store(&tmpl, "session_chunk")
         }
     }
 }

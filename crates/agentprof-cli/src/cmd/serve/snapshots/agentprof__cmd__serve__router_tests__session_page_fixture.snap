@@ -1,0 +1,123 @@
+---
+source: crates/agentprof-cli/src/cmd/serve/mod.rs
+expression: normalized
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Session snap0000 · agentprof dashboard</title>
+  <link rel="stylesheet" href="/static/dashboard.css">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+</head>
+<body data-interval-default="5">
+  <header>
+    <h1 class="brand">agentprof dashboard</h1>
+    <nav>
+      <a href="/sessions" class="active">Sessions</a>
+      <a href="/aggregate" >Aggregate</a>
+      <a href="/waste" >Waste</a>
+    </nav>
+  </header>
+  <main id="main">
+    
+<h1>Session <code>snap0000</code></h1>
+<div class="session-meta">
+<NORMALIZED>
+  Duration:  · Turns: 0
+</div>
+<style>* { box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; max-width: 1200px; margin: 1rem auto; padding: 0 1rem; color: #111827; }
+header { border-bottom: 1px solid #e5e7eb; padding-bottom: 0.5rem; margin-bottom: 1rem; }
+header h1 { margin: 0 0 0.25rem 0; font-size: 1.5rem; }
+header .meta { color: #6b7280; font-size: 0.9rem; }
+section { margin-bottom: 1.5rem; }
+section h2 { font-size: 1.15rem; border-bottom: 1px solid #e5e7eb; padding-bottom: 0.25rem; }
+#flamegraph { overflow-x: auto; }
+#flamegraph svg { display: block; }
+table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+th, td { border-bottom: 1px solid #e5e7eb; padding: 0.35rem 0.5rem; text-align: left; }
+th { background: #f9fafb; font-weight: 600; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.warning-line { color: #92400e; background: #fef3c7; padding: 0.25rem 0.5rem; border-radius: 4px; margin: 0.25rem 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85rem; }
+@media print {
+  body { max-width: none; }
+  #flamegraph { page-break-after: always; }
+  table { font-size: 9pt; }
+  th { background: white !important; }
+}
+.warn-row { background: #fef3c7; }
+.warn-row td { color: #92400e; }
+</style>
+
+<header>
+<h1>agentprof report</h1>
+<div class="meta">
+Session: <code>snap0000</code>
+&middot; Agent: copilot
+
+<br>
+<NORMALIZED>
+&middot; Duration: 0 ms
+&middot; Turns: 0
+&middot; Tools: 0
+&middot; Hooks: 0
+
+</div>
+</header>
+
+
+<section id="flamegraph">
+<h2>Wall-clock flamegraph</h2>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 250" width="100%" preserveAspectRatio="xMidYMid meet" font-family="sans-serif" font-size="12"><g><rect x="0" y="0" width="1000" height="50" fill="#6b7280" stroke="white" stroke-width="0.5"><title>session (1 ms)</title></rect><text x="4" y="32" fill="white" pointer-events="none">session</text></g></svg>
+</section>
+
+
+
+<section id="turns">
+<h2>Turn Summary</h2>
+<table>
+<thead><tr><th>Turn</th><th>Started</th><th>Duration</th><th>Status</th><th>Model</th><th>Mode</th><th class="num">Out tokens</th></tr></thead>
+<tbody>
+
+</tbody>
+</table>
+</section>
+
+
+
+<section id="tools">
+<h2>Tool Rank</h2>
+<table>
+<thead><tr><th>Tool</th><th>Source</th><th class="num">Calls</th><th class="num">Failures</th><th class="num">Total duration</th><th class="num">p50</th><th class="num">p95</th></tr></thead>
+<tbody>
+
+</tbody>
+</table>
+</section>
+
+
+
+<section id="hooks">
+<h2>Hook Rank</h2>
+<table>
+<thead><tr><th>Hook</th><th class="num">Calls</th><th class="num">Failures</th><th class="num">Total duration</th></tr></thead>
+<tbody>
+
+</tbody>
+</table>
+</section>
+
+
+
+
+<NORMALIZED>
+
+
+  </main>
+  <footer>
+    <span>agentprof v<VERSION> · poll every 5s</span>
+  </footer>
+  <script src="/static/dashboard.js"></script>
+</body>
+</html>

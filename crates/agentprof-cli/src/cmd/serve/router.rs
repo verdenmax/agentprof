@@ -31,6 +31,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/", get(|| async { Redirect::to("/sessions") }))
         .route("/sessions", get(handlers::sessions_page))
         .route("/api/sessions.html", get(handlers::sessions_chunk))
+        .route("/session/:id", get(handlers::session_page))
+        .route("/api/session/:id.html", get(handlers::session_chunk))
         .route("/healthz", get(handlers::healthz))
         .route("/static/:name", get(handlers::static_asset))
         .with_state(state)

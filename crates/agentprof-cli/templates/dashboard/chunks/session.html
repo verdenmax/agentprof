@@ -1,0 +1,6 @@
+<h1>Session <code>{{ session_id_short }}</code></h1>
+<div class="session-meta">
+  Agent: {{ agent }} · Model: {{ model }} · Started: {{ started_at }} ·
+  Duration: {{ duration }} · Turns: {{ turn_count }}
+</div>
+{{ report_body_html|safe }}
