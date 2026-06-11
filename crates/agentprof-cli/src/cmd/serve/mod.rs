@@ -36,8 +36,11 @@ pub struct ServeCmd {
     #[arg(long, value_name = "ADDR")]
     pub bind: Option<SocketAddr>,
 
-    /// Path to the `SQLite` store. Overrides config-file `[storage] path`
-    /// and the `AGENTPROF_STORAGE_PATH` env var.
+    /// Path to the `SQLite` store. Resolution order: CLI flag >
+    /// `AGENTPROF_STORAGE_PATH` env var (clap-handled). The
+    /// `[storage] path` config-file key is **not** consumed by
+    /// `agentprof serve` yet — exits `UserError` if neither CLI
+    /// flag nor env var is set.
     #[arg(long, value_name = "PATH", env = "AGENTPROF_STORAGE_PATH")]
     pub storage_path: Option<PathBuf>,
 

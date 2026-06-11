@@ -33,9 +33,11 @@ pub async fn healthz(State(_state): State<AppState>) -> impl IntoResponse {
 /// `GET /static/:name` — serves bundled CSS / JS / favicon.
 ///
 /// Assets are baked into the binary via `include_str!` / `include_bytes!`
-/// (see [`super::static_assets`]). `Cache-Control: immutable` because the
-/// assets only change when the agentprof binary itself changes (the
-/// browser will only re-fetch on a server upgrade).
+/// (see [`super::static_assets`]). `Cache-Control` allows a 1-hour cache
+/// but **omits `immutable`** because the URL has no version segment —
+/// a `cargo install` of a newer release that ships updated CSS / JS
+/// must be picked up after the cached entry expires (≤ 1 h), not after
+/// a hard refresh.
 ///
 /// # Examples
 ///
@@ -50,7 +52,7 @@ pub async fn static_asset(Path(name): Path<String>) -> impl IntoResponse {
     if let Some((mime, body)) = super::static_assets::lookup(&name) {
         let headers = [
             (header::CONTENT_TYPE, mime),
-            (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+            (header::CACHE_CONTROL, "public, max-age=3600"),
         ];
         return (StatusCode::OK, headers, body).into_response();
     }
@@ -596,7 +598,7 @@ fn load_aggregate_for_dashboard(state: &AppState, q: &AggregateQuery) -> Aggrega
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let report = match crate::cmd::aggregate::compute_aggregate_from_store(
-        &db_guard, key, since_dur, 20.0,
+        &db_guard, key, since_dur, 20.0, 20,
     ) {
         Ok(r) => r,
         Err(e) => {

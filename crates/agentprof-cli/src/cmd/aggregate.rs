@@ -620,6 +620,11 @@ fn compute_phase2(
 /// at `warn` and counted into the report's `failure_count` so a
 /// single corrupt row cannot wedge the dashboard.
 ///
+/// Buckets are truncated to `limit` (default `20`, matching CLI
+/// `--limit`) before returning so a store with hundreds of distinct
+/// tools / models / days cannot inflate every 5-second poll response.
+/// Passing `limit == 0` disables truncation (mirrors CLI semantics).
+///
 /// # Errors
 ///
 /// - [`ExitKind::UserError`] when `key == AggregateKey::McpServer`.
@@ -636,7 +641,7 @@ fn compute_phase2(
 /// use agentprof_core::analyzer::aggregate::AggregateKey;
 /// # let db: agentprof_storage::Db = unimplemented!();
 /// let _report = crate::cmd::aggregate::compute_aggregate_from_store(
-///     &db, AggregateKey::Model, Duration::from_secs(7 * 86_400), 20.0,
+///     &db, AggregateKey::Model, Duration::from_secs(7 * 86_400), 20.0, 20,
 /// );
 /// ```
 pub fn compute_aggregate_from_store(
@@ -644,6 +649,7 @@ pub fn compute_aggregate_from_store(
     key: AggregateKey,
     since: Duration,
     low_utilization_threshold: f32,
+    limit: usize,
 ) -> Result<AnyAggregateReport> {
     if matches!(key, AggregateKey::McpServer) {
         return Err(ExitKind::UserError.into_anyhow(
@@ -701,6 +707,9 @@ pub fn compute_aggregate_from_store(
     };
 
     fill_metadata(&mut any_report, since_to_opt_chrono(since), failure_count);
+    if limit > 0 {
+        truncate_buckets(&mut any_report, limit);
+    }
     Ok(any_report)
 }
 

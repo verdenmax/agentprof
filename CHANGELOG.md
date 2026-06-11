@@ -35,8 +35,11 @@ prefix used in commit messages).
   vanilla JS poller (~80 LOC, no framework). `GET /` → `303 /sessions`;
   `GET /healthz` → `200 "healthy"`.
 - **cli:** `[serve]` config-file block (`bind` / `interval_default` /
-  `auto_open`) with precedence CLI > env > file > defaults (mirrors
-  M2.2 `[otlp]`).
+  `auto_open`) with precedence CLI > file > defaults (none of those
+  three fields have env vars; `[storage] path` is currently NOT wired
+  into the `serve` storage resolver — CLI flag or
+  `AGENTPROF_STORAGE_PATH` env var only). Mirrors the M2.2 `[otlp]`
+  block's loader pattern.
 - **cli:** `format::html::render_body_only` +
   `format::aggregate_html::render_body_only` — public extractors that
   slice the existing full-page render output for embedding inside the
