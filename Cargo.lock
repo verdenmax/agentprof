@@ -4,7 +4,7 @@ version = 3
 
 [[package]]
 name = "agentprof-adapters"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "agentprof-core",
  "chrono",
@@ -20,7 +20,7 @@ dependencies = [
 
 [[package]]
 name = "agentprof-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "agentprof-adapters",
  "agentprof-core",
@@ -54,7 +54,7 @@ dependencies = [
 
 [[package]]
 name = "agentprof-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "clap",
@@ -70,7 +70,7 @@ dependencies = [
 
 [[package]]
 name = "agentprof-storage"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "agentprof-core",
  "axum",
@@ -104,7 +104,7 @@ dependencies = [
 
 [[package]]
 name = "agentprof-tui"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "agentprof-adapters",
  "agentprof-core",
@@ -3925,7 +3925,7 @@ checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
 
 [[package]]
 name = "xtask"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "agentprof-adapters",
  "agentprof-core",

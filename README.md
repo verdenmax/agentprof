@@ -3,8 +3,8 @@
 > Perf flamegraph and ROI profiler for AI coding agents (Claude Code / Codex CLI / Copilot CLI).
 > Tell which tools earn their `tools_schema` tokens — and which ones you can safely kill.
 
-**Status: v0.1.0 shipped 2026-06-06** (M1.7 release infrastructure:
-cargo-dist + GitHub Release + CHANGELOG, [ADR-0014](docs/internals/adr-0014-v0.1.0-release-strategy.md)).
+**Status: v0.2.0 shipped 2026-06-10** (M2.1 SQLite persistence + M2.1.1
+aggregate dual-path, [ADR-0014](docs/internals/adr-0014-v0.1.0-release-strategy.md)).
 MVP feature work complete (8/8 shippable surface ≈ 98%; M1.1–M1.6.4
 ✅ + M1.7 v0.1.0); `analyze` / `list` / `aggregate` / `watch` all
 functional end-to-end against real Copilot CLI sessions, with five

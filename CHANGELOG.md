@@ -13,13 +13,9 @@ prefix used in commit messages).
 
 ## [Unreleased]
 
-> The [Unreleased] section is consolidated per Keep-a-Changelog 1.1:
-> Added → Changed → Removed → Fixed → Performance → Documentation →
-> Tests. This block covers everything between v0.1.0 (2026-06-06) and
-> the planned v0.2.0 tag — M1.6.5 + M1.6.6 + audit followup + M2.1
-> SQLite persistence + M2.1 P0 + M2.1 audit P1/P2 followup + 12 new
-> regression tests + M2.1.1 aggregate dual-path + M2.2 OTLP receiver
-> (+ 118 new tests).
+> This block covers M2.2 OTLP receiver as-shipped (118 new tests);
+> released separately as v0.2.1 in the next release cycle. M2.4
+> OTLP hardening (F1/F2/F3) entries appear here once that wave lands.
 
 ### Added
 
@@ -122,6 +118,40 @@ prefix used in commit messages).
     flush, idle-sweeper flush, three interleaved session ids into
     three distinct rows, explicit `session.end` persists across
     SIGKILL).
+
+### Documentation
+
+- **M2.2 OTLP receiver doc sweep:**
+  - New [ADR-0021](docs/internals/adr-0021-otlp-receiver-architecture.md)
+    documenting 10 architecture decisions (gRPC + HTTP transports,
+    OTLP-is-not-an-Adapter boundary, session.id grouping with
+    `claude.session_id` fallback, bounded buffers + sweeper, mapper
+    lossiness latitude, bearer + rustls security model, etc.).
+  - [ADR-0018](docs/internals/adr-0018-sessiondatasource-trait.md)
+    footnote linking to ADR-0021 §Decision 3 (OTLP receiver does **not**
+    implement the `Adapter` trait — it is a sink, not a pull-source).
+  - `docs/architecture.md` §3 (dependency graph), §6 (data sources),
+    §8 (CLI surface), §9 (storage layer), §10 (observability), and
+    §15.4 (feature flags) updated to reflect the shipped `otlp`
+    feature, `ingest-otlp` subcommand, and `otlp://<session_id>`
+    raw-path convention.
+  - `docs/plan.md` M2.2 marked **shipped** with commit-range pointer.
+  - `docs/adapters.md` gains an "OTLP is not an adapter" disclaimer
+    redirecting contributors to ADR-0021 + `agentprof-storage::otlp`.
+  - L2 READMEs refreshed: `crates/agentprof-storage/README.md` adds an
+    `otlp` module-tree section and `[otlp]` config block table;
+    `crates/agentprof-cli/README.md` documents `ingest-otlp` flags +
+    config-file precedence.
+
+## [0.2.0] - 2026-06-10
+
+> Captures the SQLite persistence work (M2.1 + M2.1.1) plus the M1.6.x
+> token-cost views and pre-Phase-2 audit followups shipped between
+> v0.1.0 and the M2.2 OTLP receiver wave. M2.2 itself is released
+> separately as v0.2.1.
+
+### Added
+
 - **M2.1.1 aggregate dual-path** (closes the M2.1 dual-path story).
   `cmd::aggregate` now SQLite-cache-accelerated via new
   `SessionDataSource::load_episodes(id) -> Result<Episodes, _>` trait
@@ -285,7 +315,6 @@ prefix used in commit messages).
   stubs under `[Unreleased]` per [Keep-a-Changelog 1.1](https://keepachangelog.com/en/1.1.0/)
   template convention — gives contributors a clear template (closes M-1
   from T8 quality review).
-
 ### Changed
 
 - **BREAKING (agentprof-core, pre-1.0):** `analyzer::waste::compute_waste`
@@ -548,27 +577,6 @@ prefix used in commit messages).
 
 ### Documentation
 
-- **M2.2 OTLP receiver doc sweep:**
-  - New [ADR-0021](docs/internals/adr-0021-otlp-receiver-architecture.md)
-    documenting 10 architecture decisions (gRPC + HTTP transports,
-    OTLP-is-not-an-Adapter boundary, session.id grouping with
-    `claude.session_id` fallback, bounded buffers + sweeper, mapper
-    lossiness latitude, bearer + rustls security model, etc.).
-  - [ADR-0018](docs/internals/adr-0018-sessiondatasource-trait.md)
-    footnote linking to ADR-0021 §Decision 3 (OTLP receiver does **not**
-    implement the `Adapter` trait — it is a sink, not a pull-source).
-  - `docs/architecture.md` §3 (dependency graph), §6 (data sources),
-    §8 (CLI surface), §9 (storage layer), §10 (observability), and
-    §15.4 (feature flags) updated to reflect the shipped `otlp`
-    feature, `ingest-otlp` subcommand, and `otlp://<session_id>`
-    raw-path convention.
-  - `docs/plan.md` M2.2 marked **shipped** with commit-range pointer.
-  - `docs/adapters.md` gains an "OTLP is not an adapter" disclaimer
-    redirecting contributors to ADR-0021 + `agentprof-storage::otlp`.
-  - L2 READMEs refreshed: `crates/agentprof-storage/README.md` adds an
-    `otlp` module-tree section and `[otlp]` config block table;
-    `crates/agentprof-cli/README.md` documents `ingest-otlp` flags +
-    config-file precedence.
 - **agentprof-core (audit B4):** `DEFAULT_HEURISTIC_TOKENS` and
   `WasteComputeContext::with_heuristic` rustdoc now call out the
   cl100k_base calibration bias — `o200k_base` (GPT-4o / GPT-5 /
