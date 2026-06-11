@@ -13,6 +13,17 @@ prefix used in commit messages).
 
 ## [Unreleased]
 
+> Next milestone TBD. See [`docs/plan.md`](docs/plan.md) roadmap.
+
+## [0.4.0] - 2026-06-11
+
+> M2.5 observational cache analytics — surfaces Anthropic prompt-cache
+> token data (`cache_read` / `cache_creation`) across `analyze` / `list`
+> / `aggregate` / TUI with hit-rate and saved-tokens. Zero schema change
+> (reuses M2.1 columns + M1.6.x `model_metrics`). Closes
+> `docs/architecture.md` §18 Q4a + audit finding F-NEW-2. See
+> [ADR-0023](docs/internals/adr-0023-cache-metrics.md).
+
 ### Added — M2.5 observational cache analytics
 
 > Surfaces the prompt-cache token data (Anthropic `cache_read` /
@@ -114,8 +125,6 @@ prefix used in commit messages).
   `agentprof-cli` (insta snapshots for md / html / json render +
   e2e via `assert_cmd` for `list` / `aggregate` cache columns +
   cache-activity vs no-cache-activity branches).
-
-> Next milestone TBD. See [`docs/plan.md`](docs/plan.md) roadmap.
 
 ## [0.3.0] - 2026-06-10
 
