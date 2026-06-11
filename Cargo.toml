@@ -100,6 +100,16 @@ tower              = "0.5"
 rcgen              = "0.13"
 dashmap            = "6"
 
+# Web dashboard (feature `web` on agentprof-cli). `axum` + `tower` are
+# already declared above (added in M2.2 for the OTLP gRPC stack and
+# reused here for HTTP routing). `tower-http` brings static-file
+# serving + tracing layers; `open` shells out to the platform browser.
+# `askama_axum` is *not* listed: askama 0.13+ removed the dedicated
+# integration crate, and askama 0.16 (which is what we ship) renders
+# to a plain `String` that `axum::response::Html` wraps directly.
+tower-http         = { version = "0.6", default-features = false, features = ["fs", "trace"] }
+open               = "5"
+
 # Test
 assert_cmd = "2"
 predicates = "3"

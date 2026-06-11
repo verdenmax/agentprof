@@ -18,10 +18,16 @@ path = "src/main.rs"
 [features]
 # `default = ["full"]` gives `cargo install agentprof` the batteries-included experience.
 default = ["full"]
-full    = ["anthropic-api", "otlp"]
+full    = ["anthropic-api", "otlp", "web"]
 
 anthropic-api = ["agentprof-core/anthropic-api"]
 otlp          = ["agentprof-storage/otlp", "dep:tokio"]
+# Web dashboard (`agentprof serve`, M2.3). Pulls in axum + tower stack
+# and shells out to the browser via `open`. `askama` is already a
+# hard dep (used for the existing HTML export), so it's not gated
+# here — askama 0.16 renders to `String` which axum wraps with
+# `axum::response::Html` directly (no `askama_axum` needed).
+web           = ["dep:axum", "dep:tower", "dep:tower-http", "dep:tokio", "dep:open"]
 
 [dependencies]
 agentprof-core     = { workspace = true, features = ["clap-derive"] }
@@ -49,6 +55,14 @@ notify-debouncer-mini = { workspace = true }
 # `signal` feature on top so the receiver can react to SIGINT/SIGTERM
 # (`tokio::signal::unix::SignalKind`).
 tokio              = { workspace = true, optional = true, features = ["signal"] }
+
+# Web dashboard (feature `web`, M2.3). All four are workspace-pinned;
+# `axum` + `tower` are shared with the OTLP receiver, so enabling
+# `web` alongside `otlp` doesn't double-compile them.
+axum               = { workspace = true, optional = true }
+tower              = { workspace = true, optional = true }
+tower-http         = { workspace = true, optional = true }
+open               = { workspace = true, optional = true }
 
 [dev-dependencies]
 assert_cmd = { workspace = true }
