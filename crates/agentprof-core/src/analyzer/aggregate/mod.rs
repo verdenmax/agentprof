@@ -293,6 +293,184 @@ impl<B> AggregateReport<B> {
     }
 }
 
+/// M2.5 — sealed-ish contract for per-bucket cache attribution.
+///
+/// Implemented for [`AggregateReport`] bucket types that carry
+/// per-bucket cache token sums (input / cache-read / cache-creation),
+/// enabling [`crate::analyzer::cache::CacheMetrics`] computation per
+/// bucket.
+///
+/// **Implemented for `ModelBucket` + `DayBucket` only.** `ToolBucket`
+/// and `McpServerBucket` deliberately do **not** implement this trait:
+/// cache tokens are prompt-level (per-turn, per-model), and the
+/// per-tool / per-server attribution is undefined — splitting cache
+/// reads across the N tools called within a single turn would be
+/// arbitrary fiction. See ADR-0023 D-3.
+///
+/// The trait is the **type-level filter** that prevents the generic
+/// [`AggregateReport::cache_metrics_per_bucket`] accessor from ever
+/// being called against a `ToolBucket` / `McpServerBucket` report
+/// (it simply doesn't exist for those instantiations). The runtime
+/// [`supports_cache_attribution`] helper mirrors this filter for
+/// render-layer / `AnyAggregateReport` dispatch where the bucket type
+/// is erased to [`AggregateKey`].
+///
+/// # Examples
+///
+/// ```
+/// use agentprof_core::analyzer::aggregate::{
+///     CacheAttributable, DayBucket, ModelBucket,
+/// };
+/// use chrono::{Duration, NaiveDate};
+///
+/// let m = ModelBucket::new("claude-sonnet-4.5".into(), 1, 0, 0, Duration::zero())
+///     .with_cache_metrics(10_000, 8_000, 2_000);
+/// assert_eq!(m.bucket_key(), "claude-sonnet-4.5");
+/// assert_eq!(m.bucket_input(), 10_000);
+/// assert_eq!(m.bucket_cache_read(), 8_000);
+/// assert_eq!(m.bucket_cache_creation(), 2_000);
+///
+/// let d = DayBucket::new(
+///     NaiveDate::from_ymd_opt(2026, 5, 30).unwrap(),
+///     1, Duration::zero(), Duration::zero(), 0, 0.0, false,
+/// )
+/// .with_cache_metrics(10_000, 8_000, 2_000);
+/// assert_eq!(d.bucket_key(), "2026-05-30");
+/// ```
+pub trait CacheAttributable {
+    /// Stable string identifying this bucket (model id for
+    /// `ModelBucket`, ISO-8601 calendar date for `DayBucket`). Used
+    /// as the key in the [`AggregateReport::cache_metrics_per_bucket`]
+    /// return map.
+    fn bucket_key(&self) -> String;
+    /// Sum of `input_tokens` across the sessions in this bucket
+    /// (M2.5: pulled from `model_metrics[*].input_tokens`). Feeds
+    /// `CacheMetrics::from_raw`'s `input` parameter.
+    fn bucket_input(&self) -> u64;
+    /// Sum of `cache_read_tokens` across the sessions in this bucket.
+    fn bucket_cache_read(&self) -> u64;
+    /// Sum of `cache_write_tokens` (Anthropic `cache_creation`) across
+    /// the sessions in this bucket.
+    fn bucket_cache_creation(&self) -> u64;
+}
+
+impl CacheAttributable for ModelBucket {
+    fn bucket_key(&self) -> String {
+        self.model.clone()
+    }
+    fn bucket_input(&self) -> u64 {
+        self.total_input_tokens
+    }
+    fn bucket_cache_read(&self) -> u64 {
+        self.total_cache_read
+    }
+    fn bucket_cache_creation(&self) -> u64 {
+        self.total_cache_creation
+    }
+}
+
+impl CacheAttributable for DayBucket {
+    fn bucket_key(&self) -> String {
+        self.date.to_string()
+    }
+    fn bucket_input(&self) -> u64 {
+        self.total_input_tokens
+    }
+    fn bucket_cache_read(&self) -> u64 {
+        self.total_cache_read
+    }
+    fn bucket_cache_creation(&self) -> u64 {
+        self.total_cache_creation
+    }
+}
+
+impl<B> AggregateReport<B>
+where
+    B: CacheAttributable,
+{
+    /// Per-bucket [`crate::analyzer::cache::CacheMetrics`], keyed by
+    /// the bucket's stable identifier (model id for `--by model`,
+    /// ISO-8601 date for `--by day`). M2.5 / ADR-0023.
+    ///
+    /// Returns `None` when **either**:
+    ///
+    /// 1. The report's [`AggregateReport::by`] is not [`AggregateKey::Model`]
+    ///    or [`AggregateKey::Day`] — a defense-in-depth check; the
+    ///    [`CacheAttributable`] trait bound is the type-level filter
+    ///    that should already prevent reaching here for the other two
+    ///    aggregate keys, but this catches malformed reports (e.g.
+    ///    deserialized JSON where `by` was hand-edited).
+    /// 2. No bucket had any cache activity — i.e. every bucket's
+    ///    `cache_read == 0 && cache_creation == 0`, which makes
+    ///    [`crate::analyzer::cache::CacheMetrics::from_raw`] return
+    ///    `None` for that bucket. Same "skip empty rows" semantics as
+    ///    [`crate::analyzer::AnalysisReport::cache_metrics`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::analyzer::aggregate::{
+    ///     AggregateKey, AggregateReport, ModelBucket,
+    /// };
+    /// use chrono::Duration;
+    ///
+    /// let r: AggregateReport<ModelBucket> = AggregateReport::new(
+    ///     AggregateKey::Model, None, 0, 0, Duration::zero(), Vec::new(),
+    /// );
+    /// assert!(r.cache_metrics_per_bucket().is_none(), "empty report");
+    /// ```
+    #[must_use]
+    pub fn cache_metrics_per_bucket(
+        &self,
+    ) -> Option<std::collections::HashMap<String, crate::analyzer::cache::CacheMetrics>> {
+        if !supports_cache_attribution(self.by) {
+            return None;
+        }
+        let mut out = std::collections::HashMap::new();
+        for b in &self.buckets {
+            if let Some(m) = crate::analyzer::cache::CacheMetrics::from_raw(
+                b.bucket_cache_creation(),
+                b.bucket_cache_read(),
+                b.bucket_input(),
+            ) {
+                out.insert(b.bucket_key(), m);
+            }
+        }
+        if out.is_empty() {
+            None
+        } else {
+            Some(out)
+        }
+    }
+}
+
+/// True when `key` supports per-bucket cache attribution.
+///
+/// Returns `true` for [`AggregateKey::Model`] and [`AggregateKey::Day`],
+/// `false` otherwise — mirrors the [`CacheAttributable`] trait bound
+/// used by [`AggregateReport::cache_metrics_per_bucket`].
+///
+/// Use this at render-layer / [`AnyAggregateReport`] dispatch points
+/// where the concrete bucket type has been erased to [`AggregateKey`]
+/// and a static trait bound would no longer apply. See ADR-0023 D-3
+/// for why tool / mcp-server buckets are excluded.
+///
+/// # Examples
+///
+/// ```
+/// use agentprof_core::analyzer::aggregate::{
+///     supports_cache_attribution, AggregateKey,
+/// };
+/// assert!(supports_cache_attribution(AggregateKey::Model));
+/// assert!(supports_cache_attribution(AggregateKey::Day));
+/// assert!(!supports_cache_attribution(AggregateKey::Tool));
+/// assert!(!supports_cache_attribution(AggregateKey::McpServer));
+/// ```
+#[must_use]
+pub const fn supports_cache_attribution(key: AggregateKey) -> bool {
+    matches!(key, AggregateKey::Model | AggregateKey::Day)
+}
+
 /// Type-erased wrapper around the four concrete [`AggregateReport`]
 /// instantiations, used at the CLI / storage / serde boundary.
 ///

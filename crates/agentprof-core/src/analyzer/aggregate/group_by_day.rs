@@ -9,6 +9,30 @@ use crate::analyzer::aggregate::{wall, AggregateKey, AggregateReport, DayBucket}
 use crate::analyzer::AnalysisReport;
 use crate::episode::Episodes;
 
+/// Sum cache token fields across all entries in a report's
+/// `model_metrics`. Returns `(input, cache_read, cache_creation)`,
+/// all `u64::saturating_add`-summed. Returns `(0, 0, 0)` if
+/// `model_metrics` is `None`. Used by M2.5 per-bucket cache
+/// attribution (see `super::CacheAttributable`).
+fn sum_cache_fields(report: &AnalysisReport) -> (u64, u64, u64) {
+    let Some(m) = report.model_metrics.as_ref() else {
+        return (0, 0, 0);
+    };
+    let input = m
+        .values()
+        .map(|u| u.input_tokens)
+        .fold(0_u64, u64::saturating_add);
+    let read = m
+        .values()
+        .map(|u| u.cache_read_tokens)
+        .fold(0_u64, u64::saturating_add);
+    let creation = m
+        .values()
+        .map(|u| u.cache_write_tokens)
+        .fold(0_u64, u64::saturating_add);
+    (input, read, creation)
+}
+
 /// Aggregate sessions by `meta.started_at.date_naive()` (UTC, D-9).
 ///
 /// Per bucket:
@@ -59,6 +83,7 @@ pub fn aggregate_by_day(
             .filter_map(|t| t.output_tokens)
             .map(u64::from)
             .sum();
+        let (in_tokens, cache_read, cache_creation) = sum_cache_fields(report);
 
         total_wall += session_wall;
 
@@ -68,11 +93,17 @@ pub fn aggregate_by_day(
             total_wall_duration: Duration::zero(),
             total_tool_duration: Duration::zero(),
             total_output_tokens: 0,
+            total_input_tokens: 0,
+            total_cache_read: 0,
+            total_cache_creation: 0,
         });
         entry.session_count += 1;
         entry.total_wall_duration += session_wall;
         entry.total_tool_duration += tool_time;
-        entry.total_output_tokens += out_tokens;
+        entry.total_output_tokens = entry.total_output_tokens.saturating_add(out_tokens);
+        entry.total_input_tokens = entry.total_input_tokens.saturating_add(in_tokens);
+        entry.total_cache_read = entry.total_cache_read.saturating_add(cache_read);
+        entry.total_cache_creation = entry.total_cache_creation.saturating_add(cache_creation);
     }
 
     let buckets: Vec<DayBucket> = acc
@@ -96,6 +127,11 @@ pub fn aggregate_by_day(
                 util,
                 util < low_util_threshold_pct,
             )
+            .with_cache_metrics(
+                t.total_input_tokens,
+                t.total_cache_read,
+                t.total_cache_creation,
+            )
         })
         .collect();
 
@@ -117,6 +153,9 @@ struct TempDayAcc {
     total_wall_duration: Duration,
     total_tool_duration: Duration,
     total_output_tokens: u64,
+    total_input_tokens: u64,
+    total_cache_read: u64,
+    total_cache_creation: u64,
 }
 
 fn sum_tool_duration(episodes: &Episodes) -> Duration {

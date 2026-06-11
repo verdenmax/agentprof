@@ -67,6 +67,8 @@ per-session p50s would be statistically wrong).
 
 See [ADR-0008](../../docs/internals/adr-0008-aggregate-report-and-utilization.md) for design decisions.
 
+**M2.5 — per-bucket cache attribution** ([ADR-0023](../../docs/internals/adr-0023-observational-cache-analytics.md) D-3): `ModelBucket` + `DayBucket` carry three new `#[serde(default)]` fields (`total_input_tokens`, `total_cache_read`, `total_cache_creation`) summed from each session's `model_metrics`. The sealed-ish `CacheAttributable` trait is implemented for these two bucket types only (per-tool / per-server cache attribution is undefined — cache tokens are prompt-level). Generic accessor `AggregateReport::cache_metrics_per_bucket()` is trait-bound and therefore type-level inaccessible for `AggregateReport<ToolBucket>` / `AggregateReport<McpServerBucket>`. Free function `supports_cache_attribution(AggregateKey) -> bool` mirrors the trait bound for render-layer dispatch where the bucket type has been erased to `AggregateKey` via `AnyAggregateReport`. Builder method `with_cache_metrics(input, read, creation)` on both bucket types pairs with the existing `new()` for tests / future callers.
+
 ## `export` (M1.6.4)
 
 Pure data transformations from `&Episodes` / `&SessionMeta` / `&AnalysisReport` into external formats.

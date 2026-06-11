@@ -223,6 +223,24 @@ pub struct DayBucket {
     pub total_tool_duration: Duration,
     /// Sum of `turn_summary.output_tokens` on this day.
     pub total_output_tokens: u64,
+    /// M2.5 — sum of `model_metrics[*].input_tokens` across sessions
+    /// in this bucket. Required so [`super::CacheAttributable`] can
+    /// expose the input total to `CacheMetrics::from_raw` for per-day
+    /// cache attribution. `#[serde(default)]` keeps pre-M2.5 cached
+    /// JSON deserializable.
+    #[serde(default)]
+    pub total_input_tokens: u64,
+    /// M2.5 — sum of `model_metrics[*].cache_read_tokens` across
+    /// sessions in this bucket. `#[serde(default)]` keeps pre-M2.5
+    /// cached JSON deserializable. See ADR-0023 D-3 — cache
+    /// attribution is defined for day + model buckets only.
+    #[serde(default)]
+    pub total_cache_read: u64,
+    /// M2.5 — sum of `model_metrics[*].cache_write_tokens` (Anthropic
+    /// `cache_creation`) across sessions in this bucket.
+    /// `#[serde(default)]` keeps pre-M2.5 cached JSON deserializable.
+    #[serde(default)]
+    pub total_cache_creation: u64,
     /// `tool / wall × 100`, clamped to `[0, 100]`.
     ///
     /// Stored as `f32` (Wave D1 / `m1.6.2-followup-m5-utilization-precision`):
@@ -270,9 +288,46 @@ impl DayBucket {
             total_wall_duration,
             total_tool_duration,
             total_output_tokens,
+            total_input_tokens: 0,
+            total_cache_read: 0,
+            total_cache_creation: 0,
             utilization_pct,
             is_low_utilization,
         }
+    }
+
+    /// Populate the M2.5 cache-attribution fields (`total_input_tokens`,
+    /// `total_cache_read`, `total_cache_creation`) on an existing
+    /// [`DayBucket`], returning `self`. Builder pairs cleanly with
+    /// [`Self::new`] for tests / future call sites that need to seed
+    /// non-zero cache totals without breaking the existing positional
+    /// `new` signature.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::analyzer::aggregate::DayBucket;
+    /// use chrono::{Duration, NaiveDate};
+    /// let b = DayBucket::new(
+    ///     NaiveDate::from_ymd_opt(2026, 5, 30).unwrap(),
+    ///     1, Duration::zero(), Duration::zero(), 0, 0.0, false,
+    /// )
+    /// .with_cache_metrics(10_000, 8_000, 2_000);
+    /// assert_eq!(b.total_input_tokens, 10_000);
+    /// assert_eq!(b.total_cache_read, 8_000);
+    /// assert_eq!(b.total_cache_creation, 2_000);
+    /// ```
+    #[must_use]
+    pub const fn with_cache_metrics(
+        mut self,
+        total_input_tokens: u64,
+        total_cache_read: u64,
+        total_cache_creation: u64,
+    ) -> Self {
+        self.total_input_tokens = total_input_tokens;
+        self.total_cache_read = total_cache_read;
+        self.total_cache_creation = total_cache_creation;
+        self
     }
 }
 
@@ -298,6 +353,24 @@ pub struct ModelBucket {
     pub turn_count: usize,
     /// Sum of `turn_summary.output_tokens`.
     pub total_output_tokens: u64,
+    /// M2.5 — sum of `model_metrics[*].input_tokens` across sessions
+    /// in this bucket. Required so [`super::CacheAttributable`] can
+    /// expose the input total to `CacheMetrics::from_raw` for
+    /// per-model cache attribution. `#[serde(default)]` keeps
+    /// pre-M2.5 cached JSON deserializable.
+    #[serde(default)]
+    pub total_input_tokens: u64,
+    /// M2.5 — sum of `model_metrics[*].cache_read_tokens` across
+    /// sessions in this bucket. `#[serde(default)]` keeps pre-M2.5
+    /// cached JSON deserializable. See ADR-0023 D-3 — cache
+    /// attribution is defined for day + model buckets only.
+    #[serde(default)]
+    pub total_cache_read: u64,
+    /// M2.5 — sum of `model_metrics[*].cache_write_tokens` (Anthropic
+    /// `cache_creation`) across sessions in this bucket.
+    /// `#[serde(default)]` keeps pre-M2.5 cached JSON deserializable.
+    #[serde(default)]
+    pub total_cache_creation: u64,
     /// Sum of per-session wall durations.
     #[serde(with = "ms_duration")]
     pub total_duration: Duration,
@@ -326,8 +399,42 @@ impl ModelBucket {
             session_count,
             turn_count,
             total_output_tokens,
+            total_input_tokens: 0,
+            total_cache_read: 0,
+            total_cache_creation: 0,
             total_duration,
         }
+    }
+
+    /// Populate the M2.5 cache-attribution fields (`total_input_tokens`,
+    /// `total_cache_read`, `total_cache_creation`) on an existing
+    /// [`ModelBucket`], returning `self`. Builder pairs cleanly with
+    /// [`Self::new`] for tests / future call sites that need to seed
+    /// non-zero cache totals without breaking the existing positional
+    /// `new` signature.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::analyzer::aggregate::ModelBucket;
+    /// use chrono::Duration;
+    /// let b = ModelBucket::new("claude-sonnet-4.5".into(), 1, 0, 0, Duration::zero())
+    ///     .with_cache_metrics(10_000, 8_000, 2_000);
+    /// assert_eq!(b.total_input_tokens, 10_000);
+    /// assert_eq!(b.total_cache_read, 8_000);
+    /// assert_eq!(b.total_cache_creation, 2_000);
+    /// ```
+    #[must_use]
+    pub const fn with_cache_metrics(
+        mut self,
+        total_input_tokens: u64,
+        total_cache_read: u64,
+        total_cache_creation: u64,
+    ) -> Self {
+        self.total_input_tokens = total_input_tokens;
+        self.total_cache_read = total_cache_read;
+        self.total_cache_creation = total_cache_creation;
+        self
     }
 }
 

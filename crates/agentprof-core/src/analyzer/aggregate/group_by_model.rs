@@ -8,6 +8,30 @@ use crate::analyzer::aggregate::{wall, AggregateKey, AggregateReport, ModelBucke
 use crate::analyzer::AnalysisReport;
 use crate::episode::Episodes;
 
+/// Sum cache token fields across all entries in a report's
+/// `model_metrics`. Returns `(input, cache_read, cache_creation)`,
+/// all `u64::saturating_add`-summed. Returns `(0, 0, 0)` if
+/// `model_metrics` is `None`. Used by M2.5 per-bucket cache
+/// attribution (see `super::CacheAttributable`).
+fn sum_cache_fields(report: &AnalysisReport) -> (u64, u64, u64) {
+    let Some(m) = report.model_metrics.as_ref() else {
+        return (0, 0, 0);
+    };
+    let input = m
+        .values()
+        .map(|u| u.input_tokens)
+        .fold(0_u64, u64::saturating_add);
+    let read = m
+        .values()
+        .map(|u| u.cache_read_tokens)
+        .fold(0_u64, u64::saturating_add);
+    let creation = m
+        .values()
+        .map(|u| u.cache_write_tokens)
+        .fold(0_u64, u64::saturating_add);
+    (input, read, creation)
+}
+
 /// Aggregate sessions by their **first-turn model** (D-12).
 ///
 /// Sessions whose first turn has `model = None` are skipped entirely —
@@ -53,17 +77,24 @@ pub fn aggregate_by_model(
             .filter_map(|t| t.output_tokens)
             .map(u64::from)
             .sum();
+        let (in_tokens, cache_read, cache_creation) = sum_cache_fields(report);
 
         let entry = acc.entry(model.clone()).or_insert_with(|| TempModelAcc {
             model,
             session_count: 0,
             turn_count: 0,
             total_output_tokens: 0,
+            total_input_tokens: 0,
+            total_cache_read: 0,
+            total_cache_creation: 0,
             total_duration: Duration::zero(),
         });
         entry.session_count += 1;
         entry.turn_count += report.turn_summary.len();
-        entry.total_output_tokens += out_tokens;
+        entry.total_output_tokens = entry.total_output_tokens.saturating_add(out_tokens);
+        entry.total_input_tokens = entry.total_input_tokens.saturating_add(in_tokens);
+        entry.total_cache_read = entry.total_cache_read.saturating_add(cache_read);
+        entry.total_cache_creation = entry.total_cache_creation.saturating_add(cache_creation);
         entry.total_duration += session_wall;
     }
 
@@ -76,6 +107,11 @@ pub fn aggregate_by_model(
                 t.turn_count,
                 t.total_output_tokens,
                 t.total_duration,
+            )
+            .with_cache_metrics(
+                t.total_input_tokens,
+                t.total_cache_read,
+                t.total_cache_creation,
             )
         })
         .collect();
@@ -102,5 +138,8 @@ struct TempModelAcc {
     session_count: usize,
     turn_count: usize,
     total_output_tokens: u64,
+    total_input_tokens: u64,
+    total_cache_read: u64,
+    total_cache_creation: u64,
     total_duration: Duration,
 }

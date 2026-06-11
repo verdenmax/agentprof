@@ -13,6 +13,25 @@ prefix used in commit messages).
 
 ## [Unreleased]
 
+### Added (M2.5 observational cache analytics — T3)
+
+- **core: per-bucket cache attribution for `--by model` / `--by day`**
+  ([ADR-0023](docs/internals/adr-0023-observational-cache-analytics.md) D-3).
+  New `CacheAttributable` trait + `AggregateReport::cache_metrics_per_bucket()`
+  accessor (trait-bound, available only on `AggregateReport<ModelBucket>`
+  and `AggregateReport<DayBucket>`) returning per-bucket
+  `CacheMetrics`. New `supports_cache_attribution(AggregateKey) -> bool`
+  helper for render-layer / `AnyAggregateReport` dispatch where the
+  bucket type has been erased. `ToolBucket` + `McpServerBucket`
+  deliberately do **not** implement `CacheAttributable` (per-tool /
+  per-server cache attribution is undefined — cache tokens are
+  prompt-level). New fields on `ModelBucket` + `DayBucket`:
+  `total_input_tokens`, `total_cache_read`, `total_cache_creation`
+  (all `#[serde(default)]` for cached-JSON backward-compat). New
+  `with_cache_metrics(input, read, creation)` builder method on both
+  bucket types. 4 new integration tests in
+  `crates/agentprof-core/tests/cache_metrics.rs`.
+
 > Next milestone TBD. See [`docs/plan.md`](docs/plan.md) roadmap.
 
 ## [0.3.0] - 2026-06-10
