@@ -13,6 +13,9 @@ prefix used in commit messages).
 
 ## [Unreleased]
 
+> Next milestone TBD. v0.4.0 reserved for Phase 3 multi-agent
+> (M3.1 ClaudeAdapter + M3.2 CodexAdapter).
+
 ## [0.3.3] - 2026-06-11
 
 > M2.3 web dashboard wave. New `agentprof serve` subcommand (feature
@@ -77,6 +80,7 @@ prefix used in commit messages).
 
 ### Tests
 
+- **+29 tests** (workspace total 1272 → **1301**, 0 failures across all crates).
 - **cli:** 24 unit tests in `cmd::serve::router_tests` (T5–T10
   `tower::ServiceExt::oneshot` against an in-process Axum `Router`
   with a fixture-populated `Arc<Mutex<Db>>`): 5 dashboard views × ~5
