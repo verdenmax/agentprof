@@ -19,7 +19,7 @@
 //! crates clone it (wrapped in `Arc`) into the per-connection acceptor.
 
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Once};
 
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
@@ -27,6 +27,48 @@ use rustls::server::WebPkiClientVerifier;
 use rustls::{RootCertStore, ServerConfig};
 
 use crate::otlp::error::OtlpServerError;
+
+static INSTALL_CRYPTO_PROVIDER: Once = Once::new();
+
+/// Install rustls's process-level default [`rustls::crypto::CryptoProvider`].
+///
+/// rustls 0.23 requires a crypto provider to be selected before any
+/// `ServerConfig::builder()` call. Because the workspace transitively
+/// pulls in **both** `ring` and `aws-lc-rs` (the former via
+/// `axum-server`'s `tls-rustls` feature, the latter as a default
+/// rustls feature), rustls cannot auto-pick one and panics with
+/// "Could not automatically determine the process-level
+/// `CryptoProvider` from Rustls crate features". This helper makes the
+/// choice explicit: it installs the `ring` provider (small footprint,
+/// no C build dependency, ISC/MIT/OpenSSL license — already deny-clean).
+///
+/// Idempotent and thread-safe via [`std::sync::Once`]. Safe to call
+/// from every TLS-enabled entry point; production code paths
+/// ([`load_server_tls_config`], [`crate::otlp::server_grpc::serve_grpc`],
+/// [`crate::otlp::server_http::serve_http`]) call this internally, so
+/// downstream users normally never need to invoke it directly. It is
+/// `pub` only so integration tests outside this crate (e.g.
+/// `tests/otlp_tls_smoke.rs`) can install the provider before they
+/// reach into `tonic::transport::Server::tls_config()` themselves.
+///
+/// The underlying `install_default` returns `Err(_)` if some other
+/// caller (or library) already installed a provider — we deliberately
+/// swallow that because the end-state is identical.
+///
+/// # Examples
+///
+/// ```
+/// use agentprof_storage::otlp::tls::ensure_crypto_provider_installed;
+/// // Idempotent: calling twice is a no-op on the second call.
+/// ensure_crypto_provider_installed();
+/// ensure_crypto_provider_installed();
+/// ```
+pub fn ensure_crypto_provider_installed() {
+    INSTALL_CRYPTO_PROVIDER.call_once(|| {
+        // Err = "already installed by another path" — same end-state.
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    });
+}
 
 /// Read a PEM file into memory and surface a typed I/O error on failure.
 ///
@@ -87,6 +129,8 @@ pub fn load_server_tls_config(
     key_pem: &Path,
     client_ca: Option<&Path>,
 ) -> Result<ServerConfig, OtlpServerError> {
+    ensure_crypto_provider_installed();
+
     let cert_bytes = read_pem_file(cert_pem)?;
     let key_bytes = read_pem_file(key_pem)?;
 

@@ -85,6 +85,8 @@ pub async fn serve_grpc(
     cfg: OtlpServerConfig,
     pipeline: Arc<IngestPipeline>,
 ) -> Result<GrpcServerHandle, OtlpServerError> {
+    crate::otlp::tls::ensure_crypto_provider_installed();
+
     let addr = cfg.listen_grpc.ok_or_else(|| {
         OtlpServerError::Config("serve_grpc requires cfg.listen_grpc = Some(_)".into())
     })?;

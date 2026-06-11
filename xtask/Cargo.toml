@@ -18,8 +18,8 @@ clap       = { workspace = true }
 serde      = { workspace = true }
 serde_json = { workspace = true }
 chrono     = { workspace = true }
-agentprof-core     = { path = "../crates/agentprof-core", version = "0.3.1" }
-agentprof-adapters = { path = "../crates/agentprof-adapters", version = "0.3.1" }
+agentprof-core     = { path = "../crates/agentprof-core", version = "0.3.2" }
+agentprof-adapters = { path = "../crates/agentprof-adapters", version = "0.3.2" }
 
 [dev-dependencies]
 tempfile = { workspace = true }

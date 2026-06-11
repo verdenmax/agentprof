@@ -78,6 +78,8 @@ async fn pick_port() -> std::net::SocketAddr {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn grpc_serves_over_tls_with_trusted_client() {
+    agentprof_storage::otlp::tls::ensure_crypto_provider_installed();
+
     let dir = TempDir::new().unwrap();
     let server_cert = make_self_signed(dir.path(), &["localhost"]);
 
@@ -129,6 +131,8 @@ async fn grpc_serves_over_tls_with_trusted_client() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn grpc_mtls_rejects_client_without_cert() {
+    agentprof_storage::otlp::tls::ensure_crypto_provider_installed();
+
     let dir = TempDir::new().unwrap();
     let server_cert = make_self_signed(dir.path(), &["localhost"]);
     // Re-use server self-signed cert as the client-CA bundle: any client
@@ -197,7 +201,7 @@ async fn grpc_mtls_rejects_client_without_cert() {
 async fn http_serves_over_tls_with_trusted_client() {
     // Install the default rustls CryptoProvider once per process; reqwest
     // + rustls 0.23 both look this up on the first handshake.
-    let _ = rustls::crypto::ring::default_provider().install_default();
+    agentprof_storage::otlp::tls::ensure_crypto_provider_installed();
 
     let dir = TempDir::new().unwrap();
     let server_cert = make_self_signed(dir.path(), &["localhost"]);

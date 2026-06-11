@@ -13,6 +13,24 @@ prefix used in commit messages).
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-06-11
+
+### Fixed
+
+- **CI: rustls `CryptoProvider` panic** on `otlp_tls_smoke` tests
+  (`grpc_serves_over_tls_with_trusted_client` /
+  `grpc_mtls_rejects_client_without_cert`). The tonic 0.12 + rustls
+  0.23 path requires explicit `CryptoProvider::install_default(...)`
+  before any `ServerConfig::builder()` call; previously this worked
+  locally because some test order happened to install a provider
+  transitively, but the GitHub-hosted runner's parallel test
+  scheduling made it reliably panic. Fix: new
+  `agentprof_storage::otlp::tls::ensure_crypto_provider_installed()`
+  helper (idempotent via `std::sync::Once`, installs `ring` provider);
+  called from `load_server_tls_config` / `serve_grpc` / `serve_http`
+  + `otlp_tls_smoke` test setup. Strictly internal change; no API
+  surface impact.
+
 > Next milestone TBD. v0.4.0 reserved for Phase 3 multi-agent completion (Claude + Codex adapters).
 
 ## [0.3.1] - 2026-06-11

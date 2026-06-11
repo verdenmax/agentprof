@@ -97,6 +97,8 @@ pub async fn serve_http(
     cfg: OtlpServerConfig,
     pipeline: Arc<IngestPipeline>,
 ) -> Result<HttpServerHandle, OtlpServerError> {
+    crate::otlp::tls::ensure_crypto_provider_installed();
+
     let addr = cfg.listen_http.ok_or_else(|| {
         OtlpServerError::Config("serve_http requires cfg.listen_http = Some(_)".into())
     })?;
