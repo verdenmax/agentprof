@@ -107,11 +107,21 @@ pub async fn serve_http(
 
     let token = cfg.listen_token.clone().map(Arc::new);
     // Per-signal body limits (ADR-0022 D-2): each route gets its own
-    // DefaultBodyLimit layer. The body limit applies BEFORE the bearer
-    // middleware runs (`.layer` order: closest to the route runs last,
-    // so DefaultBodyLimit is innermost and fires first on inbound
-    // requests). 413 returns immediately; bearer middleware never sees
-    // an oversized request.
+    // DefaultBodyLimit layer. The 413 protection works because
+    // `bearer_middleware` does NOT read the request body (only
+    // headers), so the per-route DefaultBodyLimit is enforced by the
+    // body extractor in the handler — even though axum runs
+    // router-level middleware BEFORE per-route layers on inbound
+    // requests (outer `.layer()` wraps OUTSIDE per-route layers).
+    //
+    // ⚠️ If you ever add router-level middleware that drains or
+    // buffers the body (e.g., a request logger, gzip decompressor, or
+    // rate-limiter that inspects payload), the 413 protection
+    // silently regresses because that middleware will OOM-buffer
+    // first. Keep router-level middleware header-only, or move the
+    // body-touching middleware INSIDE per-route `.layer()` calls
+    // AFTER DefaultBodyLimit (so the body limit is encountered first
+    // on the inbound path for that route).
     let logs_route = post(handle_logs).layer(DefaultBodyLimit::max(cfg.max_logs_request_bytes));
     let metrics_route =
         post(handle_metrics).layer(DefaultBodyLimit::max(cfg.max_metrics_request_bytes));

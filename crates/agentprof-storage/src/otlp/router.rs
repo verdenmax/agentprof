@@ -51,6 +51,7 @@ use std::time::{Duration, Instant};
 
 use agentprof_core::episode::tool::ToolCallStatus;
 use chrono::{DateTime, Utc};
+use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
 use tracing::warn;
 
@@ -601,6 +602,15 @@ impl SessionRouter {
     /// # Examples
     ///
     /// See the type-level example on [`SessionRouter`].
+    //
+    // `clippy::significant_drop_tightening` fires a false positive on the
+    // admission block below: `entry` is consumed by `or_insert_with`,
+    // transferring the shard lock into the returned RefMut (`guard`),
+    // which is explicitly dropped. The shard lock IS intentionally held
+    // for the full duration of the admission block — that's precisely
+    // what serializes admission for the same sid and fixes the M1
+    // over-eviction race.
+    #[allow(clippy::significant_drop_tightening)]
     pub fn ingest(&self, events: Vec<Result<TypedEvent, MapperError>>) {
         for ev in events {
             let event = match ev {
@@ -618,12 +628,41 @@ impl SessionRouter {
                 continue;
             };
 
-            // ADR-0022 D-1: before admitting a NEW session, evict the
-            // least-recently-active buffer if we are already at the cap.
-            // Existing sessions skip this branch — they are already
-            // counted, and admission control only applies to admissions.
-            let is_new = !self.buffers.contains_key(&sid);
-            if is_new {
+            // ADR-0022 D-1: admit-then-evict.
+            //
+            // We first take a `dashmap::Entry` for this sid (which holds
+            // an exclusive shard lock for the sid until dropped) and
+            // insert an empty buffer through the `Vacant` variant. This
+            // serializes admission for the SAME sid: a concurrent
+            // ingest for the same sid sees `Occupied` and therefore
+            // `was_admitted = false`, so only ONE thread runs the
+            // eviction branch per real admission.
+            //
+            // We then drop the entry guard before calling
+            // `close_buffer` on the victim — `close_buffer` takes a
+            // shard write lock via `buffers.remove`, and the victim's
+            // sid may hash to the same shard as ours; holding our
+            // entry guard across that call would deadlock.
+            //
+            // Note: post-insertion the cap check uses `>` (not `>=`)
+            // because our own buffer is already counted in
+            // `self.buffers.len()`.
+            // The shard lock held by `entry` is intentionally held for
+            // the duration of this block — it serializes admission for
+            // this sid (see function-level allow above for clippy
+            // false-positive details). `or_insert_with` consumes
+            // `entry` and transfers the lock into `guard`, which we
+            // drop explicitly to release before the post-admission cap
+            // check below.
+            let was_admitted = {
+                let entry = self.buffers.entry(sid.clone());
+                let vacant = matches!(&entry, Entry::Vacant(_));
+                let guard = entry.or_insert_with(|| SessionBuffer::new(sid.clone()));
+                drop(guard);
+                vacant
+            };
+
+            if was_admitted && self.buffers.len() > self.cap.max_open_sessions {
                 let victim = {
                     let mut lru = match self.lru.lock() {
                         Ok(g) => g,
@@ -632,15 +671,9 @@ impl SessionRouter {
                         // must not take down the receiver.
                         Err(poisoned) => poisoned.into_inner(),
                     };
-                    if self.buffers.len() >= self.cap.max_open_sessions {
-                        lru.pop_front()
-                    } else {
-                        None
-                    }
+                    lru.pop_front()
                 };
                 if let Some(evicted) = victim {
-                    // Drop the lock before `close_buffer`, which re-acquires
-                    // it via `evict_from_lru` on the close path.
                     let _ = self.close_buffer(&evicted, CloseReason::CapacityEvict);
                 }
             }
