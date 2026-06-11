@@ -12,8 +12,20 @@
     <nav>
       <a href="/sessions" {% if active_nav == "sessions" %}class="active"{% endif %}>Sessions</a>
       <a href="/aggregate" {% if active_nav == "aggregate" %}class="active"{% endif %}>Aggregate</a>
-      <a href="/waste" {% if active_nav == "waste" %}class="active"{% endif %}>Waste</a>
+      <a href="/mcp-waste" {% if active_nav == "mcp-waste" %}class="active"{% endif %}>Waste</a>
     </nav>
+    <div class="toolbar">
+      <label for="sel-interval">Interval:</label>
+      <select id="sel-interval">
+        <option value="1">1s</option>
+        <option value="2">2s</option>
+        <option value="5">5s</option>
+        <option value="10">10s</option>
+        <option value="30">30s</option>
+      </select>
+      <button id="btn-pause">⏸ Pause</button>
+      <span id="refresh-status">idle</span>
+    </div>
   </header>
   <main id="main">
     {% block content %}{% endblock %}

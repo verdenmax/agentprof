@@ -37,3 +37,14 @@ table { border-collapse: collapse; width: 100%; }
 th, td { padding: 0.4em 0.7em; border-bottom: 1px solid #ddd; text-align: left; }
 th { background: #f0f0f3; font-weight: 600; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.toolbar label, .toolbar select, .toolbar button { color: #eee; }
+.toolbar select, .toolbar button {
+    background: #2a2a4e;
+    border: 1px solid #4a4a8e;
+    color: #eee;
+    padding: 0.2em 0.5em;
+    border-radius: 3px;
+    cursor: pointer;
+}
+.toolbar button:hover { background: #4a4a8e; }
+.toolbar #refresh-status { color: #aaa; font-style: italic; }
