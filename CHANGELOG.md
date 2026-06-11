@@ -13,8 +13,13 @@ prefix used in commit messages).
 
 ## [Unreleased]
 
-> Accumulates M2.4 OTLP hardening (F1/F2/F3) entries. Flipped to
-> `[0.3.0]` at the end of the M2.4 wave.
+> Next milestone TBD. See [`docs/plan.md`](docs/plan.md) roadmap.
+
+## [0.3.0] - 2026-06-10
+
+> Supersedes v0.2.1 for any deployment binding the OTLP receiver to
+> non-loopback addresses. Closes audit findings F1/F2/F3 from the
+> post-M2.2 hardening review. See [ADR-0022](docs/internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md).
 
 ### Added (M2.4 OTLP hardening — security)
 

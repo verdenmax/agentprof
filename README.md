@@ -3,9 +3,10 @@
 > Perf flamegraph and ROI profiler for AI coding agents (Claude Code / Codex CLI / Copilot CLI).
 > Tell which tools earn their `tools_schema` tokens — and which ones you can safely kill.
 
-**Status: v0.2.1 shipped 2026-06-10** (M2.2 OTLP receiver — see SECURITY
-NOTICE in CHANGELOG; OTLP users should upgrade to v0.3.0 once available,
-[ADR-0021](docs/internals/adr-0021-otlp-receiver-architecture.md)).
+**Status: v0.3.0 shipped 2026-06-10** (M2.4 OTLP receiver hardening —
+constant-time bearer, per-signal request caps, LRU session eviction;
+supersedes v0.2.1 for any non-loopback OTLP deployment.
+[ADR-0022](docs/internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md)).
 MVP feature work complete (8/8 shippable surface ≈ 98%; M1.1–M1.6.4
 ✅ + M1.7 v0.1.0); `analyze` / `list` / `aggregate` / `watch` all
 functional end-to-end against real Copilot CLI sessions, with five
