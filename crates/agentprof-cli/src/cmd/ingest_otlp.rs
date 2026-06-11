@@ -119,6 +119,28 @@ pub struct IngestOtlpCmd {
     #[arg(long, value_name = "PATH")]
     pub store: Option<PathBuf>,
 
+    /// Maximum decoded protobuf bytes accepted on the Logs endpoint.
+    /// Default 8388608 (8 MiB). See [ADR-0022] D-2.
+    ///
+    /// [ADR-0022]: ../../../docs/internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md
+    #[arg(long, value_name = "BYTES")]
+    pub max_logs_request_bytes: Option<usize>,
+
+    /// Maximum decoded protobuf bytes accepted on the Metrics endpoint.
+    /// Default 2097152 (2 MiB).
+    #[arg(long, value_name = "BYTES")]
+    pub max_metrics_request_bytes: Option<usize>,
+
+    /// Maximum decoded protobuf bytes accepted on the Traces endpoint.
+    /// Default 8388608 (8 MiB).
+    #[arg(long, value_name = "BYTES")]
+    pub max_traces_request_bytes: Option<usize>,
+
+    /// Maximum concurrent sessions tracked by the router. LRU eviction
+    /// triggers when exceeded. Default 1024.
+    #[arg(long, value_name = "N")]
+    pub max_open_sessions: Option<usize>,
+
     /// Override the idle-sweeper tick interval, in seconds. Hidden
     /// from `--help`; intended for end-to-end tests that need the
     /// sweeper to fire well below the production default of
@@ -168,7 +190,8 @@ async fn run_async(cmd: IngestOtlpCmd, storage_path: Option<PathBuf>) -> Result<
     let caps = SessionBufferCaps::default()
         .with_max_bytes(cmd.max_session_bytes.unwrap_or(DEFAULT_MAX_SESSION_BYTES))
         .with_max_events(cmd.max_session_events.unwrap_or(DEFAULT_MAX_SESSION_EVENTS))
-        .with_idle_timeout(cfg.session_idle_timeout);
+        .with_idle_timeout(cfg.session_idle_timeout)
+        .with_max_open_sessions(cfg.max_open_sessions);
     let router = Arc::new(SessionRouter::new(caps, sink));
     let pipeline = Arc::new(IngestPipeline::new(router.clone()));
     let sweeper_interval = Duration::from_secs(
@@ -300,6 +323,18 @@ fn build_otlp_server_config(
     if let Some(secs) = cmd.idle_seconds {
         cfg.session_idle_timeout = Duration::from_secs(secs);
     }
+    if let Some(n) = cmd.max_logs_request_bytes {
+        cfg.max_logs_request_bytes = n;
+    }
+    if let Some(n) = cmd.max_metrics_request_bytes {
+        cfg.max_metrics_request_bytes = n;
+    }
+    if let Some(n) = cmd.max_traces_request_bytes {
+        cfg.max_traces_request_bytes = n;
+    }
+    if let Some(n) = cmd.max_open_sessions {
+        cfg.max_open_sessions = n;
+    }
 
     cfg.validate().map_err(|e| {
         ExitKind::UserError.into_anyhow(format!("invalid OTLP receiver config: {e}"))
@@ -383,6 +418,10 @@ mod tests {
             max_session_events: None,
             idle_seconds: None,
             store: None,
+            max_logs_request_bytes: None,
+            max_metrics_request_bytes: None,
+            max_traces_request_bytes: None,
+            max_open_sessions: None,
             sweeper_interval_seconds: None,
         }
     }
