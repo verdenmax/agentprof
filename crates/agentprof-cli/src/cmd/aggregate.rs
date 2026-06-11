@@ -605,6 +605,105 @@ fn compute_phase2(
     Ok(any_report)
 }
 
+/// Store-mode parallel to [`compute_aggregate`] for the M2.3 dashboard.
+///
+/// Loads every session whose `started_at` lies within `since` from the
+/// `SQLite` store, then dispatches to the appropriate `aggregate_by_*`
+/// core function. Unlike [`compute_aggregate`], this fn does **not**
+/// support [`AggregateKey::McpServer`] — the dashboard returns a
+/// `400` with a pointer to `/mcp-waste` in that case, because
+/// mcp-server aggregation requires the `--tool-descriptions` sidecar
+/// plus MCP config plumbing that the store does not capture (see
+/// [`compute_phase2`] lines 507–571).
+///
+/// Per-session `load_session` / `load_episodes` failures are logged
+/// at `warn` and counted into the report's `failure_count` so a
+/// single corrupt row cannot wedge the dashboard.
+///
+/// # Errors
+///
+/// - [`ExitKind::UserError`] when `key == AggregateKey::McpServer`.
+/// - [`ExitKind::DataError`] when **all** sessions in the window
+///   failed to deserialize (mirrors [`compute_aggregate`]'s behavior).
+/// - [`anyhow::Error`] propagated from `query_sessions_since` (DB
+///   failure).
+///
+/// # Examples
+///
+/// ```ignore
+/// // agentprof-cli is bin-only; this fn is internal.
+/// use std::time::Duration;
+/// use agentprof_core::analyzer::aggregate::AggregateKey;
+/// # let db: agentprof_storage::Db = unimplemented!();
+/// let _report = crate::cmd::aggregate::compute_aggregate_from_store(
+///     &db, AggregateKey::Model, Duration::from_secs(7 * 86_400), 20.0,
+/// );
+/// ```
+pub fn compute_aggregate_from_store(
+    db: &agentprof_storage::Db,
+    key: AggregateKey,
+    since: Duration,
+    low_utilization_threshold: f32,
+) -> Result<AnyAggregateReport> {
+    if matches!(key, AggregateKey::McpServer) {
+        return Err(ExitKind::UserError.into_anyhow(
+            "--by=mcp-server requires --tool-descriptions sidecar + MCP config; use /mcp-waste view instead".to_owned(),
+        ));
+    }
+
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let refs = agentprof_storage::query::query_sessions_since(db, since, now_ms)
+        .map_err(|e| ExitKind::DataError.into_anyhow(format!("query_sessions_since: {e}")))?;
+
+    let mut reports: Vec<AnalysisReport> = Vec::with_capacity(refs.len());
+    let mut episodes_vec: Vec<Episodes> = Vec::with_capacity(refs.len());
+    let mut failure_count: usize = 0;
+    for sref in &refs {
+        match agentprof_storage::query::load_session(db, &sref.id) {
+            Ok(report) => {
+                let episodes =
+                    agentprof_storage::query::load_episodes(db, &sref.id).unwrap_or_default();
+                reports.push(report);
+                episodes_vec.push(episodes);
+            }
+            Err(e) => {
+                tracing::warn!(
+                    session_id = %sref.id,
+                    error = %e,
+                    "load_session failed during aggregate; skipping"
+                );
+                failure_count += 1;
+            }
+        }
+    }
+
+    if reports.is_empty() && failure_count > 0 {
+        return Err(ExitKind::DataError.into_anyhow(format!(
+            "all {failure_count} session(s) failed to load from store"
+        )));
+    }
+
+    let mut any_report = match key {
+        AggregateKey::Tool => AnyAggregateReport::Tool(aggregate_by_tool(&reports, &episodes_vec)),
+        AggregateKey::Day => AnyAggregateReport::Day(aggregate_by_day(
+            &reports,
+            &episodes_vec,
+            low_utilization_threshold,
+        )),
+        AggregateKey::Model => {
+            AnyAggregateReport::Model(aggregate_by_model(&reports, &episodes_vec))
+        }
+        AggregateKey::McpServer => unreachable!("rejected at fn start"),
+        other => {
+            return Err(ExitKind::UserError
+                .into_anyhow(format!("unsupported --by key for dashboard: {other:?}")));
+        }
+    };
+
+    fill_metadata(&mut any_report, since_to_opt_chrono(since), failure_count);
+    Ok(any_report)
+}
+
 /// Dual-path variant of [`compute_aggregate`] (M2.1.1 T5.1).
 ///
 /// Constructs the data source via

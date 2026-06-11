@@ -315,3 +315,48 @@ fn html_escape(s: &str) -> String {
         .replace('"', "&quot;")
         .replace('\'', "&#39;")
 }
+
+/// Render the aggregate report body **without** the
+/// `<html><head><body>` wrapper — for embedding inside the M2.3
+/// dashboard chrome.
+///
+/// Returns `<style>...</style>` (the embedded CSS) followed by the
+/// inner-body markup, derived by slicing the output of [`render`]
+/// (same Option-A strategy used by
+/// [`crate::cmd::format::html::render_body_only`]). Chosen over a
+/// templated split so the existing M1.6.5 static-HTML snapshots
+/// for [`render`] stay untouched.
+///
+/// # Examples
+///
+/// ```ignore
+/// // agentprof-cli is bin-only; this doctest is illustrative only.
+/// let chunk = aggregate_html::render_body_only(&report, 20.0, "0.3.3");
+/// assert!(chunk.starts_with("<style>"));
+/// assert!(!chunk.contains("<!DOCTYPE"));
+/// ```
+#[must_use]
+pub fn render_body_only(
+    report: &AnyAggregateReport,
+    low_threshold: f32,
+    agentprof_version: &str,
+) -> String {
+    let full = render(report, low_threshold, agentprof_version);
+    let style_start = full.find("<style>").unwrap_or(0);
+    let style_end = full
+        .find("</style>")
+        .map_or(style_start, |i| i + "</style>".len());
+    let body_start = full.find("<body>").map_or(0, |i| i + "<body>".len());
+    let body_end = full.rfind("</body>").unwrap_or(full.len());
+    if style_start < style_end && body_start < body_end {
+        format!(
+            "{}\n{}",
+            &full[style_start..style_end],
+            &full[body_start..body_end]
+        )
+    } else {
+        // Fallback: return the whole document; the embed will still
+        // render correctly (browsers tolerate nested wrappers).
+        full
+    }
+}

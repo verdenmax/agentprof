@@ -791,4 +791,115 @@ mod router_tests {
             .join("\n");
         insta::assert_snapshot!("session_page_fixture", normalized);
     }
+
+    // ------------------------------------------------------------------
+    // /aggregate view (M2.3 T9)
+    // ------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn aggregate_default_returns_200_with_chrome() {
+        let (_tmp, state) = empty_db_state();
+        seed_one_session(&state, "agg-fixture-1");
+        let app = build_router(state);
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/aggregate")
+            .body(Body::empty())
+            .expect("build req");
+        let resp = app.oneshot(req).await.expect("oneshot");
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = String::from_utf8(
+            resp.into_body()
+                .collect()
+                .await
+                .expect("collect body")
+                .to_bytes()
+                .to_vec(),
+        )
+        .expect("utf8");
+        assert!(body.contains("<!DOCTYPE html>"), "missing doctype");
+        assert!(body.contains("Aggregate"), "missing Aggregate label");
+        assert!(body.contains("model"), "default by=model missing");
+    }
+
+    #[tokio::test]
+    async fn aggregate_by_tool_returns_200() {
+        let (_tmp, state) = empty_db_state();
+        seed_one_session(&state, "agg-fixture-2");
+        let app = build_router(state);
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/aggregate?by=tool")
+            .body(Body::empty())
+            .expect("build req");
+        let resp = app.oneshot(req).await.expect("oneshot");
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn aggregate_by_mcp_server_returns_400_with_pointer() {
+        let (_tmp, state) = empty_db_state();
+        let app = build_router(state);
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/aggregate?by=mcp-server")
+            .body(Body::empty())
+            .expect("build req");
+        let resp = app.oneshot(req).await.expect("oneshot");
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body = String::from_utf8(
+            resp.into_body()
+                .collect()
+                .await
+                .expect("collect body")
+                .to_bytes()
+                .to_vec(),
+        )
+        .expect("utf8");
+        assert!(
+            body.contains("/mcp-waste"),
+            "400 body should point users at /mcp-waste"
+        );
+    }
+
+    #[tokio::test]
+    async fn aggregate_invalid_by_returns_400() {
+        let (_tmp, state) = empty_db_state();
+        let app = build_router(state);
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/aggregate?by=garbage")
+            .body(Body::empty())
+            .expect("build req");
+        let resp = app.oneshot(req).await.expect("oneshot");
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn api_aggregate_chunk_omits_dashboard_chrome() {
+        let (_tmp, state) = empty_db_state();
+        seed_one_session(&state, "agg-fixture-3");
+        let app = build_router(state);
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/api/aggregate.html?by=model")
+            .body(Body::empty())
+            .expect("build req");
+        let resp = app.oneshot(req).await.expect("oneshot");
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = String::from_utf8(
+            resp.into_body()
+                .collect()
+                .await
+                .expect("collect body")
+                .to_bytes()
+                .to_vec(),
+        )
+        .expect("utf8");
+        assert!(
+            !body.contains("<!DOCTYPE html>"),
+            "chunk must not include doctype"
+        );
+        assert!(!body.contains("<nav"), "chunk must not include nav");
+    }
 }

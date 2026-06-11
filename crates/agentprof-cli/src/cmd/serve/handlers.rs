@@ -493,3 +493,229 @@ pub async fn session_chunk(
         }
     }
 }
+
+// ----------------------------------------------------------------------------
+// /aggregate view (M2.3 T9)
+// ----------------------------------------------------------------------------
+
+/// Query string for `GET /aggregate` and `GET /api/aggregate.html`.
+///
+/// `by` defaults to `"model"` (the most useful single-key rollup for
+/// new users); `since` defaults to `"7d"` (matching the documented
+/// `agentprof aggregate` CLI default window).
+#[derive(serde::Deserialize)]
+pub struct AggregateQuery {
+    #[serde(default = "default_by")]
+    by: String,
+    #[serde(default = "default_since")]
+    since: String,
+}
+
+fn default_by() -> String {
+    "model".to_owned()
+}
+fn default_since() -> String {
+    "7d".to_owned()
+}
+
+/// Full-page render for `GET /aggregate` (extends `layout.html` and
+/// includes `chunks/aggregate.html`).
+#[derive(Template)]
+#[template(path = "dashboard/aggregate.html")]
+struct AggregatePage {
+    active_nav: &'static str,
+    interval_default: u8,
+    version: &'static str,
+    by_label: String,
+    since_label: String,
+    session_count: usize,
+    failure_count: usize,
+    report_body_html: String,
+}
+
+/// Chunk-only render for `GET /api/aggregate.html` — main-panel
+/// fragment used by the JS poller's `innerHTML` swap.
+#[derive(Template)]
+#[template(path = "dashboard/chunks/aggregate.html")]
+struct AggregateChunk {
+    by_label: String,
+    since_label: String,
+    session_count: usize,
+    failure_count: usize,
+    report_body_html: String,
+}
+
+/// Outcome of [`load_aggregate_for_dashboard`] — three-valued so
+/// `BadRequest` (unknown / unsupported `by` or malformed `since`)
+/// surfaces as `400` while real `SQLite` failures surface as `500`.
+enum AggregateLoadOutcome {
+    Ok {
+        by_label: String,
+        since_label: String,
+        session_count: usize,
+        failure_count: usize,
+        report_body_html: String,
+    },
+    BadRequest(String),
+    Error(String),
+}
+
+fn parse_by(s: &str) -> Result<agentprof_core::analyzer::aggregate::AggregateKey, String> {
+    use agentprof_core::analyzer::aggregate::AggregateKey;
+    match s {
+        "tool" => Ok(AggregateKey::Tool),
+        "model" => Ok(AggregateKey::Model),
+        "day" => Ok(AggregateKey::Day),
+        "mcp-server" => Err(
+            "--by=mcp-server requires --tool-descriptions sidecar + MCP config; use /mcp-waste view instead".to_owned(),
+        ),
+        other => Err(format!(
+            "unknown by={other}; use one of: model, tool, day"
+        )),
+    }
+}
+
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "db_guard is dropped explicitly before the (heavy) render call"
+)]
+fn load_aggregate_for_dashboard(state: &AppState, q: &AggregateQuery) -> AggregateLoadOutcome {
+    let key = match parse_by(&q.by) {
+        Ok(k) => k,
+        Err(msg) => return AggregateLoadOutcome::BadRequest(msg),
+    };
+    let since_dur = match crate::cmd::since::parse_since(&q.since) {
+        Ok(d) => d,
+        Err(msg) => {
+            return AggregateLoadOutcome::BadRequest(format!("invalid since={}: {}", q.since, msg));
+        }
+    };
+
+    let db_guard = state
+        .db
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let report = match crate::cmd::aggregate::compute_aggregate_from_store(
+        &db_guard, key, since_dur, 20.0,
+    ) {
+        Ok(r) => r,
+        Err(e) => {
+            // BadRequest comes via `ExitKind::UserError` (e.g. the
+            // mcp-server rejection inside compute_aggregate_from_store
+            // — currently the parse_by gate catches it first, but
+            // the defense-in-depth check is cheap).
+            if matches!(
+                e.downcast_ref::<crate::cmd::exit::ExitKind>(),
+                Some(crate::cmd::exit::ExitKind::UserError)
+            ) {
+                return AggregateLoadOutcome::BadRequest(e.to_string());
+            }
+            tracing::error!(error = %e, "compute_aggregate_from_store failed");
+            return AggregateLoadOutcome::Error(format!("aggregate compute failed: {e}"));
+        }
+    };
+    drop(db_guard);
+
+    let (session_count, failure_count) = match &report {
+        agentprof_core::analyzer::aggregate::AnyAggregateReport::Tool(r) => {
+            (r.session_count, r.failure_count)
+        }
+        agentprof_core::analyzer::aggregate::AnyAggregateReport::Model(r) => {
+            (r.session_count, r.failure_count)
+        }
+        agentprof_core::analyzer::aggregate::AnyAggregateReport::Day(r) => {
+            (r.session_count, r.failure_count)
+        }
+        agentprof_core::analyzer::aggregate::AnyAggregateReport::McpServer(r) => {
+            (r.session_count, r.failure_count)
+        }
+        _ => (0, 0),
+    };
+    let report_body_html = crate::cmd::format::aggregate_html::render_body_only(
+        &report,
+        20.0,
+        env!("CARGO_PKG_VERSION"),
+    );
+
+    AggregateLoadOutcome::Ok {
+        by_label: q.by.clone(),
+        since_label: q.since.clone(),
+        session_count,
+        failure_count,
+        report_body_html,
+    }
+}
+
+/// `GET /aggregate?by=...&since=...` — full page (chrome + aggregate chunk).
+///
+/// `by` ∈ `{model, tool, day}` (default `model`). `by=mcp-server`
+/// returns `400` with a pointer to `/mcp-waste` because the
+/// dashboard's store-mode aggregator does not capture the
+/// `--tool-descriptions` sidecar / MCP config plumbing required by
+/// mcp-server rollup. Unknown `by` values likewise return `400`.
+///
+/// `since` defaults to `"7d"` and accepts the same syntax as the
+/// `agentprof aggregate --since` flag (see [`crate::cmd::since::parse_since`]).
+#[allow(clippy::unused_async, reason = "axum handler signature requires async")]
+pub async fn aggregate_page(
+    State(state): State<AppState>,
+    axum::extract::Query(q): axum::extract::Query<AggregateQuery>,
+) -> impl IntoResponse {
+    match load_aggregate_for_dashboard(&state, &q) {
+        AggregateLoadOutcome::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg).into_response(),
+        AggregateLoadOutcome::Error(msg) => {
+            (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response()
+        }
+        AggregateLoadOutcome::Ok {
+            by_label,
+            since_label,
+            session_count,
+            failure_count,
+            report_body_html,
+        } => {
+            let tmpl = AggregatePage {
+                active_nav: "aggregate",
+                interval_default: state.interval_default,
+                version: env!("CARGO_PKG_VERSION"),
+                by_label,
+                since_label,
+                session_count,
+                failure_count,
+                report_body_html,
+            };
+            render_html(&tmpl, "aggregate_page")
+        }
+    }
+}
+
+/// `GET /api/aggregate.html?by=...&since=...` — chunk-only fragment
+/// for the JS poller's `innerHTML` swap. Same data as
+/// [`aggregate_page`] minus the chrome, plus `Cache-Control: no-store`.
+#[allow(clippy::unused_async, reason = "axum handler signature requires async")]
+pub async fn aggregate_chunk(
+    State(state): State<AppState>,
+    axum::extract::Query(q): axum::extract::Query<AggregateQuery>,
+) -> impl IntoResponse {
+    match load_aggregate_for_dashboard(&state, &q) {
+        AggregateLoadOutcome::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg).into_response(),
+        AggregateLoadOutcome::Error(msg) => {
+            (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response()
+        }
+        AggregateLoadOutcome::Ok {
+            by_label,
+            since_label,
+            session_count,
+            failure_count,
+            report_body_html,
+        } => {
+            let tmpl = AggregateChunk {
+                by_label,
+                since_label,
+                session_count,
+                failure_count,
+                report_body_html,
+            };
+            render_html_no_store(&tmpl, "aggregate_chunk")
+        }
+    }
+}

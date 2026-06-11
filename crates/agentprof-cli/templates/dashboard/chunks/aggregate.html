@@ -1,0 +1,8 @@
+<h1>Aggregate · {{ by_label }}</h1>
+<div class="aggregate-meta">
+  <span><strong>Aggregate by:</strong> {{ by_label }}</span>
+  <span> · <strong>Since:</strong> {{ since_label }}</span>
+  <span> · <strong>Sessions:</strong> {{ session_count }}</span>
+  {% if failure_count > 0 %}<span class="warn"> · {{ failure_count }} failed to load</span>{% endif %}
+</div>
+{{ report_body_html|safe }}
