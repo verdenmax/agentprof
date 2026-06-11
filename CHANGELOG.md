@@ -59,6 +59,24 @@ prefix used in commit messages).
   format-filter dialect concerns. 2 new e2e tests in
   `crates/agentprof-cli/tests/cli_analyze_cache_html.rs`.
 
+### Added (M2.5 observational cache analytics — T9)
+
+- **cli: `aggregate --by model` and `--by day` now render 4 cache
+  columns** (`CacheCr` / `CacheRd` / `Hit%` / `NetSaved`) across all
+  three render formats (md, csv, html)
+  ([ADR-0023](docs/internals/adr-0023-observational-cache-analytics.md)
+  D-3, D-5). `--by tool` and `--by mcp-server` deliberately omit
+  these columns (per-tool / per-server cache attribution is undefined
+  — cache tokens are prompt-level). Cells are blank when a bucket
+  has no cache activity. CSV header keys are snake_case
+  (`cache_creation` / `cache_read` / `hit_pct_honest` / `saved_net`)
+  per CSV convention; md/html keep the CamelCase user-facing labels.
+  4 new e2e tests in
+  `crates/agentprof-cli/tests/cli_aggregate_cache.rs`. Existing
+  `aggregate__aggregate_md__by_day` snapshot regenerated to include
+  the 4 new columns (all rows with empty cache cells); `by_tool` and
+  `by_mcp_server` snapshots byte-identical.
+
 > Next milestone TBD. See [`docs/plan.md`](docs/plan.md) roadmap.
 
 ## [0.3.0] - 2026-06-10

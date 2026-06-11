@@ -161,16 +161,34 @@ fn render_day(out: &mut String, r: &AggregateReport<DayBucket>) {
         let _ = writeln!(out, "(no buckets)");
         return;
     }
+    // M2.5 / ADR-0023 D-3, D-5: append four CamelCase cache columns
+    // for `--by day` (and `--by model`). Tool / mcp-server intentionally
+    // omit them. `cache_metrics_per_bucket()` may return `None` when no
+    // bucket reports any cache activity; in that case the cells stay
+    // blank but headers remain so the schema is stable.
+    let metrics = r.cache_metrics_per_bucket();
     let _ = writeln!(
         out,
-        "| Date | Sessions | Wall | Tool time | Out tokens | Utilization |"
+        "| Date | Sessions | Wall | Tool time | Out tokens | Utilization | CacheCr | CacheRd | Hit% | NetSaved |"
     );
-    let _ = writeln!(out, "|---|---:|---:|---:|---:|---:|");
+    let _ = writeln!(out, "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|");
     for b in &r.buckets {
         let warn = if b.is_low_utilization { "⚠ " } else { "" };
+        let (hit, net) = metrics
+            .as_ref()
+            .and_then(|m| m.get(&b.date.to_string()))
+            .map_or_else(
+                || (String::new(), String::new()),
+                |m| {
+                    (
+                        format!("{:.1}%", m.hit_rate_honest_pct),
+                        m.saved_net.to_string(),
+                    )
+                },
+            );
         let _ = writeln!(
             out,
-            "| {} | {} | {} | {} | {} | {}{:.1}% |",
+            "| {} | {} | {} | {} | {} | {}{:.1}% | {} | {} | {} | {} |",
             b.date,
             b.session_count,
             human_duration(b.total_wall_duration),
@@ -178,6 +196,10 @@ fn render_day(out: &mut String, r: &AggregateReport<DayBucket>) {
             b.total_output_tokens,
             warn,
             b.utilization_pct,
+            b.total_cache_creation,
+            b.total_cache_read,
+            hit,
+            net,
         );
     }
 }
@@ -188,20 +210,35 @@ fn render_model(out: &mut String, r: &AggregateReport<ModelBucket>) {
         let _ = writeln!(out, "(no buckets)");
         return;
     }
+    // M2.5 / ADR-0023 D-3, D-5: see `render_day` for rationale.
+    let metrics = r.cache_metrics_per_bucket();
     let _ = writeln!(
         out,
-        "| Model | Sessions | Turns | Out tokens | Total wall |"
+        "| Model | Sessions | Turns | Out tokens | Total wall | CacheCr | CacheRd | Hit% | NetSaved |"
     );
-    let _ = writeln!(out, "|---|---:|---:|---:|---:|");
+    let _ = writeln!(out, "|---|---:|---:|---:|---:|---:|---:|---:|---:|");
     for b in &r.buckets {
+        let (hit, net) = metrics.as_ref().and_then(|m| m.get(&b.model)).map_or_else(
+            || (String::new(), String::new()),
+            |m| {
+                (
+                    format!("{:.1}%", m.hit_rate_honest_pct),
+                    m.saved_net.to_string(),
+                )
+            },
+        );
         let _ = writeln!(
             out,
-            "| {} | {} | {} | {} | {} |",
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {} |",
             md_escape(&b.model),
             b.session_count,
             b.turn_count,
             b.total_output_tokens,
             human_duration(b.total_duration),
+            b.total_cache_creation,
+            b.total_cache_read,
+            hit,
+            net,
         );
     }
 }

@@ -111,6 +111,9 @@ fn write_day<W: std::io::Write>(
     w: &mut csv::Writer<W>,
     r: &AggregateReport<DayBucket>,
 ) -> Result<()> {
+    // M2.5 / ADR-0023 D-3, D-5: four extra columns appended to the
+    // schema for `--by day`. Headers stay snake_case per CSV
+    // convention; user-visible md/html labels are CamelCase.
     w.write_record([
         "date",
         "session_count",
@@ -119,9 +122,26 @@ fn write_day<W: std::io::Write>(
         "output_tokens",
         "utilization_pct",
         "is_low_utilization",
+        "cache_creation",
+        "cache_read",
+        "hit_pct_honest",
+        "saved_net",
     ])
     .context("write day header")?;
+    let metrics = r.cache_metrics_per_bucket();
     for b in &r.buckets {
+        let (hit, net) = metrics
+            .as_ref()
+            .and_then(|m| m.get(&b.date.to_string()))
+            .map_or_else(
+                || (String::new(), String::new()),
+                |m| {
+                    (
+                        format!("{:.2}", m.hit_rate_honest_pct),
+                        m.saved_net.to_string(),
+                    )
+                },
+            );
         w.write_record([
             &b.date.to_string(),
             &b.session_count.to_string(),
@@ -130,6 +150,10 @@ fn write_day<W: std::io::Write>(
             &b.total_output_tokens.to_string(),
             &format!("{:.2}", b.utilization_pct),
             &b.is_low_utilization.to_string(),
+            &b.total_cache_creation.to_string(),
+            &b.total_cache_read.to_string(),
+            &hit,
+            &net,
         ])
         .context("write day row")?;
     }
@@ -140,21 +164,40 @@ fn write_model<W: std::io::Write>(
     w: &mut csv::Writer<W>,
     r: &AggregateReport<ModelBucket>,
 ) -> Result<()> {
+    // M2.5 / ADR-0023 D-3, D-5: see `write_day` for rationale.
     w.write_record([
         "model",
         "session_count",
         "turn_count",
         "output_tokens",
         "total_duration_ms",
+        "cache_creation",
+        "cache_read",
+        "hit_pct_honest",
+        "saved_net",
     ])
     .context("write model header")?;
+    let metrics = r.cache_metrics_per_bucket();
     for b in &r.buckets {
+        let (hit, net) = metrics.as_ref().and_then(|m| m.get(&b.model)).map_or_else(
+            || (String::new(), String::new()),
+            |m| {
+                (
+                    format!("{:.2}", m.hit_rate_honest_pct),
+                    m.saved_net.to_string(),
+                )
+            },
+        );
         w.write_record([
             b.model.as_str(),
             &b.session_count.to_string(),
             &b.turn_count.to_string(),
             &b.total_output_tokens.to_string(),
             &b.total_duration.num_milliseconds().to_string(),
+            &b.total_cache_creation.to_string(),
+            &b.total_cache_read.to_string(),
+            &hit,
+            &net,
         ])
         .context("write model row")?;
     }

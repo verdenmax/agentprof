@@ -206,8 +206,8 @@ agentprof aggregate --by tool --since all --export json | jq '.data.buckets | le
 |---|---|
 | `tool` | Tool, Source, Calls, Success, Fail, Total, p50, p95, Sessions |
 | `mcp-server` | Server, Tools, Calls, Failures, Total, Sessions, **Unused tools**, **Sessions w/0 calls**, **Wasted tokens** (last three M1.6.5/M1.6.6 — populated by `aggregate_waste`-style per-session reduction inside `aggregate_by_mcp_server`; `Wasted tokens` is rendered with a leading `≈` in md/html/tui because the v0.1.x aggregate path always treats cross-session sums as heuristic; CSV header is `wasted_tokens (approx)`) |
-| `day` | Date (UTC), Sessions, Wall, Tool time, Out tokens, Utilization% (⚠ on low rows) |
-| `model` | Model, Sessions, Turns, Out tokens, Total wall |
+| `day` | Date (UTC), Sessions, Wall, Tool time, Out tokens, Utilization% (⚠ on low rows), **CacheCr, CacheRd, Hit%, NetSaved** (last four M2.5 / ADR-0023 D-3, D-5 — cells blank when no cache activity; CSV header keys are `cache_creation` / `cache_read` / `hit_pct_honest` / `saved_net`) |
+| `model` | Model, Sessions, Turns, Out tokens, Total wall, **CacheCr, CacheRd, Hit%, NetSaved** (last four M2.5 / ADR-0023 D-3, D-5 — same semantics as `--by day`) |
 
 **Notes**:
 - **Sequential parse** of N sessions in the `--since` window (rayon parallelization deferred to a future perf milestone).

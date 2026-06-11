@@ -188,26 +188,51 @@ fn render_mcp(r: &AggregateReport<McpServerBucket>) -> String {
 }
 
 fn render_day(r: &AggregateReport<DayBucket>) -> String {
+    // M2.5 / ADR-0023 D-3, D-5: append four CamelCase cache columns
+    // (CacheCr / CacheRd / Hit% / NetSaved). Tool / mcp-server
+    // intentionally omit them. Blank cells when no metrics for that
+    // bucket (e.g. zero cache activity across all sessions of that
+    // day). The askama template just splats this string as `|safe`.
+    let metrics = r.cache_metrics_per_bucket();
     let mut s = String::new();
     s.push_str("<section id=\"buckets\"><table><thead><tr>");
     s.push_str("<th>Date</th><th class=\"num\">Sessions</th><th class=\"num\">Wall</th>");
     s.push_str("<th class=\"num\">Tool time</th><th class=\"num\">Out tokens</th>");
-    s.push_str("<th class=\"num\">Utilization</th></tr></thead><tbody>");
+    s.push_str("<th class=\"num\">Utilization</th>");
+    s.push_str("<th class=\"num\">CacheCr</th><th class=\"num\">CacheRd</th>");
+    s.push_str("<th class=\"num\">Hit%</th><th class=\"num\">NetSaved</th>");
+    s.push_str("</tr></thead><tbody>");
     for b in &r.buckets {
         let cls = if b.is_low_utilization {
             " class=\"warn-row\""
         } else {
             ""
         };
+        let (hit, net) = metrics
+            .as_ref()
+            .and_then(|m| m.get(&b.date.to_string()))
+            .map_or_else(
+                || (String::new(), String::new()),
+                |m| {
+                    (
+                        format!("{:.1}%", m.hit_rate_honest_pct),
+                        m.saved_net.to_string(),
+                    )
+                },
+            );
         let _ = write!(
             s,
-            "<tr{cls}><td>{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{:.1}%</td></tr>",
+            "<tr{cls}><td>{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{:.1}%</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td></tr>",
             b.date,
             b.session_count,
             human_duration(b.total_wall_duration),
             human_duration(b.total_tool_duration),
             b.total_output_tokens,
             b.utilization_pct,
+            b.total_cache_creation,
+            b.total_cache_read,
+            hit,
+            net,
         );
     }
     s.push_str("</tbody></table></section>");
@@ -215,21 +240,37 @@ fn render_day(r: &AggregateReport<DayBucket>) -> String {
 }
 
 fn render_model(r: &AggregateReport<ModelBucket>) -> String {
+    // M2.5 / ADR-0023 D-3, D-5: see `render_day` for rationale.
+    let metrics = r.cache_metrics_per_bucket();
     let mut s = String::new();
     s.push_str("<section id=\"buckets\"><table><thead><tr>");
     s.push_str("<th>Model</th><th class=\"num\">Sessions</th><th class=\"num\">Turns</th>");
-    s.push_str(
-        "<th class=\"num\">Out tokens</th><th class=\"num\">Total wall</th></tr></thead><tbody>",
-    );
+    s.push_str("<th class=\"num\">Out tokens</th><th class=\"num\">Total wall</th>");
+    s.push_str("<th class=\"num\">CacheCr</th><th class=\"num\">CacheRd</th>");
+    s.push_str("<th class=\"num\">Hit%</th><th class=\"num\">NetSaved</th>");
+    s.push_str("</tr></thead><tbody>");
     for b in &r.buckets {
+        let (hit, net) = metrics.as_ref().and_then(|m| m.get(&b.model)).map_or_else(
+            || (String::new(), String::new()),
+            |m| {
+                (
+                    format!("{:.1}%", m.hit_rate_honest_pct),
+                    m.saved_net.to_string(),
+                )
+            },
+        );
         let _ = write!(
             s,
-            "<tr><td>{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td></tr>",
+            "<tr><td>{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td></tr>",
             html_escape(&b.model),
             b.session_count,
             b.turn_count,
             b.total_output_tokens,
             human_duration(b.total_duration),
+            b.total_cache_creation,
+            b.total_cache_read,
+            hit,
+            net,
         );
     }
     s.push_str("</tbody></table></section>");
