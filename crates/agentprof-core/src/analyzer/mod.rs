@@ -325,6 +325,51 @@ impl AnalysisReport {
     pub fn total_cache_creation(&self) -> Option<i64> {
         sum_model_tokens(self, |u| u.cache_write_tokens)
     }
+
+    /// Derived cache analytics for this report (per ADR-0023). Sums
+    /// the raw `cache_read_tokens` / `cache_write_tokens` /
+    /// `input_tokens` across every entry in [`Self::model_metrics`],
+    /// then runs [`crate::analyzer::cache::CacheMetrics::from_raw`].
+    ///
+    /// Returns `None` when no model entry had any cache activity
+    /// (`creation == 0 && read == 0` across the whole report, or
+    /// `model_metrics` itself is `None`). Render layers use the
+    /// `None` to skip the cache section / column entirely rather
+    /// than display a row of zeros.
+    ///
+    /// Sums use [`u64::saturating_add`] so a pathological `u64::MAX`
+    /// per-model value cannot panic in debug nor wrap in release.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::analyzer::AnalysisReport;
+    /// use agentprof_core::adapter::AgentKind;
+    /// use agentprof_core::model::SessionMeta;
+    /// use chrono::Utc;
+    ///
+    /// let report = AnalysisReport::new(
+    ///     SessionMeta::new("s".into(), AgentKind::Copilot, Utc::now(), false),
+    /// );
+    /// assert!(report.cache_metrics().is_none());
+    /// ```
+    #[must_use]
+    pub fn cache_metrics(&self) -> Option<crate::analyzer::cache::CacheMetrics> {
+        let metrics = self.model_metrics.as_ref()?;
+        let creation: u64 = metrics
+            .values()
+            .map(|u| u.cache_write_tokens)
+            .fold(0_u64, u64::saturating_add);
+        let read: u64 = metrics
+            .values()
+            .map(|u| u.cache_read_tokens)
+            .fold(0_u64, u64::saturating_add);
+        let input: u64 = metrics
+            .values()
+            .map(|u| u.input_tokens)
+            .fold(0_u64, u64::saturating_add);
+        crate::analyzer::cache::CacheMetrics::from_raw(creation, read, input)
+    }
 }
 
 #[allow(clippy::cast_possible_wrap)]
