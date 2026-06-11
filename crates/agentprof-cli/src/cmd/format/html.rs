@@ -111,6 +111,8 @@ pub fn render(
     let mcp_waste_html = render_mcp_waste_section(sections, mcp_waste);
     let show_mcp_waste = !mcp_waste_html.is_empty();
 
+    let cache_section = build_cache_section(report);
+
     let template = ReportTemplate {
         session_short_id,
         agent: meta.agent.to_string(),
@@ -128,6 +130,7 @@ pub fn render(
         show_tools: sections.contains(&AnalysisSection::ToolRank),
         show_hooks: sections.contains(&AnalysisSection::HookRank),
         show_mcp_waste,
+        cache_section,
         svg_flamegraph: svg,
         turn_rows,
         tool_rows,
@@ -144,6 +147,25 @@ pub fn render(
             "<html><body><h1>HTML render error</h1><pre>{}</pre></body></html>",
             html_escape(&e.to_string())
         )
+    })
+}
+
+/// Build the optional [`CacheSection`] template context from the report.
+///
+/// Returns `Some(CacheSection)` with pre-formatted percentage strings
+/// (e.g. `"55.6%"`) when [`AnalysisReport::cache_metrics`] reports any
+/// cache activity; returns `None` otherwise so the template's
+/// `{% match cache_section %}` arm suppresses the `<section id="cache">`
+/// block entirely (per ADR-0023 D-2).
+fn build_cache_section(report: &AnalysisReport) -> Option<CacheSection> {
+    let m = report.cache_metrics()?;
+    Some(CacheSection {
+        creation: m.creation,
+        read: m.read,
+        hit_pct_honest: format!("{:.1}%", m.hit_rate_honest_pct),
+        hit_pct_naive: format!("{:.1}%", m.hit_rate_naive_pct),
+        saved_net: m.saved_net,
+        saved_gross: m.saved_gross,
     })
 }
 
@@ -296,6 +318,7 @@ struct ReportTemplate {
     show_tools: bool,
     show_hooks: bool,
     show_mcp_waste: bool,
+    cache_section: Option<CacheSection>,
     svg_flamegraph: String,
     turn_rows: Vec<TurnRow>,
     tool_rows: Vec<ToolRow>,
@@ -372,6 +395,23 @@ struct HookRow {
     call_count: String,
     fail_count: String,
     total_duration: String,
+}
+
+/// Pre-formatted cache metrics for the optional `<section id="cache">`
+/// block in the HTML report template.
+///
+/// Per ADR-0023 the renderer pre-formats percentage strings in Rust (e.g.
+/// `"55.6%"`) and exposes plain `u64` / `i64` token counts; askama 0.16
+/// renders them verbatim, avoiding any format-filter dialect concerns.
+/// Populated by mapping [`agentprof_core::analyzer::AnalysisReport::cache_metrics`]
+/// to this struct when `Some`; left as `None` to suppress the section.
+struct CacheSection {
+    creation: u64,
+    read: u64,
+    hit_pct_honest: String,
+    hit_pct_naive: String,
+    saved_net: i64,
+    saved_gross: u64,
 }
 
 fn format_duration_short(report: &AnalysisReport) -> String {

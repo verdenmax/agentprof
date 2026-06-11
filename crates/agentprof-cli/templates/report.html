@@ -96,6 +96,25 @@ Started: {{ started_at_utc }} UTC
 {%- if show_mcp_waste %}
 {{ mcp_waste_html|safe }}
 {% endif %}
+{%- match cache_section -%}
+{%- when Some with (c) %}
+
+<section id="cache">
+<h2>Cache</h2>
+<table>
+<thead><tr><th>Metric</th><th class="num">Value</th></tr></thead>
+<tbody>
+<tr><td>Creation tokens</td><td class="num">{{ c.creation }}</td></tr>
+<tr><td>Read tokens</td><td class="num">{{ c.read }}</td></tr>
+<tr><td>Hit% (honest)</td><td class="num">{{ c.hit_pct_honest }}</td></tr>
+<tr><td>Hit% (naive)</td><td class="num">{{ c.hit_pct_naive }}</td></tr>
+<tr><td>Net saved tokens</td><td class="num">{{ c.saved_net }}</td></tr>
+<tr><td>Gross saved tokens</td><td class="num">{{ c.saved_gross }}</td></tr>
+</tbody>
+</table>
+</section>
+{%- when None -%}
+{%- endmatch %}
 
 {% if !warnings.is_empty() %}
 <section id="warnings">

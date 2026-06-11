@@ -44,6 +44,21 @@ prefix used in commit messages).
   all-zero table). 2 new e2e tests in
   `crates/agentprof-cli/tests/cli_analyze_cache_md.rs`.
 
+### Added (M2.5 observational cache analytics — T7)
+
+- **cli: `analyze --export html` now renders a `<section id="cache">`
+  block** ([ADR-0023](docs/internals/adr-0023-observational-cache-analytics.md)
+  D-2). Mirrors the markdown surface (T5): when
+  `AnalysisReport::cache_metrics()` returns `Some`, the askama
+  template renders a 6-row metrics table after the MCP-waste section
+  and before warnings; otherwise the section is omitted and HTML
+  output is byte-identical to v0.3.0 for reports without cache
+  activity (all 5 existing `analyze_html__*` snapshots unchanged).
+  Percentages are pre-formatted in Rust (`"55.6%"`) and exposed via
+  a `CacheSection` template helper, avoiding askama 0.16
+  format-filter dialect concerns. 2 new e2e tests in
+  `crates/agentprof-cli/tests/cli_analyze_cache_html.rs`.
+
 > Next milestone TBD. See [`docs/plan.md`](docs/plan.md) roadmap.
 
 ## [0.3.0] - 2026-06-10

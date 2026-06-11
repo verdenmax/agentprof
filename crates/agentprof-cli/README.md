@@ -132,7 +132,7 @@ agentprof analyze --export html > report.html              # warns; prefer --out
 agentprof analyze --export html --output report.html --section turn-summary,tool-rank
 ```
 
-**Content:** Header (session ID + agent + model + duration + counts) → SVG flamegraph (responsive, colored by ToolSource) → Turn Summary → Tool Rank → Hook Rank → Warnings.
+**Content:** Header (session ID + agent + model + duration + counts) → SVG flamegraph (responsive, colored by ToolSource) → Turn Summary → Tool Rank → Hook Rank → MCP Waste (opt-in) → Cache (only when `cache_metrics()` is `Some`; M2.5 / ADR-0023 D-2) → Warnings.
 
 **Notes:**
 - `--section` filter respected (same as `--export md`).
