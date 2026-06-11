@@ -585,8 +585,14 @@ opportunistic re-upsert。详见 [ADR-0018](internals/adr-0018-session-datasourc
 | 0 | 成功 |
 | 1 | 用户错误（参数 / 路径 / 配置） |
 | 2 | 数据错误（session 无法解析）—— stderr 列出失败列表 |
-| 3 | 外部服务错误（Anthropic API / OTLP receiver） |
+| 3 | 输出 / I/O 错误（文件写入失败 / 非-TTY 启动 TUI / 监听器绑定失败 / TUI 运行时错误 / 外部服务调用失败）—— 任何"无法把结果送出"的失败 |
 | 130 | SIGINT |
+
+> **历史注**：早期 spec 把 code 3 限定为"外部服务错误"，但 M1.x → M2.x 实施中
+> 该 code 自然吸收了所有 output / I/O 类失败（文件写入、TUI 非-TTY、OTLP 监听器
+> 绑定等）。截至 v0.3.1 该用法已稳定，spec 在此对齐 code 实际行为而非反向。
+> 如需更精细的分类（例如把外部服务调用拆出 code 4），是 v0.4.0+ minor bump 范畴
+> 的提议。
 
 ---
 
@@ -1266,10 +1272,13 @@ crates.io publishing (currently disabled by [D-1](internals/adr-0014-v0.1.0-rele
 
 ## 18. 待回答 / 后续 spec 化的问题
 
-> Phase 0 已回答的问题（M1.2 + M1.3 闭环）：~~Copilot CLI 日志真实 schema~~（见 ADR-0002 Update）；剩下的是 Phase 2/3 的问题。
+> Phase 0 已回答的问题（M1.2 + M1.3 闭环）：~~Copilot CLI 日志真实 schema~~（见 ADR-0002 Update）。
+>
+> 以下 4 个 v0.2.0+ / v0.3.0+ 问题在 2026-06-11 post-v0.3.1 doc-sweep 中**全部回标**（实际答案与决策依据见各项）：
 
-- [ ] Speedscope JSON 用 "evented" 还是 "sampled" 格式（取决于 turn-level 还是 token-level 粒度）
-- [ ] HTML 报告是否走 single-file（base64 内嵌 d3.js）还是多文件
-- [ ] OTLP receiver 是否对外暴露作为独立 binary（如 `agentprof-otlp-collector`）
-- [x] **Q4a — observational prompt-cache analytics**：surface cache hit-rate + saved tokens across analyze / list / aggregate / TUI. ✅ **closed by M2.5 / v0.4.0**（[ADR-0023](internals/adr-0023-cache-metrics.md)）— `CacheMetrics` struct + 6 design decisions (honest + naive hit-rate, net + gross saved tokens with `CACHE_READ_DISCOUNT=0.9` / `CACHE_WRITE_PREMIUM=0.25` Claude Sonnet 4.x 2026-06 rates, `None`-on-zero-activity, no cache cols for `--by tool` / `--by mcp-server`). Also closes audit finding F-NEW-2 (write-only `total_cache_*` schema columns now have a read path).
-- [ ] **Q4b — prompt-prefix recommendation engine**：identify cacheable stable schema prefixes and synthesize `cache_control` placement suggestions. **deferred** — requires algorithms over prompt content (not just token counts) + opinionated heuristics; M2.5 is deliberately observational only (per ADR-0023 scope statement).
+- [x] ~~Speedscope JSON 用 "evented" 还是 "sampled" 格式~~ → **evented**（M1.6.4 ship 时已选）。3 个理由：(1) 准确，事件时间戳直接取自 OTLP/adapter；(2) 紧凑，每个 frame 只 2 个事件（O/C）vs sampled 的 N 个 stack 快照；(3) 保留 call-graph 层次（sampled 会丢）。详见 [ADR-0007 §D-1](internals/adr-0007-speedscope-export.md) + `crates/agentprof-core/src/export/speedscope.rs:1` 模块标题。
+- [x] ~~HTML 报告 single-file 还是多文件~~ → **single-file**（M1.6.4 ship 时已选）。`crates/agentprof-cli/templates/report.html` + `aggregate.html` 通过 `{{ embedded_css|safe }}` 内嵌 CSS、`{{ svg_flamegraph|safe }}` 内嵌 SVG，**零外部依赖**（不需要 d3.js / CDN / 配套目录）。用户可 email / 上传 issue / 离线归档。
+- [x] ~~OTLP receiver 是否对外暴露作为独立 binary~~ → **不做**，保持 `agentprof ingest-otlp` subcommand（M2.2 ship 决策；本次显式 codify）。理由：(1) 单一 binary distribution 简单（cargo-dist 出一个 artifact）；(2) shared storage / config / CLI infra 无重复；(3) 即使部署到 k8s / 容器，子命令运行的也是同一个进程，独立 binary 没本质差异。**Escape hatch**：若未来出现"只想要 receiver、不要 analyze / TUI"的真实需求（例如 server-only minimal image），`cargo-dist` 已支持 extra binary artifact，可加 thin wrapper —— 详见 [ADR-0021](internals/adr-0021-otlp-receiver-architecture.md) Implementation Notes (post-v0.3.1 addendum)。
+- [x] **prompt caching 优化** → **拆为 Q4a + Q4b**：
+  - **Q4a 观察性 cache 分析**（render `cache_creation_tokens` + `cache_read_tokens` 列） — ✅ **closed by M2.5 / v0.3.1**（[ADR-0023](internals/adr-0023-cache-metrics.md)）。`CacheMetrics` struct + 6 design decisions (honest + naive hit-rate, net + gross saved tokens with `CACHE_READ_DISCOUNT=0.9` / `CACHE_WRITE_PREMIUM=0.25` Claude Sonnet 4.x 2026-06 rates, `None`-on-zero-activity, no cache cols for `--by tool` / `--by mcp-server`). Surfaced across analyze md/json/html + list + aggregate (model/day) md/csv/html + TUI Models view. Also closes audit finding F-NEW-2 (write-only `total_cache_*` schema columns now have a read path).
+  - **Q4b 推荐引擎**（"建议你缓存这个 tool_schema 前缀"） — **defer**。需要 cross-session prompt 前缀比对算法 + Anthropic 缓存 SLA 细则（5 分钟 idle expire / 1024 token 最低门槛 / 模型差异化定价）+ 用户反馈信号决定推荐粒度。**触发条件**：Q4a 上线后收集实际用户反馈；若有人明确说"知道有 cache 浪费但不知道怎么改"，再启动 Q4b 的 brainstorming。在此之前 over-engineer 风险高（M2.5 deliberately observational only per ADR-0023 scope statement）。

@@ -26,10 +26,8 @@ fn from_partial_resolves_with_defaults() {
 
 #[test]
 fn from_partial_disable_grpc_via_empty_string() {
-    let partial = PartialOtlpServerConfig {
-        listen_grpc: Some(String::new()),
-        ..Default::default()
-    };
+    let mut partial = PartialOtlpServerConfig::default();
+    partial.listen_grpc = Some(String::new());
     let cfg = OtlpServerConfig::from_partial(partial).unwrap();
     assert!(
         cfg.listen_grpc.is_none(),
@@ -58,11 +56,9 @@ async fn grpc_server_binds_and_shuts_down() {
 
 #[test]
 fn from_partial_parses_humantime_durations() {
-    let partial = PartialOtlpServerConfig {
-        session_idle_timeout: Some("2m".to_owned()),
-        shutdown_grace: Some("30s".to_owned()),
-        ..Default::default()
-    };
+    let mut partial = PartialOtlpServerConfig::default();
+    partial.session_idle_timeout = Some("2m".to_owned());
+    partial.shutdown_grace = Some("30s".to_owned());
     let cfg = OtlpServerConfig::from_partial(partial).unwrap();
     assert_eq!(cfg.session_idle_timeout, Duration::from_secs(120));
     assert_eq!(cfg.shutdown_grace, Duration::from_secs(30));

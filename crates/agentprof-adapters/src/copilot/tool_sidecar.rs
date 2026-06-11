@@ -13,6 +13,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use agentprof_core::analyzer::waste::{SidecarLookup, SidecarToolEntry};
+use agentprof_core::observability::pii::hash_path;
 
 /// Errors from [`load_sidecar`] — only fired for explicit-path failures.
 #[derive(Debug, thiserror::Error)]
@@ -155,7 +156,7 @@ impl SidecarToolEntry for ToolEntry {
 ///     Err(e) => eprintln!("sidecar load failed: {e}"),
 /// }
 /// ```
-#[tracing::instrument(name = "adapter.tool_sidecar", skip_all, fields(path = %path.display()))]
+#[tracing::instrument(name = "adapter.tool_sidecar", skip_all, fields(path = %hash_path(path)))]
 pub fn load_sidecar(path: &Path) -> Result<Sidecar, SidecarError> {
     // Audit B3: pre-fix this used `.map_err(|_| NotFound(...))` which
     // collapsed every I/O failure (permission denied, stale NFS handle,
@@ -218,14 +219,14 @@ fn load_per_server_dir(dir: &Path) -> Result<Sidecar, SidecarError> {
         let bytes = match std::fs::read(&p) {
             Ok(b) => b,
             Err(e) => {
-                tracing::warn!(path = %p.display(), error = %e, "skip unreadable sidecar file");
+                tracing::warn!(path = %hash_path(&p), error = %e, "skip unreadable sidecar file");
                 continue;
             }
         };
         let tools = match parse_per_server_file(&bytes) {
             Ok(t) => t,
             Err(e) => {
-                tracing::warn!(path = %p.display(), error = %e, "skip malformed sidecar file");
+                tracing::warn!(path = %hash_path(&p), error = %e, "skip malformed sidecar file");
                 continue;
             }
         };

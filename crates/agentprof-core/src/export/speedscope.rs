@@ -278,6 +278,7 @@ impl Event {
 /// assert_eq!(serde_json::to_string(&EventType::Close).unwrap(), "\"C\"");
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum EventType {
     /// `"O"` — open / enter frame.
     #[serde(rename = "O")]

@@ -454,13 +454,11 @@ mod tests {
     /// File partial provides defaults when CLI omits flags.
     #[test]
     fn t82_config_file_provides_defaults_when_cli_omits_flags() {
-        let file = PartialOtlpServerConfig {
-            listen_grpc: Some("127.0.0.1:9317".to_string()),
-            listen_http: Some(String::new()), // disable HTTP from file
-            listen_token: Some("from-file".to_string()),
-            session_idle_timeout: Some("10m".to_string()),
-            ..Default::default()
-        };
+        let mut file = PartialOtlpServerConfig::default();
+        file.listen_grpc = Some("127.0.0.1:9317".to_string());
+        file.listen_http = Some(String::new()); // disable HTTP from file
+        file.listen_token = Some("from-file".to_string());
+        file.session_idle_timeout = Some("10m".to_string());
         let cfg = build_otlp_server_config(&args(false, false), Some(file))
             .expect("file partial validates");
         assert_eq!(cfg.listen_grpc.unwrap().to_string(), "127.0.0.1:9317");
@@ -475,12 +473,10 @@ mod tests {
     /// CLI flags override the config-file block on a per-field basis.
     #[test]
     fn t82_cli_args_override_config_file() {
-        let file = PartialOtlpServerConfig {
-            listen_grpc: Some("127.0.0.1:4317".to_string()),
-            listen_token: Some("from-file".to_string()),
-            session_idle_timeout: Some("10m".to_string()),
-            ..Default::default()
-        };
+        let mut file = PartialOtlpServerConfig::default();
+        file.listen_grpc = Some("127.0.0.1:4317".to_string());
+        file.listen_token = Some("from-file".to_string());
+        file.session_idle_timeout = Some("10m".to_string());
         let mut a = args(false, false);
         a.grpc = Some("0.0.0.0:9000".parse().unwrap());
         a.bearer_token = Some("from-cli".to_string());
@@ -506,10 +502,8 @@ mod tests {
     /// `--no-grpc` always wins even if the file partial sets a value.
     #[test]
     fn t82_cli_disable_flag_overrides_file_listener() {
-        let file = PartialOtlpServerConfig {
-            listen_grpc: Some("127.0.0.1:9317".to_string()),
-            ..Default::default()
-        };
+        let mut file = PartialOtlpServerConfig::default();
+        file.listen_grpc = Some("127.0.0.1:9317".to_string());
         let cfg = build_otlp_server_config(&args(true, false), Some(file)).expect("validates");
         assert!(cfg.listen_grpc.is_none());
         assert!(cfg.listen_http.is_some());

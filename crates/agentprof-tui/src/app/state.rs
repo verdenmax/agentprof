@@ -39,6 +39,7 @@ pub enum SortKey {
 
 /// Action returned by [`dispatch`] for the run loop to act on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Action {
     /// Continue the loop; no special action.
     None,

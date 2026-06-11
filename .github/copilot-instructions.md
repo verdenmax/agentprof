@@ -415,7 +415,7 @@ ADR 编号 NNNN 单调递增（从 `0001` 开始），合并冲突时取已合 P
 8. **解析单个 session 失败不能拖垮整个命令**：`aggregate`/`list` 用 `Vec<Result<…>>` 收集，末尾 stderr 汇总失败计数。
 9. **Conventional Commits**：`feat:` / `fix:` / `refactor:` / `docs:` / `test:` / `chore:` / `BREAKING:`。
 10. **依赖图无环**：lib crate 之间不允许 cycle；CI 通过 grep + `cargo metadata` 校验。
-11. **退出码**：`0` 成功 / `1` 用户错误 / `2` 数据错误 / `3` 外部服务错误 / `130` SIGINT。
+11. **退出码**：`0` 成功 / `1` 用户错误 / `2` 数据错误 / `3` 输出 / I/O 错误（含文件写入失败、非-TTY 启动 TUI、监听器绑定失败、外部服务调用失败 —— 见 `docs/architecture.md` §8.1） / `130` SIGINT。
 12. **新 adapter 必须**：`crates/agentprof-adapters/src/<name>.rs` 实现 `Adapter` trait + `registry.rs` 注册 + ≥1 anonymized fixture（`crates/agentprof-adapters/tests/fixtures/<name>/`）+ ≥1 `assert_cmd` 集成测试 + 更新 `docs/adapters.md`。
 
 ---

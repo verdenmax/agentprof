@@ -288,6 +288,34 @@ alternatives were rejected:
   endpoint info) must go through SemVer + CHANGELOG and provide a
   backward-compatible read path.
 
+### post-v0.3.1 addendum (2026-06-11) — receiver-as-subcommand decision
+
+`docs/architecture.md` §18 originally posed an open question: should
+the OTLP receiver ship as a standalone binary (`agentprof-otlp-collector`)
+in addition to the `agentprof ingest-otlp` subcommand? After v0.3.0
+shipped, this was explicitly closed: **keep subcommand only, no
+separate binary** at this stage. Rationale:
+
+1. **Single binary distribution** is materially simpler — cargo-dist
+   builds one artifact per platform; users get one `agentprof` to
+   install regardless of whether they want analyze, list, watch,
+   ingest-otlp, or db.
+2. **No code duplication** — sharing `agentprof-storage`, `agentprof-cli::config`,
+   and the `[otlp]` config-file parser avoids two copies of the same
+   logic.
+3. **Operational parity** — running the subcommand in a container /
+   k8s pod produces the same single-process listener; there is no
+   meaningful overhead vs. a separate binary.
+
+**Escape hatch retained**: if a real need surfaces for a
+receiver-only minimal image (e.g. distroless container with no
+TUI / no analyze surface), `cargo-dist` already supports extra
+binary artifacts. A thin wrapper invoking `agentprof::cmd::ingest_otlp::run`
+can be added without disturbing the main `agentprof` binary or any
+existing user. Re-open this decision via a new ADR if such demand
+arrives.
+
+
 ## References
 
 - Spec: `docs/superpowers/specs/2026-06-10-m2.2-otlp-receiver-design.md`

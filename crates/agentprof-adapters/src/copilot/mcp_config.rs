@@ -9,6 +9,8 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use agentprof_core::observability::pii::hash_path;
+
 /// Outcome of best-effort `mcp.json` parsing. `tools = None` when the
 /// schema does not enumerate per-server tool lists (most common `VSCode`
 /// shape); `tools = Some(_)` when present (self-describing shape).
@@ -42,7 +44,7 @@ pub struct ServerInfo {
 /// assert!(r.is_none());
 /// ```
 #[must_use]
-#[tracing::instrument(name = "adapter.mcp_config", skip_all, fields(path = %path.display()))]
+#[tracing::instrument(name = "adapter.mcp_config", skip_all, fields(path = %hash_path(path)))]
 pub fn load_mcp_config(path: &Path) -> Option<ParsedMcpConfig> {
     let bytes = match std::fs::read(path) {
         Ok(b) => b,

@@ -46,6 +46,7 @@ fn nesting_holds(events: &[Event]) -> bool {
                 Some(top) if top == ev.frame => {}
                 _ => return false,
             },
+            _ => return false,
         }
     }
     stack.is_empty()

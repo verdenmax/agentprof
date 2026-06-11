@@ -24,6 +24,7 @@
 /// assert_eq!(View::McpWaste.prev(), View::Models);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum View {
     /// Per-turn horizontal gantt of tool calls; rendered by `views::flamegraph`.
     Flamegraph,

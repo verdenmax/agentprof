@@ -9,12 +9,15 @@
 //! one: subcommands depend on a shared exit taxonomy, not on each
 //! other.
 //!
-//! Mapped to process exit codes per `docs/architecture.md`:
+//! Mapped to process exit codes per `docs/architecture.md` §8.1:
 //!
-//! - `UserError = 1` — invalid args, session not found.
-//! - `DataError = 2` — adapter could not parse the session.
-//! - `OutputError = 3` — failed to write to `--output` path, or TUI
-//!   subcommand invoked from a non-TTY context.
+//! - `UserError = 1` — invalid args, session not found, bad config.
+//! - `DataError = 2` — adapter / DB / mapper could not parse session data.
+//! - `OutputError = 3` — any "could not deliver the result" failure:
+//!   file write, non-TTY TUI start, JSON / HTML render, OTLP listener
+//!   bind, TUI runtime, OTLP server task exit, external service call.
+//!   The name predates the broader use case but is preserved for
+//!   stability — see `docs/architecture.md` §8.1 historical note.
 //!
 //! `main()`'s `classify_error` downcasts the `anyhow::Error` chain to
 //! `ExitKind` to pick the process exit code; the

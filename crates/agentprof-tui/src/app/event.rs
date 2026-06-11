@@ -23,6 +23,7 @@ use crossterm::event::{Event as CtEvent, KeyCode, KeyEvent, KeyModifiers};
 /// user-visible event for animations / status footer) is non-breaking;
 /// remove if a 1.0 cleanup decides the variant pays no rent.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Event {
     /// Key pressed (any modifier set).
     Key(KeyEvent),

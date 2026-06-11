@@ -208,15 +208,14 @@ impl OtlpServerConfig {
 ///
 /// ```
 /// use agentprof_storage::otlp::config::{OtlpServerConfig, PartialOtlpServerConfig};
-/// let partial = PartialOtlpServerConfig {
-///     listen_grpc: Some(String::new()), // disable gRPC
-///     ..Default::default()
-/// };
+/// let mut partial = PartialOtlpServerConfig::default();
+/// partial.listen_grpc = Some(String::new()); // disable gRPC
 /// let cfg = OtlpServerConfig::from_partial(partial).unwrap();
 /// assert!(cfg.listen_grpc.is_none());
 /// ```
 #[derive(Debug, Default, Clone, serde::Deserialize)]
 #[serde(default, deny_unknown_fields)]
+#[non_exhaustive]
 pub struct PartialOtlpServerConfig {
     /// gRPC listener address as a string (`"host:port"`); empty string disables.
     pub listen_grpc: Option<String>,
