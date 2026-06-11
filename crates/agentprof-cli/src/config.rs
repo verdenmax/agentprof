@@ -78,6 +78,61 @@ pub struct PartialConfig {
     /// (possibly overridden by CLI flags).
     #[cfg(feature = "otlp")]
     pub otlp: Option<agentprof_storage::otlp::config::PartialOtlpServerConfig>,
+
+    /// `[serve]` section — see [`PartialServeConfig`] (M2.3, `web`
+    /// feature).
+    ///
+    /// `None` means the section was absent from the TOML file; the
+    /// `serve` command's resolver then falls back to built-in defaults
+    /// (`bind = "127.0.0.1:4329"`, `interval_default = 5`,
+    /// `auto_open = true`), possibly overridden by CLI flags.
+    #[cfg(feature = "web")]
+    pub serve: Option<PartialServeConfig>,
+}
+
+/// `[serve]` config-file block (M2.3) — all fields optional.
+///
+/// Resolved into a complete runtime config by
+/// `crate::cmd::serve::resolve_serve_config` with priority
+/// **CLI flag > `[serve]` file block > built-in default**.
+///
+/// Mirrors the [`agentprof_storage::otlp::config::PartialOtlpServerConfig`]
+/// pattern shipped in M2.2 T8.2 so the user-facing TOML stays uniform
+/// across subcommands.
+///
+/// # Examples
+///
+/// ```
+/// use agentprof_cli::config::{parse_toml, PartialServeConfig};
+/// let cfg = parse_toml(
+///     "[serve]\nbind = \"0.0.0.0:9000\"\ninterval_default = 10\n",
+/// )
+/// .expect("valid toml");
+/// let serve: PartialServeConfig = cfg.serve.expect("serve section present");
+/// assert_eq!(serve.bind.as_deref(), Some("0.0.0.0:9000"));
+/// assert_eq!(serve.interval_default, Some(10));
+/// assert_eq!(serve.auto_open, None);
+/// ```
+#[cfg(feature = "web")]
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+#[non_exhaustive]
+pub struct PartialServeConfig {
+    /// Bind address as a string (e.g. `"127.0.0.1:4329"`).
+    ///
+    /// Parsed into a [`std::net::SocketAddr`] by the resolver; a
+    /// malformed value surfaces as a `UserError` at command start, not
+    /// at config-load time, so the rest of the file can still be read.
+    pub bind: Option<String>,
+
+    /// Browser-side default poll interval in seconds. Allowed range
+    /// `1..=60`; out-of-range values are rejected by the resolver.
+    pub interval_default: Option<u8>,
+
+    /// Whether to open the user's browser on start. When omitted, the
+    /// resolver defaults to `true`. The CLI `--no-open` flag forces
+    /// `false` regardless of this setting.
+    pub auto_open: Option<bool>,
 }
 
 /// Errors raised while loading / merging the CLI config.
