@@ -26,7 +26,7 @@
 | TUI | `ratatui` + `crossterm` | 火焰图、ROI 表、聚合视图 |
 | Tokenizer | `tiktoken-rs`（本地）+ Anthropic `count_tokens` API（可选） | 本地优先策略，离线可用 |
 | 存储 | `rusqlite`（bundled） | 单文件 SQLite，XDG 路径 |
-| Telemetry receiver | `opentelemetry-otlp` + `tonic`（feature gated） | Phase 2 启用 |
+| Telemetry receiver | `tonic` + `axum` + `opentelemetry-proto`（feature gated `otlp`） | Phase 2 ✅ shipped (v0.2.1 unhardened / v0.3.0 hardened) |
 | HTML 渲染 | `askama`（编译期模板） + 内嵌 d3.js | 单文件 HTML 报告 |
 | CLI 解析 | `clap` derive | env + 默认值整合 |
 | 错误模型 | `thiserror`（lib） / `anyhow`（bin） | 严格分层 |
@@ -1255,8 +1255,8 @@ crates.io publishing (currently disabled by [D-1](internals/adr-0014-v0.1.0-rele
 | Phase | 启用的 crate / feature | 里程碑 | 状态 |
 |---|---|---|---|
 | **Phase 0** prototype | `agentprof-core` + `agentprof-adapters::copilot` + `agentprof-cli`（只 `analyze --export md\|json`） | events.jsonl → markdown 报告跑通 | ✅ M1.1–M1.4 已交付 |
-| **Phase 1** MVP | + `agentprof-tui`（火焰图 + ROI 表）+ `analyze --export tui` + `list` / `aggregate` 子命令 + 多种 `--export` 格式 + `watch` 子命令 + 全工程结构化 tracing | TUI 可交互 + 跨 session 聚合 + 可分享报告 + 实时刷新 + 可观测性 | 🟡 M1.5 ✅ shipped（[ADR-0006](internals/adr-0006-panic-safe-tui.md)）；**M1.6.1 ✅ shipped**（`list` 子命令 + 8 polish）；**M1.6.2 ✅ shipped**（`aggregate` 子命令，[ADR-0008](internals/adr-0008-aggregate-report-and-utilization.md)）；**M1.6.3 ✅ shipped 2026-06-01**（`watch` 子命令 + `aggregate --export tui` 激活，[ADR-0009](internals/adr-0009-watch-runner-and-notify.md)）；**M1.6.4 ✅ shipped 2026-06-02**（先 `--export speedscope\|html` ✅ shipped 2026-05-31, [ADR-0007](internals/adr-0007-speedscope-export.md)；再 tracing 基础设施 ✅ shipped 2026-06-02 — canonical observability across all 5 crates, 13 `eprintln!` → `tracing`, 全局 `--log-level` / `--log-file` + XDG state log + PII hash, 4-layer span topology, [ADR-0010](internals/adr-0010-tracing-infrastructure.md)）；M1.6.5 (MCP waste) / M1.7 (v0.1.0 release) 进行中 |
-| **Phase 2** 工程化 | + `agentprof-storage`（SQLite + 持久化）+ `ingest-otlp` 子命令（启用 `otlp` feature）+ tokenizer + ROI + waste estimation | 跨 session 数据库 + 实时 OTLP + 精确 token 成本 | ❌ 未开始 |
+| **Phase 1** MVP | + `agentprof-tui`（火焰图 + ROI 表）+ `analyze --export tui` + `list` / `aggregate` 子命令 + 多种 `--export` 格式 + `watch` 子命令 + 全工程结构化 tracing + MCP waste + token cost | TUI 可交互 + 跨 session 聚合 + 可分享报告 + 实时刷新 + 可观测性 + waste 信号 | ✅ **shipped v0.1.0 (2026-06-06)** — M1.5 ([ADR-0006](internals/adr-0006-panic-safe-tui.md)) + M1.6.1/2/3 (`list`/`aggregate`/`watch`, [ADR-0008](internals/adr-0008-aggregate-report-and-utilization.md), [ADR-0009](internals/adr-0009-watch-runner-and-notify.md)) + M1.6.4 (speedscope/html + tracing infra, [ADR-0007](internals/adr-0007-speedscope-export.md), [ADR-0010](internals/adr-0010-tracing-infrastructure.md)) + M1.6.5/6 (MCP waste + token cost) + M1.7 (cargo-dist release, [ADR-0014](internals/adr-0014-v0.1.0-release-strategy.md)) |
+| **Phase 2** 工程化 | + `agentprof-storage`（SQLite + 持久化）+ `ingest-otlp` 子命令（启用 `otlp` feature）+ OTLP receiver hardening + tokenizer + ROI + waste estimation | 跨 session 数据库 + 实时 OTLP + 精确 token 成本 + DoS-safe receiver | ✅ **shipped v0.2.0 / v0.2.1 / v0.3.0 (2026-06-10)** — M2.1 SQLite persistence + M2.1.1 aggregate dual-path (v0.2.0) + M2.2 OTLP receiver gRPC+HTTP, Logs+Metrics+Traces, Bearer+mTLS (v0.2.1, [ADR-0021](internals/adr-0021-otlp-receiver-architecture.md)) + M2.4 hardening: constant-time bearer / per-signal request caps / LRU session eviction / 256-byte session.id cap (v0.3.0, [ADR-0022](internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md)). Tokenizer + ROI 自 M1.4 起已交付（实际归 Phase 1）。 |
 | **Phase 3** 多 agent | + `agentprof-adapters::claude` + `agentprof-adapters::codex` (+ 可选 Gemini) | 三 agent 全支持 | ❌ 未开始 |
 
 > **Adapter 顺序的 events-first pivot**（ADR-0001）：原 Phase 0 计划用 `agentprof-adapters::claude`（因为 Claude session 最常见）；实际 M1.2 改做 Copilot 因为 Copilot CLI 的 events.jsonl 是事件流，比 Claude 的"最终对话日志 + 重做 tokenize"更适合 MVP 快速验证。Claude / Codex adapter 推迟到 Phase 3。
