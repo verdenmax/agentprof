@@ -44,3 +44,10 @@ coverage/
 # superpowers brainstorming visual companion sessions
 # (mockup HTML files + state — not source artifacts)
 .superpowers/
+
+# Visual guide — generated HTML (source-of-truth is xtask + assets/)
+docs/visual-guide/*.html
+docs/visual-guide/usage/
+docs/visual-guide/wiki/
+!docs/visual-guide/.gitkeep
+!docs/visual-guide/README.md
