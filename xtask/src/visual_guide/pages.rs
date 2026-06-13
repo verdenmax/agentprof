@@ -70,7 +70,13 @@ pub const PAGES: &[LessonEntry] = &[
             "用 Rust 写的开源 token profiler — 给 AI agent 用的 perf flamegraph + ROI 报告器。",
         section: Section::Usage,
     },
-    // T9-T18 will add more
+    LessonEntry {
+        filename: "02-install.html",
+        title: "5 分钟上手",
+        description: "从 cargo install 到第一次跑 analyze — 5 分钟跑出第一张火焰图。",
+        section: Section::Usage,
+    },
+    // T10-T18 will add more
 ];
 
 #[derive(Template)]
