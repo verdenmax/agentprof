@@ -6,7 +6,7 @@
 //! names from the live crate; cross-checked against
 //! `crates/agentprof-core/src/{adapter,episode,analyzer}` at T15.
 
-use super::components::{accordion, comparison_table, flow_diagram, source_ref};
+use super::components::{accordion, comparison_table, flow_diagram, schema_table, source_ref};
 
 /// Render the HTML body for wiki lesson 2.
 ///
@@ -29,7 +29,50 @@ pub fn render() -> String {
 <p class="lead">
 agentprof 的数据生命周期是 <strong>3 层</strong>：原始 <code>Event</code> 流 → 聚合成 <code>Episodes</code>（一个 turn 内 tool / hook / skill 调用集合）→ 计算 <code>AnalysisReport</code>（整 session rollup 统计）。<strong>每一层独立可序列化、可单元测试</strong>，分别解决「忠实记录」「聚合视图」「OLAP 报表」三类问题。本课把每个类型的真实字段、入口函数、容错策略一次讲清。
 </p>
+"#);
 
+    s.push_str(&schema_table(&[
+        ("meta", "SessionMeta", "✓", "id / agent / started_at"),
+        (
+            "turn_summary",
+            "Vec&lt;TurnSummaryRow&gt;",
+            "✓",
+            "per-turn token + duration",
+        ),
+        (
+            "tool_rank",
+            "Vec&lt;ToolRankRow&gt;",
+            "✓",
+            "top tools by total_duration + p50/p95",
+        ),
+        ("hook_rank", "Vec&lt;HookRankRow&gt;", "✓", "hook 调用排序"),
+        (
+            "model_metrics",
+            "BTreeMap&lt;String, ModelUsage&gt;",
+            "✓",
+            "per-model token counts",
+        ),
+        (
+            "warnings",
+            "Vec&lt;DeriveWarning&gt;",
+            "—",
+            "analyzer-time 警告",
+        ),
+        (
+            "parse_warnings",
+            "Vec&lt;ParseWarning&gt;",
+            "—",
+            "parser-time 警告",
+        ),
+        (
+            "loaded_mcp_tools",
+            "BTreeSet&lt;String&gt;",
+            "—",
+            "本 session 加载过的 MCP tool",
+        ),
+    ]));
+
+    s.push_str(r#"
 <div class="card analogy">
   <div class="tag">🛢️ 工程类比 — 像数据库的 normalize → denormalize</div>
   <ul style="margin:.5em 0 0 1.2em">

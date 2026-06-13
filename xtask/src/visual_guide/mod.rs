@@ -622,6 +622,7 @@ mod wiki_02_test {
         assert!(html.contains("<svg class=\"diagram\""));
         // 4 节点 pipeline 标签
         assert!(html.contains("events.jsonl"));
+        assert!(html.contains("schema-table"));
     }
 }
 
@@ -651,6 +652,7 @@ mod wiki_01_test {
         assert!(html.contains("L1"));
         assert!(html.contains("L2"));
         assert!(html.contains("L3"));
+        assert!(html.contains("metric-grid"));
     }
 }
 
@@ -705,6 +707,7 @@ mod wiki_03_test {
         assert!(html.contains("crates/agentprof-core/src/adapter.rs"));
         assert!(html.contains("crates/agentprof-adapters/src/registry.rs"));
         assert!(html.contains("crates/agentprof-adapters/src/copilot/adapter.rs"));
+        assert!(html.contains("schema-table"));
     }
 }
 
@@ -771,6 +774,7 @@ mod wiki_04_test {
         assert!(html.contains("crates/agentprof-core/src/analyzer/mod.rs"));
         assert!(html.contains("crates/agentprof-core/src/analyzer/cache.rs"));
         assert!(html.contains("crates/agentprof-core/src/analyzer/waste.rs"));
+        assert!(html.contains("metric-grid"));
     }
 }
 
@@ -806,6 +810,7 @@ mod wiki_05_test {
         // 2 source_ref
         assert!(html.contains("crates/agentprof-storage/src/db.rs"));
         assert!(html.contains("crates/agentprof-storage/src/config.rs"));
+        assert!(html.contains("schema-table"));
     }
 }
 
@@ -846,6 +851,7 @@ mod wiki_06_test {
         // 2 source_ref
         assert!(html.contains("crates/agentprof-storage/src/otlp/server_grpc.rs"));
         assert!(html.contains("crates/agentprof-storage/src/otlp/server_http.rs"));
+        assert!(html.contains("metric-grid"));
     }
 }
 
@@ -883,6 +889,7 @@ mod wiki_07_test {
         // 2 source_ref
         assert!(html.contains("crates/agentprof-cli/src/cmd/serve/router.rs"));
         assert!(html.contains("crates/agentprof-cli/src/cmd/serve/handlers.rs"));
+        assert!(html.contains("<svg class=\"diagram\""));
     }
 }
 
@@ -915,5 +922,6 @@ mod wiki_08_test {
         // Wiki 8 link: 手写 a 链接到 .github/* 或 CONTRIBUTING.md
         assert!(html.contains("CONTRIBUTING.md") || html.contains("copilot-instructions.md"));
         assert!(html.contains("github.com/verdenmax/agentprof"));
+        assert!(html.contains("step-list"));
     }
 }

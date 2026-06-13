@@ -24,7 +24,7 @@
 //!     for non-crate paths (`.github/...`, `CONTRIBUTING.md`) the
 //!     correct pattern is hand-written `<a href="...">`.
 
-use super::components::{accordion, comparison_table};
+use super::components::{accordion, comparison_table, step_list};
 
 /// Render the HTML body for wiki lesson 8.
 ///
@@ -47,7 +47,33 @@ pub fn render() -> String {
 <p class="lead">
 给 agentprof 提 PR 不是「随便写写然后 push」—— 整个流程被钉成一个 <strong>9 阶段 pipeline</strong>（详见 <a href="https://github.com/verdenmax/agentprof/blob/main/.github/copilot-instructions.md"><code>.github/copilot-instructions.md</code></a> §5）：从 brainstorming 起步、写 spec、必要时写 ADR、写 plan、TDD 实现、本地 gate 验证、PR 审、合并。每个 stage 有专门 skill 支撑（meta、TDD、ADR、release 等）。Commit message 走 <strong>Conventional Commits</strong>，CHANGELOG 走 <strong>Keep a Changelog</strong>，SemVer 严格执行。
 </p>
+"#);
 
+    s.push_str(&step_list(&[
+        ("Stage 0 — Boot", "using-superpowers / 项目规约加载"),
+        ("Stage 1 — Discovery", "brainstorming → design.md"),
+        (
+            "Stage 2 — Decision",
+            "create-architectural-decision-record (按需)",
+        ),
+        ("Stage 3 — Planning", "writing-plans → plan.md"),
+        (
+            "Stage 4 — Implementation",
+            "TDD：failing test → 实现 → green",
+        ),
+        ("Stage 5 — CI / Infra", "横切层：改 workflow 时触发"),
+        ("Stage 6 — Debugging", "横切层：fail 时返回原 stage"),
+        (
+            "Stage 7 — Completion",
+            "verification-before-completion + review",
+        ),
+        (
+            "Stage 8 — Release",
+            "github-release: tag + CHANGELOG + GH Release",
+        ),
+    ]));
+
+    s.push_str(r#"
 <div class="card analogy">
   <div class="tag">🐧 类比 — 像 Linux kernel 的 patch flow</div>
   <ul style="margin:.5em 0 0 1.2em">

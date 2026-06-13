@@ -25,7 +25,7 @@
 //!     100 000 events / 5 min idle caps are **per-session** OOM caps
 //!     pre-dating ADR-0022, also in `router.rs:168`.
 
-use super::components::{accordion, comparison_table, flow_diagram, source_ref};
+use super::components::{accordion, comparison_table, flow_diagram, metric_grid, source_ref};
 
 /// Render the HTML body for wiki lesson 6.
 ///
@@ -48,7 +48,16 @@ pub fn render() -> String {
 <p class="lead">
 启用 <code>otlp</code> feature 后，<code>agentprof-storage</code> 内置一个<strong>双栈 OpenTelemetry receiver</strong> —— gRPC 在 <strong>:4317</strong>、HTTP/protobuf 在 <strong>:4318</strong>，原生收 Claude Code / Codex / Copilot CLI / 任何 OTel SDK 的 <code>logs / metrics / traces</code> 三信号，落到 SQLite store。<strong>不需要外置 collector</strong> —— agent 直接 push 到 agentprof，本地循环到「写文件 → 跑 cli」的路径在生产场景里消失。架构由 ADR-0021 钉死，安全硬化由 ADR-0022 钉死。
 </p>
+"#);
 
+    s.push_str(&metric_grid(&[
+        ("Bearer 比较", "subtle::ConstantTimeEq", "防 timing attack"),
+        ("单包大小", "8 / 2 / 8 MiB", "logs / metrics / traces 上限"),
+        ("Session 上限", "1024", "LRU eviction (M2.4)"),
+        ("session.id 长度", "≤ 256 字节", "防 GB-OOM (mapper.rs:521)"),
+    ]));
+
+    s.push_str(r#"
 <div class="card analogy">
   <div class="tag">📡 类比 — 像 Prometheus 的 <code>remote_write</code> endpoint</div>
   <ul style="margin:.5em 0 0 1.2em">

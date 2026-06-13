@@ -23,7 +23,7 @@
 //!     (`with_tokenizer` / `with_config` / `with_sidecar`); heuristic
 //!     is the default baseline, not a 4th explicit mode.
 
-use super::components::{accordion, comparison_table, flow_diagram, source_ref};
+use super::components::{accordion, comparison_table, flow_diagram, metric_grid, source_ref};
 
 /// Render the HTML body for wiki lesson 4.
 ///
@@ -46,7 +46,24 @@ pub fn render() -> String {
 <p class="lead">
 agentprof 的 <strong>「花得值不值」</strong>信号全来自 <code>agentprof_core::analyzer</code> 模块：它吃 <code>Episodes + SessionMeta + &amp;[ParseWarning]</code> 三组输入，吐 <code>AnalysisReport</code>。每个 rollup（<code>turn_summary</code> / <code>tool_rank</code> / <code>hook_rank</code>）都是<strong>独立可测的纯函数</strong>，cache 段和 MCP waste 则是 <code>AnalysisReport</code> 上的<strong>派生方法</strong>（按需算，不入 pipeline），保证 analyzer 本身没有 I/O、没有时间副作用、可以 snapshot test。
 </p>
+"#);
 
+    s.push_str(&metric_grid(&[
+        (
+            "CACHE_READ_DISCOUNT",
+            "0.9",
+            "cache_read 价格 = input × 0.1",
+        ),
+        (
+            "CACHE_WRITE_PREMIUM",
+            "0.25",
+            "cache_creation = input × 1.25",
+        ),
+        ("honest hit rate", "read / (read + creation)", "重用率"),
+        ("naive hit rate", "read / (read + input)", "整体节省率"),
+    ]));
+
+    s.push_str(r#"
 <div class="card analogy">
   <div class="tag">🏭 工程类比 — 像 ETL pipeline 的 transform 层</div>
   <ul style="margin:.5em 0 0 1.2em">

@@ -22,7 +22,7 @@
 //!     fresher of the two by `raw_mtime`), not an OTLP "write to both
 //!     cache + store" mode.
 
-use super::components::{accordion, comparison_table, source_ref};
+use super::components::{accordion, comparison_table, schema_table, source_ref};
 
 /// Render the HTML body for wiki lesson 5.
 ///
@@ -45,7 +45,45 @@ pub fn render() -> String {
 <p class="lead">
 agentprof 的持久化层只有<strong>一个文件 + 一个 enum</strong>：<code>agentprof_storage::Db</code> 是 <code>rusqlite::Connection</code> 的薄封装，开库时自动跑全部嵌入式 migration；<code>StorageMode</code> 枚举（<code>Cache</code> / <code>Store</code>）决定 SQLite 文件落在 <code>$XDG_CACHE_HOME/agentprof/cache.sqlite</code> 还是 <code>$XDG_DATA_HOME/agentprof/store.sqlite</code>。「hybrid」不是「双 DB 同步」，而是「<strong>同一套 schema、两种生命周期策略</strong>」—— 用户按场景选 mode，agentprof 行为完全一致，只是数据落点不同。
 </p>
+"#);
 
+    s.push_str(&schema_table(&[
+        ("id", "TEXT PRIMARY KEY", "✓", "Session UUID"),
+        (
+            "agent",
+            "TEXT NOT NULL",
+            "✓",
+            "agent 名（copilot/claude/codex）",
+        ),
+        ("started_at_ms", "INTEGER", "—", "session 起始 ms epoch"),
+        (
+            "raw_path",
+            "TEXT NOT NULL",
+            "✓",
+            "原 events.jsonl 路径 or \"otlp://&lt;id&gt;\"",
+        ),
+        ("raw_mtime_ms", "INTEGER NOT NULL", "✓", "raw_path 的 mtime"),
+        (
+            "ingested_at_secs",
+            "INTEGER NOT NULL",
+            "✓",
+            "进入 SQLite 时间戳",
+        ),
+        (
+            "analysis_report_json",
+            "TEXT NOT NULL",
+            "✓",
+            "AnalysisReport 序列化",
+        ),
+        (
+            "episodes_json",
+            "TEXT NOT NULL DEFAULT '{}'",
+            "—",
+            "Episodes 序列化（M2.1.1 加列）",
+        ),
+    ]));
+
+    s.push_str(r#"
 <div class="card analogy">
   <div class="tag">🍎 类比 — 像 macOS Time Machine 的 local snapshot 和外接 backup volume</div>
   <ul style="margin:.5em 0 0 1.2em">

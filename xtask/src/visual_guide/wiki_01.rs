@@ -4,7 +4,7 @@
 //! a single page that names every crate, the dependency rules between
 //! them, the L1/L2/L3 doc system, and the ADR index.
 
-use super::components::{accordion, comparison_table, source_ref};
+use super::components::{accordion, comparison_table, metric_grid, source_ref};
 
 /// Render the HTML body for wiki lesson 1.
 ///
@@ -29,7 +29,16 @@ agentprof 是一个 <strong>5 crate 的 Rust workspace</strong>（<code>core</co
 <strong><code>agentprof-core</code> 是依赖图的叶子</strong>（零 workspace 依赖），<strong><code>agentprof-cli</code> 是唯一组装层</strong>（依赖所有其他 crate）。
 项目级关键决策由 <strong>24 份 ADR</strong> 锁定，连同 L1/L2/L3 三级文档体系一起，构成「读了 30 分钟就能动手贡献」的知识地基。
 </p>
+"#);
 
+    s.push_str(&metric_grid(&[
+        ("crate 数", "5", "+xtask 辅助"),
+        ("ADR 数", "25", "决策记录"),
+        ("workspace 测试", "1332", "0 failures"),
+        ("代码层", "L1 / L2 / L3", "文档三级体系"),
+    ]));
+
+    s.push_str(r#"
 <div class="card analogy">
   <div class="tag">🛫 生活类比 — 把 agentprof 想成一座机场</div>
   <ul style="margin:.5em 0 0 1.2em">

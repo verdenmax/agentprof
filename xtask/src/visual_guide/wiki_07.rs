@@ -21,7 +21,7 @@
 //!     subcommand prints (Cache section / Tool rank / etc.) —
 //!     guaranteeing semantic parity terminal-vs-browser.
 
-use super::components::{accordion, comparison_table, source_ref};
+use super::components::{accordion, comparison_table, flow_diagram, source_ref};
 
 /// Render the HTML body for wiki lesson 7.
 ///
@@ -44,7 +44,16 @@ pub fn render() -> String {
 <p class="lead">
 <code>agentprof serve</code>（M2.3）拉起一个 <strong>localhost-only</strong> 的 HTTP 看板 —— 5 个视图（sessions / session detail / aggregate / mcp-waste list / mcp-waste detail），<strong>5 秒轮询</strong>自动刷新，<strong>零 JS 框架</strong>。整套方案 reuse M2.2 已经在用的 axum + askama 栈，<strong>workspace top-level 零新增依赖</strong>。ADR-0024 把它当作 7 个独立决策（D-1..D-7）逐条钉死，本课带着真实代码把这 7 个决策摸一遍。
 </p>
+"#);
 
+    s.push_str(&flow_diagram(&[
+        "浏览器 5s 轮询",
+        "GET /api/&lt;view&gt;.html",
+        "axum handler",
+        "innerHTML swap",
+    ]));
+
+    s.push_str(r#"
 <div class="card analogy">
   <div class="tag">📦 类比 — 像 <code>cargo doc --open</code></div>
   <ul style="margin:.5em 0 0 1.2em">

@@ -6,7 +6,7 @@
 //! All type names, method signatures, and file paths cross-checked
 //! against the live crates at T16 (HEAD `b59150f`).
 
-use super::components::{accordion, comparison_table, source_ref};
+use super::components::{accordion, comparison_table, schema_table, source_ref};
 
 /// Render the HTML body for wiki lesson 3.
 ///
@@ -29,7 +29,42 @@ pub fn render() -> String {
 <p class="lead">
 agentprof 支持多 agent CLI 的关键抽象是 <code>agentprof_core::adapter::Adapter</code> trait — 每个 agent（Copilot CLI / Claude Code / OpenAI Codex）把它的 session 日志格式实现成一个 adapter。<strong>Copilot 已 ship（M1.2）</strong>，Claude / Codex 在 <code>AgentKind</code> 中保留位置但 adapter 尚未接入（M3.1 / M3.2 路线图）。<code>agentprof-core</code> 完全不知道任何 agent 的具体文件格式 — 它只接受 <code>Event</code> trait 流，分层关注分离。
 </p>
+"#);
 
+    s.push_str(&schema_table(&[
+        (
+            "type Event",
+            "&lt;assoc&gt;",
+            "✓",
+            "Event + DeserializeOwned + Serialize + Debug",
+        ),
+        (
+            "agent_kind()",
+            "→ AgentKind",
+            "✓",
+            "返回该 adapter 对应的 enum variant",
+        ),
+        (
+            "default_session_root()",
+            "→ Option&lt;PathBuf&gt;",
+            "—",
+            "约定的默认 session 根目录",
+        ),
+        (
+            "discover_sessions()",
+            "→ Vec&lt;SessionRef&gt;",
+            "✓",
+            "扫描目录列出 sessions",
+        ),
+        (
+            "load_session()",
+            "→ Vec&lt;Self::Event&gt;",
+            "✓",
+            "加载单个 session 的事件流",
+        ),
+    ]));
+
+    s.push_str(r#"
 <div class="card analogy">
   <div class="tag">🔌 工程类比 — 像数据库 ODBC driver / 浏览器 codec</div>
   <ul style="margin:.5em 0 0 1.2em">
