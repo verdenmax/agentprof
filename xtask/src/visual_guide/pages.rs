@@ -76,7 +76,14 @@ pub const PAGES: &[LessonEntry] = &[
         description: "从 cargo install 到第一次跑 analyze — 5 分钟跑出第一张火焰图。",
         section: Section::Usage,
     },
-    // T10-T18 will add more
+    LessonEntry {
+        filename: "03-analyze.html",
+        title: "analyze：看懂一次 session",
+        description:
+            "5 种 export 格式怎么挑 — md / tui / html / json / speedscope；如何读 Turn Summary、Tool Rank、Cache 段。",
+        section: Section::Usage,
+    },
+    // T11-T18 will add more
 ];
 
 #[derive(Template)]

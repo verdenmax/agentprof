@@ -18,6 +18,7 @@ pub mod pages;
 pub mod shell;
 pub mod usage_01;
 pub mod usage_02;
+pub mod usage_03;
 
 /// Best-effort git short SHA (12 chars); `"unknown"` on failure (e.g.
 /// CI checkout without `.git`, or git not on PATH). Footer-only;
@@ -174,6 +175,7 @@ fn render_lesson_body(entry: &pages::LessonEntry) -> anyhow::Result<String> {
     match entry.filename {
         "01-what-is-agentprof.html" => Ok(usage_01::render()),
         "02-install.html" => Ok(usage_02::render()),
+        "03-analyze.html" => Ok(usage_03::render()),
         _ => anyhow::bail!(
             "no renderer wired for {}; please update visual_guide::mod::render_lesson_body",
             entry.filename
@@ -384,5 +386,24 @@ mod usage_02_test {
         assert!(html.contains("class=\"lead\""));
         assert!(html.contains("<table"));
         assert!(html.contains("class=\"accordion\""));
+    }
+}
+
+#[cfg(test)]
+mod usage_03_test {
+    #[test]
+    fn renders_non_empty_with_required_marks() {
+        let html = super::usage_03::render();
+        assert!(
+            html.len() > 1500,
+            "expect substantial content, got {} chars",
+            html.len()
+        );
+        assert!(html.contains("agentprof"));
+        assert!(html.contains("class=\"lead\""));
+        assert!(html.contains("<table"));
+        assert!(html.contains("class=\"accordion\""));
+        assert!(html.contains("--export"));
+        assert!(html.contains("../assets/report-html-sample.png"));
     }
 }
