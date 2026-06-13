@@ -13,6 +13,7 @@ use clap::Args;
 
 pub mod components;
 pub mod css;
+pub mod highlight;
 pub mod shell;
 
 /// Best-effort git short SHA (12 chars); `"unknown"` on failure (e.g.
@@ -158,5 +159,51 @@ mod components_tests {
         ));
         assert!(html.contains("CacheMetrics"));
         assert!(!html.contains("#L"));
+    }
+}
+
+#[cfg(test)]
+mod highlight_tests {
+    use super::highlight::{highlight, Lang};
+
+    #[test]
+    fn rust_marks_keywords_strings_comments() {
+        let src = "// hello\nfn greet(name: &str) {\n    let msg = \"hi\";\n}";
+        let html = highlight(Lang::Rust, src);
+        assert!(html.contains(r#"<span class="cm">// hello</span>"#));
+        assert!(html.contains(r#"<span class="kw">fn</span>"#));
+        assert!(html.contains(r#"<span class="kw">let</span>"#));
+        assert!(html.contains(r#"<span class="st">"hi"</span>"#));
+    }
+
+    #[test]
+    fn bash_marks_comments_and_variables() {
+        let src = "# comment\nfor f in *.rs; do\n  echo \"$f\"\ndone";
+        let html = highlight(Lang::Bash, src);
+        assert!(html.contains(r#"<span class="cm"># comment</span>"#));
+        assert!(html.contains(r#"<span class="kw">for</span>"#));
+        assert!(html.contains(r#"<span class="kw">do</span>"#));
+        assert!(html.contains(r#"<span class="kw">done</span>"#));
+        assert!(html.contains(r#"<span class="st">"$f"</span>"#));
+    }
+
+    #[test]
+    fn toml_marks_section_headers_and_keys() {
+        let src = "[serve]\nbind = \"127.0.0.1:4329\"\n# comment\ninterval = 5";
+        let html = highlight(Lang::Toml, src);
+        assert!(html.contains(r#"<span class="kw">[serve]</span>"#));
+        assert!(html.contains(r#"<span class="st">"127.0.0.1:4329"</span>"#));
+        assert!(html.contains(r#"<span class="cm"># comment</span>"#));
+        assert!(html.contains(r#"<span class="nm">5</span>"#));
+    }
+
+    #[test]
+    fn sql_marks_uppercase_keywords_and_dash_comments() {
+        let src = "-- list sessions\nSELECT id, started_at FROM sessions WHERE started_at > 0;";
+        let html = highlight(Lang::Sql, src);
+        assert!(html.contains(r#"<span class="cm">-- list sessions</span>"#));
+        assert!(html.contains(r#"<span class="kw">SELECT</span>"#));
+        assert!(html.contains(r#"<span class="kw">FROM</span>"#));
+        assert!(html.contains(r#"<span class="kw">WHERE</span>"#));
     }
 }
