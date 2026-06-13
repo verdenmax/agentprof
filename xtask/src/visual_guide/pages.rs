@@ -126,6 +126,13 @@ pub const PAGES: &[LessonEntry] = &[
             "Adapter trait 接口 + AgentKind 枚举 + CopilotAdapter 案例 + 写 Claude / Codex adapter 的 6 步指南。",
         section: Section::Wiki,
     },
+    LessonEntry {
+        filename: "04-analyzer.html",
+        title: "分析层 rollups",
+        description:
+            "analyze() 流水线 + turn_summary / tool_rank / hook_rank / CacheMetrics 公式 + MCP waste 计算 — agentprof 的核心 ROI 算法。",
+        section: Section::Wiki,
+    },
 ];
 
 #[derive(Template)]

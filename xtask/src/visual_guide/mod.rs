@@ -2,7 +2,7 @@
 //! HTML site under `docs/visual-guide/`.
 //!
 //! Output: 1 `index.html` + 6 `usage/*.html` + 8 `wiki/*.html` = 15 files.
-//! Usage chapter is complete as of T13 (6/6). Wiki chapter at T16: 3/8.
+//! Usage chapter is complete as of T13 (6/6). Wiki chapter at T17: 4/8.
 //!
 //! See `docs/superpowers/specs/2026-06-13-visual-guide-design.md` for
 //! the full design; ADR-0025 (T21) codifies the 7 decisions.
@@ -26,6 +26,7 @@ pub mod usage_06;
 pub mod wiki_01;
 pub mod wiki_02;
 pub mod wiki_03;
+pub mod wiki_04;
 
 /// Best-effort git short SHA (12 chars); `"unknown"` on failure (e.g.
 /// CI checkout without `.git`, or git not on PATH). Footer-only;
@@ -189,6 +190,7 @@ fn render_lesson_body(entry: &pages::LessonEntry) -> anyhow::Result<String> {
         "01-architecture.html" => Ok(wiki_01::render()),
         "02-data-model.html" => Ok(wiki_02::render()),
         "03-adapter.html" => Ok(wiki_03::render()),
+        "04-analyzer.html" => Ok(wiki_04::render()),
         _ => anyhow::bail!(
             "no renderer wired for {}; please update visual_guide::mod::render_lesson_body",
             entry.filename
@@ -607,5 +609,71 @@ mod wiki_03_test {
         assert!(html.contains("crates/agentprof-core/src/adapter.rs"));
         assert!(html.contains("crates/agentprof-adapters/src/registry.rs"));
         assert!(html.contains("crates/agentprof-adapters/src/copilot/adapter.rs"));
+    }
+}
+
+#[cfg(test)]
+mod wiki_04_test {
+    #[test]
+    fn renders_non_empty_with_required_marks() {
+        let html = super::wiki_04::render();
+        assert!(
+            html.len() > 1500,
+            "expect substantial content, got {} chars",
+            html.len()
+        );
+        assert!(html.contains("agentprof"));
+        assert!(html.contains("class=\"lead\""));
+        assert!(html.contains("<table"));
+        assert!(html.contains("class=\"accordion\""));
+        // analyze pipeline 真实 fn 名（recon: NO cache_metrics 在 analyze 内）
+        assert!(html.contains("analyze"));
+        assert!(html.contains("turn_summary"));
+        assert!(html.contains("tool_rank"));
+        assert!(html.contains("hook_rank"));
+        assert!(html.contains("model_metrics"));
+        assert!(html.contains("loaded_mcp_tools"));
+        // AnalysisReport 三组输入
+        assert!(html.contains("AnalysisReport"));
+        assert!(html.contains("Episodes"));
+        assert!(html.contains("SessionMeta"));
+        assert!(html.contains("ParseWarning"));
+        // SVG flow diagram
+        assert!(html.contains("<svg"));
+        // 公式 / 常数（recon 真实值）
+        assert!(html.contains("CacheMetrics"));
+        assert!(html.contains("hit_rate_honest_pct"));
+        assert!(html.contains("hit_rate_naive_pct"));
+        assert!(html.contains("CACHE_READ_DISCOUNT"));
+        assert!(html.contains("CACHE_WRITE_PREMIUM"));
+        assert!(html.contains("0.9"));
+        assert!(html.contains("0.25"));
+        assert!(html.contains("saved_net"));
+        assert!(html.contains("saved_gross"));
+        // ADR-0023 cross-ref
+        assert!(html.contains("ADR-0023"));
+        // tool_rank percentile 真实 fn
+        assert!(html.contains("percentile"));
+        assert!(html.contains("p50"));
+        assert!(html.contains("p95"));
+        assert!(html.contains("ToolSource"));
+        // MCP waste 真实 API
+        assert!(html.contains("compute_waste"));
+        assert!(html.contains("aggregate_waste"));
+        assert!(html.contains("WasteComputeContext"));
+        assert!(html.contains("with_tokenizer"));
+        assert!(html.contains("with_config"));
+        assert!(html.contains("with_sidecar"));
+        assert!(html.contains("TokenizerKind"));
+        assert!(html.contains("build_bpe"));
+        assert!(html.contains("infer_tokenizer"));
+        assert!(html.contains("tiktoken-rs"));
+        // ETL transform 类比
+        assert!(html.contains("ETL"));
+        assert!(html.contains("GROUP BY"));
+        // 3 source_ref
+        assert!(html.contains("crates/agentprof-core/src/analyzer/mod.rs"));
+        assert!(html.contains("crates/agentprof-core/src/analyzer/cache.rs"));
+        assert!(html.contains("crates/agentprof-core/src/analyzer/waste.rs"));
     }
 }
