@@ -4071,6 +4071,7 @@ dependencies = [
  "agentprof-adapters",
  "agentprof-core",
  "anyhow",
+ "askama",
  "chrono",
  "clap",
  "serde",
