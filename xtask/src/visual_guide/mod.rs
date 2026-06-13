@@ -11,6 +11,7 @@
 
 use clap::Args;
 
+pub mod components;
 pub mod css;
 pub mod shell;
 
@@ -119,5 +120,43 @@ mod shell_smoke {
         assert!(html.contains("<nav"));
         assert!(html.contains("<footer"));
         assert!(html.contains(body));
+    }
+}
+
+#[cfg(test)]
+mod components_tests {
+    use super::components::*;
+
+    #[test]
+    fn accordion_includes_summary_and_body() {
+        let html = accordion(1, "厂商锁定", "<p>示例内容</p>");
+        assert!(html.contains("<details"));
+        assert!(html.contains("<summary"));
+        assert!(html.contains("badge-num"));
+        assert!(html.contains("厂商锁定"));
+        assert!(html.contains("<p>示例内容</p>"));
+    }
+
+    #[test]
+    fn comparison_table_renders_three_columns() {
+        let rows = [
+            ("黑盒", "看不到 token 去向", "agentprof 给出火焰图"),
+            ("无 ROI", "猜哪个 tool 浪费", "agentprof 算 ROI 表"),
+        ];
+        let html = comparison_table(&["痛点", "没工具", "agentprof 的做法"], &rows);
+        assert!(html.contains("<table"));
+        assert!(html.contains("<th>痛点</th>"));
+        assert!(html.contains("<td>看不到 token 去向</td>"));
+        assert!(html.contains("<td>agentprof 算 ROI 表</td>"));
+    }
+
+    #[test]
+    fn source_ref_produces_github_blob_url_without_line_number() {
+        let html = source_ref("agentprof-core", "analyzer/cache.rs", "CacheMetrics");
+        assert!(html.contains(
+            "github.com/verdenmax/agentprof/blob/main/crates/agentprof-core/src/analyzer/cache.rs"
+        ));
+        assert!(html.contains("CacheMetrics"));
+        assert!(!html.contains("#L"));
     }
 }
