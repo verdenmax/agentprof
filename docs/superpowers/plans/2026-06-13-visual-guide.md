@@ -1883,3 +1883,346 @@ Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 **Phase gate**: After T7, the pipeline is end-to-end functional. T8-T18 only add lesson content modules.
 
 ---
+
+### Task 8: Usage lesson 1 — `agentprof 是什么`
+
+**Files:**
+- Create: `xtask/src/visual_guide/usage_01.rs`
+- Modify: `xtask/src/visual_guide/mod.rs` (add `pub mod usage_01;` + match arm in `render_lesson_body`)
+- Modify: `xtask/src/visual_guide/pages.rs` (register `01-what-is-agentprof.html` in `PAGES`)
+
+Each lesson follows the same 4-block structure:
+1. Top lead paragraph + reverse analogy
+2. Comparison table (痛点 / 没工具 / agentprof 的做法)
+3. 2-4 accordion cards (example / why / how agentprof does / alternatives)
+4. (footer rendered by shell, includes prev/next from PAGES)
+
+Content guideline: ≥600 Chinese chars per lesson; reference exact code paths in the project; embed real-output snippets where useful.
+
+- [ ] **Step 1: Write failing render test**
+
+Append to `xtask/src/visual_guide/mod.rs`:
+
+```rust
+#[cfg(test)]
+mod usage_01_test {
+    #[test]
+    fn renders_non_empty_with_required_marks() {
+        let html = super::usage_01::render();
+        assert!(html.len() > 1500, "expect substantial content, got {} chars", html.len());
+        assert!(html.contains("agentprof"));
+        assert!(html.contains("class=\"lead\""));
+        assert!(html.contains("<table"));
+        assert!(html.contains("class=\"accordion\""));
+    }
+}
+```
+
+- [ ] **Step 2: Run test — fails (no module)**
+
+```bash
+cargo test -p xtask usage_01_test 2>&1 | tail -3
+```
+
+- [ ] **Step 3: Implement usage_01.rs**
+
+Create `xtask/src/visual_guide/usage_01.rs`:
+
+```rust
+//! Usage lesson 1 — 「agentprof 是什么」.
+//!
+//! Target audience: complete newcomer who has never run agentprof and
+//! is not sure what "token profiling" means.
+
+use super::components::{accordion, comparison_table, source_ref};
+
+pub fn render() -> String {
+    let mut s = String::new();
+
+    s.push_str(r#"
+<h1>agentprof 是什么</h1>
+
+<p class="lead">
+agentprof 是用 Rust 写的<strong>开源命令行工具</strong>，专门用来分析 AI agent CLI（Claude Code / GitHub Copilot CLI / OpenAI Codex）<strong>每一次对话烧掉的 token 都花在哪</strong>。
+不止统计花了多少，更回答<strong>「花得值不值」</strong>。
+</p>
+
+<div class="card analogy">
+  <div class="tag">🔌 生活类比</div>
+  把 AI agent 想成一台<strong>很费油的车</strong>。市面上的 token 计费工具只告诉你「这次开了 500 公里、烧了 30 升油」。
+  agentprof 是装在车上的<strong>仪表盘 + 行车记录仪</strong>：
+  把每次踩油门 / 刹车 / 怠速都记下来，做成一张「这趟旅程的油耗火焰图」+「每个绕路决策的 ROI 表」，
+  让你能下一次<strong>少绕远路、关掉没用的发动机配件、避开堵车路段</strong>。
+</div>
+
+<h2>它到底解决什么问题？</h2>
+
+<p>直接看 OpenAI / Anthropic Dashboard 当然能看到 token 总数，但真实排查里你会很快遇到三类痛点，
+这正是 agentprof 要替你抹平的：</p>
+"#);
+
+    s.push_str(&comparison_table(
+        &["痛点", "没工具时", "agentprof 的做法"],
+        &[
+            ("看不见 token 去向", "总数 = 几万，不知道哪个 turn / tool / hook 拿走的", "<strong>火焰图 + Turn Summary + Tool Rank</strong> 把 token 切到 turn / tool / hook 级"),
+            ("没有 ROI 信号", "MCP 装了 20 个 tool，不知道哪个真正被 agent 用过", "<strong>MCP Waste 报表</strong>：标出加载了但从没被调用的 tool + 估算浪费 token"),
+            ("Prompt cache 黑盒", "Claude 缓存命中率多少？省了多少？不知道", "<strong>Cache 段</strong>：诚实 / 朴素两种 hit rate + 净节省 + 总节省"),
+        ],
+    ));
+
+    s.push_str(r#"<p class="acc-intro" style="color:var(--muted);font-size:.92rem">👇 想深入理解每一类痛点？点开下面的折叠卡片，每张都给你：<strong>① 示例 · ② 为什么必要 · ③ agentprof 的做法 · ④ 还有什么其他方案</strong>。</p>"#);
+
+    s.push_str(&accordion(
+        1,
+        "看不见 token 去向",
+        r#"<div class="qa">
+<div class="q">🧪 示例</div>
+<div class="a">直接看官方 dashboard：</div>
+<pre class="code">2026-06-11  conversation-7f3a  <span class="nm">42,317</span> input  <span class="nm">8,124</span> output</pre>
+<div class="q">🤔 为什么必要</div>
+<div class="a">这只告诉你「整次对话用了 50k」，但你不知道：哪一个 turn 是 token 大户？哪个 tool call 拿走最多 context？是不是有 MCP 工具加载了 schema 但从来没用？</div>
+<div class="q">✅ agentprof 的做法</div>
+<div class="a">把 events.jsonl 流式解析成 <code>Episodes</code>（一个 turn 的所有 tool/hook/skill 调用集合），再用 <code>compute_analysis</code> 生成<strong>火焰图 SVG + Turn Summary 表 + Tool Rank 表</strong>。每一行 token 都有「归属」。</div>
+<div class="q">🔀 其他方案</div>
+<div class="a">手写脚本 grep + jq 也能从 events.jsonl 提数据，但火焰图渲染 / 跨 session 聚合 / TUI 交互都得自己写一遍。agentprof 把这些做成开箱即用。</div>
+</div>"#,
+    ));
+
+    s.push_str(&accordion(
+        2,
+        "没有 ROI 信号",
+        r#"<div class="qa">
+<div class="q">🧪 示例</div>
+<div class="a">你给 Copilot CLI 装了 GitHub MCP server（17 个工具）+ Filesystem MCP（8 个工具）+ 自家 Jira MCP（12 个工具）。每次对话 system prompt 多 5k tokens 描述这 37 个工具。问题：agent 到底用过哪些？</div>
+<div class="q">🤔 为什么必要</div>
+<div class="a">MCP 工具的 schema 是常驻 context window 的；加载了但不用 = 直接浪费钱 + 挤掉真正需要的上下文。</div>
+<div class="q">✅ agentprof 的做法</div>
+<div class="a"><code>agentprof mcp-waste --tool-descriptions sidecar.json</code> 给出每个 MCP server 的「加载次数 / 零调用次数 / 估算浪费 token」三栏报表，并 list 出"从没被调用过的工具"。这是 agentprof 区别于其他 token 工具的<strong>核心卖点</strong>。</div>
+<div class="q">🔀 其他方案</div>
+<div class="a">官方 Anthropic console 不显示工具维度；某些自建可观测平台（如 Helicone）可以打 tag，但需要先在 prompt 中手工注入 metadata。agentprof 直接从 session 日志反推，零侵入。</div>
+</div>"#,
+    ));
+
+    s.push_str(&accordion(
+        3,
+        "Prompt cache 黑盒",
+        r#"<div class="qa">
+<div class="q">🧪 示例</div>
+<div class="a">Claude Sonnet 启用 prompt caching 后理论上能省到 10% 价格。但你的 cache hit rate 到底是 30% 还是 90%？省了多少钱？</div>
+<div class="q">🤔 为什么必要</div>
+<div class="a">cache 是按 5 分钟 TTL 自动失效的；如果 agent 调用之间间隔过长，cache 实际命中率会比想象的低很多。</div>
+<div class="q">✅ agentprof 的做法</div>
+<div class="a"><code>agentprof analyze --export md</code> 输出的 Cache 段会给出 <strong>honest hit rate</strong>（cache_read / (cache_read + cache_creation)）+ <strong>naive hit rate</strong>（cache_read / (cache_read + input_tokens)）+ <strong>net saved / gross saved tokens</strong>（按 Claude Sonnet 4.x 2026-06 价格估算）。<code>aggregate --by model</code> 给出跨 session 的 CacheCr / CacheRd / Hit% / NetSaved 列。</div>
+<div class="q">🔀 其他方案</div>
+<div class="a">官方 console 显示 cache_read / cache_creation 原始数字但不算 hit rate 也不算节省金额；agentprof 一次性给出 6 个数字 + 价格对照表。</div>
+</div>"#,
+    ));
+
+    s.push_str("<h2>下一步</h2>\n<p>读完本课你已经知道 agentprof 解决什么问题。下一课用 <strong>5 分钟</strong>装好工具，跑出你的第一张火焰图。</p>\n");
+
+    s.push_str(&source_ref("core", "analyzer/mod.rs", "compute_analysis"));
+    s.push_str(&source_ref("cli", "cmd/analyze.rs", "run"));
+
+    s
+}
+```
+
+- [ ] **Step 4: Register in `pages.rs`**
+
+Replace the empty `PAGES` slice in `xtask/src/visual_guide/pages.rs`:
+
+```rust
+pub const PAGES: &[LessonEntry] = &[
+    LessonEntry {
+        filename: "01-what-is-agentprof.html",
+        title: "agentprof 是什么",
+        description: "用 Rust 写的开源 token profiler — 给 AI agent 用的 perf flamegraph + ROI 报告器。",
+        section: Section::Usage,
+    },
+    // T9-T18 will add more
+];
+```
+
+- [ ] **Step 5: Wire `render_lesson_body` match arm**
+
+In `xtask/src/visual_guide/mod.rs::render_lesson_body`:
+
+```rust
+fn render_lesson_body(entry: &pages::LessonEntry) -> anyhow::Result<String> {
+    match entry.filename {
+        "01-what-is-agentprof.html" => Ok(usage_01::render()),
+        _ => anyhow::bail!("no renderer wired for {}; please update render_lesson_body", entry.filename),
+    }
+}
+```
+
+Add `pub mod usage_01;` near other mod decls.
+
+- [ ] **Step 6: Run tests + smoke**
+
+```bash
+cargo test -p xtask usage_01_test 2>&1 | tail -5
+# expect: 1 passed
+
+cargo xtask visual-guide 2>&1 | tail -5
+# expect: wrote 2 files (index.html + usage/01-what-is-agentprof.html)
+
+# Eyeball it
+$BROWSER docs/visual-guide/usage/01-what-is-agentprof.html 2>/dev/null || true
+```
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add xtask/src/visual_guide/usage_01.rs xtask/src/visual_guide/pages.rs xtask/src/visual_guide/mod.rs
+git commit -m "feat(xtask): visual-guide usage lesson 1 — agentprof 是什么 (T8)
+
+第一节用法课。Lead 段 + 反向类比（仪表盘 + 行车记录仪）+ 痛点
+对比表（看不见 token 去向 / 没有 ROI 信号 / Prompt cache 黑盒）+
+3 张折叠卡片（每张含示例 / 为什么 / agentprof 怎么做 / 其他方案）+
+2 个 source_ref 指向 agentprof-core::analyzer::compute_analysis +
+agentprof-cli::cmd::analyze::run。
+
+字数 ~1100 中文字符（含 code）。1 render test 验证 lead 段、表格、
+accordion class 名都正确出现。
+
+cargo xtask visual-guide 现在写 2 个文件（index.html + 第一课）。
+
+Refs: docs/superpowers/plans/2026-06-13-visual-guide.md Task 8
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
+```
+
+---
+
+### Task 9-13: Usage lessons 2-6 (compressed template)
+
+T9-T13 each follow Task 8's exact recipe — only the content + filename + register entry differ. To keep this plan tractable, the per-task content briefs (not full text) are listed below; subagent fills the prose using the same accordion + comparison_table style. Each lesson **must**:
+
+- ≥ 600 Chinese chars
+- 1 lead + 1 analogy card
+- 1 comparison_table (3 columns)
+- 2-4 accordion cards
+- ≥ 1 `source_ref` to a real symbol
+- 1 render unit test (`renders_non_empty_with_required_marks`)
+- 1 commit per task
+
+#### T9 — `usage/02-install.html` 「5 分钟上手」
+
+**Content brief**:
+- 类比：买台 IDE 装插件
+- 痛点对比：手工编 Rust 慢 / pip / brew vs `cargo install agentprof-cli`
+- 3 张折叠卡：
+  1. one-line installer (`curl`)
+  2. `cargo install agentprof-cli`（需要 Rust ≥ 1.78）
+  3. from-source build（开发者路径，clone + cargo build）
+- 末尾：第一次跑 `agentprof analyze --agent copilot`，截图占位（不嵌真实截图，T19 添）
+- `source_ref` → `agentprof-cli::main`
+
+**Renderer test name**: `usage_02_test::renders_non_empty_with_required_marks`
+
+#### T10 — `usage/03-analyze.html` 「analyze：看懂一次 session」
+
+**Content brief**:
+- 类比：跑 `perf top` 看 CPU 热点
+- 痛点：md / tui / html / json / speedscope 5 种导出选哪个？
+- 3 张折叠卡：
+  1. md（CI / logs / grep 友好）
+  2. html（浏览器分享，单文件自包含）
+  3. tui（交互式火焰图 + ROI 表 + Models view，需要在终端跑）
+- 嵌入真实截图 `<img class="shot" src="../assets/report-html-sample.png" alt="HTML 报告示例">` —— **此 asset 在 T19 commit**，先用 alt text placeholder
+- `source_ref` × 2 → `agentprof-cli::cmd::analyze` + `agentprof-cli::cmd::format::html::render`
+
+#### T11 — `usage/04-list-aggregate.html` 「list / aggregate：跨 session 视角」
+
+**Content brief**:
+- 类比：从 `top` 升级到 Prometheus dashboard
+- 痛点：每次只看一个 session 不够，要看 7 天 / 30 天的趋势
+- 4 张折叠卡：
+  1. `list --since 7d --limit 20` —— 列最近 sessions
+  2. `aggregate --by model` —— 跨模型对比
+  3. `aggregate --by tool` —— 哪个工具是 token 大户
+  4. `aggregate --by day` + `--low-utilization-threshold` —— 时间序列 + 利用率告警
+- 决策树小表格：何时用哪个 `--by`
+- `source_ref` × 2 → `agentprof-core::analyzer::aggregate` + `agentprof-cli::cmd::aggregate`
+
+#### T12 — `usage/05-serve.html` 「serve：浏览器实时看板」
+
+**Content brief**:
+- 类比：从 cron + 邮件升级到 Grafana 实时刷新
+- 痛点：静态 HTML 报告是快照，agent 跑着想看实时数据
+- 5 张折叠卡（每个 dashboard 视图一张）：
+  1. `/sessions`（最近 sessions 列表）
+  2. `/session/:id`（完整的 per-session 报告，嵌入了 html::render_body_only）
+  3. `/aggregate?by=model`（跨 session aggregate；mcp-server 走专用页）
+  4. `/mcp-waste`（MCP 浪费列表 + 详情）
+  5. 工具栏：暂停 + 间隔切换 + localStorage 持久化
+- 嵌入 5 张真实截图 `dashboard-*.png`（T19 落）
+- `[serve]` config block 示例 + `--bind` / `--storage-path` / `--interval-default` / `--no-open` 表
+- 决策表：serve vs static HTML（4 行：分享场景 / 实时刷新 / 多端访问 / 离线归档）
+- `source_ref` × 2 → `agentprof-cli::cmd::serve::router::build_router` + `agentprof-cli::cmd::serve::handlers`
+
+#### T13 — `usage/06-db-otlp.html` 「db + ingest-otlp：存数据库 + 接入 OTLP」
+
+**Content brief**:
+- 类比：从 grep 单文件升级到 SQLite + Prometheus push gateway
+- 痛点：分析每次重新 parse JSONL 慢 / Claude Code 和 Codex 的 session 数据要 push 到 agentprof
+- 3 张折叠卡：
+  1. `agentprof db init / ingest --all / stats / prune / vacuum` —— SQLite 存储管理
+  2. hybrid cache/store mode 概念（cache 自动 = XDG_CACHE_HOME；store 显式 = XDG_DATA_HOME）—— 含 SVG 流程图（用 `flow_diagram(&["events.jsonl", "Adapter", "compute_analysis", "SQLite"])`）
+  3. `agentprof ingest-otlp` 接入 Claude Code / Codex OTel SDK（gRPC :4317 + HTTP :4318）—— 含路径图
+- `source_ref` × 3 → `agentprof-storage::Db`、`agentprof-storage::query`、`agentprof-storage::otlp`
+
+---
+
+### Task 14-18: Wiki lessons 1-8 (compressed template)
+
+Same recipe as T9-T13 but for the Wiki chapter. Each ≥ 600 chars + 1 render test + 1 commit.
+
+#### T14 — `wiki/01-architecture.html` 「架构全景」
+
+- 5-crate 依赖图 SVG（嵌入 `assets/architecture-deps.svg`，**T19 落**）
+- L1/L2/L3 文档体系概览
+- 9 阶段 pipeline brief（pipeline 图表）
+- 24 ADR 索引（链接到 GH `docs/internals/adr-*.md`）
+- `source_ref` × 1 → `crates/agentprof-cli/src/main.rs`
+
+#### T15 — `wiki/02-data-model.html` 「数据模型」
+
+- `Event` → `Episode` → `AnalysisReport` 三层关系图（`flow_diagram`）
+- 关键字段表：`SessionRef`、`SessionMeta`、`ToolEpisode`、`Span`、`HookEpisode`、`TurnSummaryRow`、`ToolRankRow`
+- 折叠卡：(1) 为什么先 Event 后 Episode（一次性扫 + 减少内存）(2) `Episodes::default()` 哨兵语义 (3) `AnalysisReport.cache_metrics()` 何时返回 `None`
+- `source_ref` × 3 → `agentprof-core::event`、`agentprof-core::episode`、`agentprof-core::analyzer::AnalysisReport`
+
+#### T16 — `wiki/03-adapter.html` 「Adapter trait + 怎么写新 adapter」
+
+- `Adapter` trait 接口 + `AgentKind` enum 表
+- CopilotAdapter case study（解析 events.jsonl）
+- **「怎么写新 adapter」清单**（针对未来 M3.1 ClaudeAdapter / M3.2 CodexAdapter）：
+  1. `crates/agentprof-adapters/src/<name>.rs` 实现 trait
+  2. `registry.rs` 注册
+  3. ≥ 1 anonymized fixture
+  4. ≥ 1 `assert_cmd` 集成测试
+  5. 更新 `docs/adapters.md` + L2 README
+  6. CHANGELOG entry
+- `source_ref` × 3 → `agentprof-core::adapter::Adapter`、`agentprof-adapters::registry`、`agentprof-adapters::copilot`
+
+#### T17 — `wiki/04-analyzer.html` 「分析层 rollups」
+
+- `compute_analysis` 流水线（`flow_diagram(&["Episodes", "turn_summary", "tool_rank", "hook_rank", "cache_metrics"])`）
+- 关键公式：tool p50/p95 percentile（nearest-rank + round half away from zero）、cache honest_pct / naive_pct、saved_net / saved_gross 计算逻辑
+- 折叠卡：(1) 为什么 cache 用两个 hit rate (2) why `aggregate --by tool` omits cache cols（per-tool cache attribution undefined） (3) MCP waste `compute_waste` + heuristic vs sidecar 模式
+- `source_ref` × 3 → `agentprof-core::analyzer::stats`、`agentprof-core::analyzer::cache`、`agentprof-core::analyzer::waste`
+
+#### T18 — Wiki lessons 5-8 (4 in one task)
+
+Subagent ships these in **one commit** since each is shorter (~600 chars baseline) and they share lots of cross-references. Per-lesson briefs:
+
+- **`wiki/05-storage.html` 存储层 hybrid mode**: ADR-0019 摘要 + SQLite schema 表（sessions / model_metrics / episodes_json columns）+ dual-path 选择决策（cache / store / dual）+ `source_ref` → `agentprof-storage::Db / config / datasource`
+- **`wiki/06-otlp-receiver.html` OTLP receiver**: ADR-0021/0022 摘要 + 4 层防御（Bearer constant-time / per-signal size caps / LRU eviction / 256-byte session.id cap）+ gRPC vs HTTP 选择 + `source_ref` → `agentprof-storage::otlp::server_grpc / server_http`
+- **`wiki/07-web-dashboard.html` Web dashboard 架构**: ADR-0024 全 7 决策 + chunk-endpoint pattern 流程图 + `source_ref` → `agentprof-cli::cmd::serve::*`
+- **`wiki/08-contributing.html` 贡献指南**: Conventional Commits 列表 + brainstorming → spec → plan → TDD → review pipeline（含 9 阶段图）+ 怎么开 PR / 加 ADR / 通过 CI / 写 CHANGELOG entry + `source_ref` → `CONTRIBUTING.md`
+
+T18 单 commit 含 4 个新 modules + 4 个新 PAGES entries + 4 个新 match arms + 4 个 render tests.
+
+---
