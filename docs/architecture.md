@@ -1026,6 +1026,7 @@ pub fn compute_roi(/* ... */) -> Result<Vec<RoiRow>, CoreError> {
 | 0022 | OTLP capacity caps + LRU eviction (per-signal request size caps + `--max-open-sessions` LRU + constant-time bearer compare via `subtle`) (M2.4) | Accepted | 2026-06-11 |
 | 0023 | Cache token analytics — centralized compute + naive/honest formulas + dual-render policy (M2.5) | Accepted | 2026-06-11 |
 | 0024 | Web dashboard architecture — axum + vanilla JS poller + chunk-endpoint pattern + store-mode-required (M2.3) | Accepted | 2026-06-11 |
+| 0025 | Visual guide architecture (`docs/visual-guide/` + `cargo xtask visual-guide`, post-M2.3 docs wave) | Accepted | 2026-06-13 |
 
 ### 14.5 文档同步的 CI 强制
 

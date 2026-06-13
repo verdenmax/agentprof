@@ -16,6 +16,26 @@ prefix used in commit messages).
 > Next milestone TBD. v0.4.0 reserved for Phase 3 multi-agent
 > (M3.1 ClaudeAdapter + M3.2 CodexAdapter).
 
+### Added (docs — visual guide, M2.3.x)
+
+- **`docs/visual-guide/`**: 中文 HTML 可视化教程（14 课分两章 — 用法 6 课 + Wiki 8 课）。源码 + 14 个内容模块在 `xtask/src/visual_guide/`，模板在 `xtask/templates/visual_guide/`，资产在 `docs/visual-guide/assets/`。生成的 `*.html` 不入 git（[ADR-0025](docs/internals/adr-0025-visual-guide.md) D-2）。
+- **`cargo run -p xtask -- visual-guide [--clean] [--check]`** 子命令构建可视化指南。
+- **`.github/workflows/visual-guide.yml`** GH Pages 联动：main push 重生成 + 部署，PR 仅 `--check`。
+- **在线阅读**：<https://verdenmax.github.io/agentprof/>
+- **ADR-0025** 记录架构决策（7 个 D-* + 7 个 Implementation Notes）。
+- **6 placeholder SVG assets** (`docs/visual-guide/assets/`) + 1 real 5-crate dep diagram；real PNG screenshots 作为 followup F1 替换。
+
+### Documentation
+
+- `README.md` 顶部加「📖 在线阅读」section。
+- `docs/architecture.md` §15.1 / §15.3 / §14.4 同步：repo layout 加 `docs/visual-guide/`，CI 矩阵加 `visual-guide.yml` 行，ADR 表加 ADR-0025。
+- `crates/agentprof-cli/README.md` 顶部加 pointer 到可视化指南。
+- 新建 `docs/visual-guide/README.md` 本地构建说明。
+
+### Tests
+
+- **+27 tests**（workspace 整体 1301 → 1328）：xtask 新增 5 integration tests (`tests/visual_guide.rs`) + 22 unit tests（shell smoke + css smoke + components ×3 + highlight ×4 + pages ×2 + 14 lesson render tests + 1 surface）。
+
 ## [0.3.3] - 2026-06-11
 
 > M2.3 web dashboard wave. New `agentprof serve` subcommand (feature
