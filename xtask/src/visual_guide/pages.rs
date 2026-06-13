@@ -97,6 +97,13 @@ pub const PAGES: &[LessonEntry] = &[
             "从 grep + cron 升级到 Grafana — agentprof serve 拉起 localhost HTTP 看板，5 个视图 5 秒轮询自动刷新。",
         section: Section::Usage,
     },
+    LessonEntry {
+        filename: "06-db-otlp.html",
+        title: "db + ingest-otlp：存数据库 + 接入 OTLP",
+        description:
+            "从 grep 单文件到 SQLite 持久化 + OTLP push gateway — 接入 Claude Code / Codex 实时数据。",
+        section: Section::Usage,
+    },
     // T12-T18 will add more
 ];
 

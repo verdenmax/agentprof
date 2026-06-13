@@ -2,6 +2,7 @@
 //! HTML site under `docs/visual-guide/`.
 //!
 //! Output: 1 `index.html` + 6 `usage/*.html` + 8 `wiki/*.html` = 15 files.
+//! Usage chapter is complete as of T13 (6/6).
 //!
 //! See `docs/superpowers/specs/2026-06-13-visual-guide-design.md` for
 //! the full design; ADR-0025 (T21) codifies the 7 decisions.
@@ -21,6 +22,7 @@ pub mod usage_02;
 pub mod usage_03;
 pub mod usage_04;
 pub mod usage_05;
+pub mod usage_06;
 
 /// Best-effort git short SHA (12 chars); `"unknown"` on failure (e.g.
 /// CI checkout without `.git`, or git not on PATH). Footer-only;
@@ -180,6 +182,7 @@ fn render_lesson_body(entry: &pages::LessonEntry) -> anyhow::Result<String> {
         "03-analyze.html" => Ok(usage_03::render()),
         "04-list-aggregate.html" => Ok(usage_04::render()),
         "05-serve.html" => Ok(usage_05::render()),
+        "06-db-otlp.html" => Ok(usage_06::render()),
         _ => anyhow::bail!(
             "no renderer wired for {}; please update visual_guide::mod::render_lesson_body",
             entry.filename
@@ -429,6 +432,30 @@ mod usage_04_test {
         assert!(html.contains("--by"));
         assert!(html.contains("--since"));
         assert!(html.contains("aggregate"));
+    }
+}
+
+#[cfg(test)]
+mod usage_06_test {
+    #[test]
+    fn renders_non_empty_with_required_marks() {
+        let html = super::usage_06::render();
+        assert!(
+            html.len() > 1500,
+            "expect substantial content, got {} chars",
+            html.len()
+        );
+        assert!(html.contains("agentprof"));
+        assert!(html.contains("class=\"lead\""));
+        assert!(html.contains("<table"));
+        assert!(html.contains("class=\"accordion\""));
+        assert!(html.contains("ingest-otlp"));
+        assert!(html.contains("SQLite"));
+        assert!(html.contains("127.0.0.1:4317"));
+        assert!(html.contains("XDG_CACHE_HOME"));
+        assert!(html.contains("XDG_DATA_HOME"));
+        assert!(html.contains("<svg class=\"diagram\""));
+        assert!(html.contains("agentprof db"));
     }
 }
 
