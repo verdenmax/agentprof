@@ -76,6 +76,25 @@ pub fn run(cmd: VisualGuideCmd) -> anyhow::Result<()> {
 }
 
 #[cfg(test)]
+mod css_smoke {
+    use super::css;
+
+    #[test]
+    fn all_css_contains_required_tokens() {
+        let css = css::ALL_CSS;
+        assert!(css.contains("--bg:"));
+        assert!(css.contains("--ink:"));
+        assert!(css.contains("--accent:"));
+        assert!(css.contains("prefers-color-scheme: dark"));
+        assert!(css.contains(".vg-top"));
+        assert!(css.contains(".vg-footer"));
+        assert!(css.contains(".vg-main"));
+        assert!(css.contains("#vg-progress-bar"));
+        assert!(css.contains(".code"));
+    }
+}
+
+#[cfg(test)]
 mod shell_smoke {
     use super::shell;
 
