@@ -79,6 +79,7 @@ struct PageTemplate<'a> {
 /// ).unwrap();
 /// assert!(html.contains("<!DOCTYPE html>"));
 /// ```
+#[allow(clippy::needless_pass_by_value)]
 pub fn render_page(meta: PageMeta<'_>, body_html: &str) -> askama::Result<String> {
     let favicon = favicon_data_url();
     let tmpl = PageTemplate {

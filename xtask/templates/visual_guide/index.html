@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>agentprof 可视化指南 — 目录</title>
+<meta name="description" content="agentprof 项目的可视化中文教程：用法 + Wiki 共 14 课。">
+<meta name="theme-color" content="#1a1a2e">
+<link rel="icon" type="image/svg+xml" href="{{ favicon }}">
+<style>{{ css|safe }}</style>
+<style>
+.idx-hero { padding: 2em 1.2em; background: var(--accent); color: #eee; text-align: center; }
+.idx-hero h1 { color: #eee; font-size: 2.2rem; margin: 0; }
+.idx-hero p  { color: #b8c1ff; margin-top: .5em; font-size: 1.05rem; }
+.idx-section { padding: 1em 1.2em; max-width: 1100px; margin: 0 auto; }
+.idx-section h2 { font-size: 1.5rem; border-bottom: 2px solid var(--accent-soft); padding-bottom: .3em; margin-top: 1em; }
+.idx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1em; margin-top: 1em; }
+.idx-card {
+  display: block; background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 1em 1.2em; box-shadow: var(--shadow);
+  color: var(--ink); text-decoration: none;
+}
+.idx-card:hover { border-color: var(--accent); text-decoration: none; }
+.idx-card .num { color: var(--accent); font-weight: 700; font-size: .85rem; }
+.idx-card .ttl { font-weight: 600; margin: .25em 0 .35em; }
+.idx-card .desc { color: var(--muted); font-size: .9rem; }
+.empty-note { color: var(--muted); padding: 1em; font-style: italic; }
+</style>
+</head>
+<body>
+<header class="idx-hero">
+  <h1>agentprof 可视化指南</h1>
+  <p>给 AI agent 用的 perf flamegraph + ROI 报告器 · 共 14 课中文图解</p>
+</header>
+
+<section class="idx-section">
+  <h2>用法（面向新手）</h2>
+  {% if usage_lessons.is_empty() %}
+  <p class="empty-note">（暂无课程；构建过程中）</p>
+  {% else %}
+  <div class="idx-grid">
+    {% for l in usage_lessons %}
+    <a class="idx-card" href="{{ l.href }}">
+      <span class="num">用法 {{ l.number }}</span>
+      <div class="ttl">{{ l.title }}</div>
+      <div class="desc">{{ l.description }}</div>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+
+<section class="idx-section">
+  <h2>Wiki（面向中阶 + 开发者）</h2>
+  {% if wiki_lessons.is_empty() %}
+  <p class="empty-note">（暂无课程；构建过程中）</p>
+  {% else %}
+  <div class="idx-grid">
+    {% for l in wiki_lessons %}
+    <a class="idx-card" href="{{ l.href }}">
+      <span class="num">Wiki {{ l.number }}</span>
+      <div class="ttl">{{ l.title }}</div>
+      <div class="desc">{{ l.description }}</div>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+
+<footer class="vg-footer">
+  agentprof 可视化指南 · v{{ pkg_version }} · 生成于 {{ generated_at_utc }} · git {{ git_sha_short }}<br>
+  <a href="https://github.com/verdenmax/agentprof">GitHub</a> · MIT/Apache-2.0
+</footer>
+</body>
+</html>

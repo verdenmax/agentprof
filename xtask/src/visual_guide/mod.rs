@@ -6,14 +6,15 @@
 //! See `docs/superpowers/specs/2026-06-13-visual-guide-design.md` for
 //! the full design; ADR-0025 (T21) codifies the 7 decisions.
 
-// Stub: T7+ will consume `cmd` by value (fs writes) and return real `Result`s.
-#![allow(clippy::needless_pass_by_value, clippy::unnecessary_wraps)]
+use std::fs;
+use std::path::PathBuf;
 
 use clap::Args;
 
 pub mod components;
 pub mod css;
 pub mod highlight;
+pub mod pages;
 pub mod shell;
 
 /// Best-effort git short SHA (12 chars); `"unknown"` on failure (e.g.
@@ -61,20 +62,163 @@ pub struct VisualGuideCmd {
 ///
 /// # Examples
 ///
-/// ```no_run
+/// ```text
 /// // Invoked via the xtask CLI, not directly:
 /// // $ cargo run -p xtask -- visual-guide --check
 /// ```
+#[allow(clippy::needless_pass_by_value)]
 pub fn run(cmd: VisualGuideCmd) -> anyhow::Result<()> {
-    if cmd.check {
-        println!("visual-guide: --check mode (not yet implemented, T7+)");
-        return Ok(());
-    }
+    let out_root = workspace_root()?.join("docs").join("visual-guide");
+
     if cmd.clean {
-        println!("visual-guide: --clean (not yet implemented, T7+)");
+        let _ = fs::remove_file(out_root.join("index.html"));
+        for chapter in ["usage", "wiki"] {
+            let _ = fs::remove_dir_all(out_root.join(chapter));
+        }
     }
-    println!("visual-guide: render (not yet implemented, T7+)");
+
+    let mut written: Vec<PathBuf> = Vec::new();
+
+    let index_html = pages::render_index()?;
+    if cmd.check {
+        assert!(index_html.contains("<!DOCTYPE"));
+    } else {
+        fs::create_dir_all(&out_root)?;
+        let idx_path = out_root.join("index.html");
+        fs::write(&idx_path, index_html)?;
+        written.push(idx_path);
+    }
+
+    for entry in pages::PAGES {
+        let body_html = render_lesson_body(entry)?;
+        let nav = compute_nav(entry);
+        let html = shell::render_page(
+            shell::PageMeta {
+                title: entry.title,
+                description: entry.description,
+                section_label: entry.section.label(),
+                home_href: "../index.html",
+                prev: nav.prev.as_ref().map(|n| shell::NavLink {
+                    href: &n.0,
+                    title: n.1,
+                }),
+                next: nav.next.as_ref().map(|n| shell::NavLink {
+                    href: &n.0,
+                    title: n.1,
+                }),
+            },
+            &body_html,
+        )?;
+
+        if !cmd.check {
+            let dir = out_root.join(entry.section.dir());
+            fs::create_dir_all(&dir)?;
+            let path = dir.join(entry.filename);
+            fs::write(&path, html)?;
+            written.push(path);
+        }
+    }
+
+    println!(
+        "visual-guide: {} {} files",
+        if cmd.check { "verified" } else { "wrote" },
+        if cmd.check {
+            pages::PAGES.len() + 1
+        } else {
+            written.len()
+        }
+    );
+    for p in &written {
+        println!("  - {}", p.display());
+    }
     Ok(())
+}
+
+/// Owning nav-link pair: (href, title). Owned by `Nav` so the `&str`
+/// returned to `shell::NavLink` references it for the duration of one
+/// page render.
+struct Nav {
+    prev: Option<(String, &'static str)>,
+    next: Option<(String, &'static str)>,
+}
+
+fn compute_nav(entry: &pages::LessonEntry) -> Nav {
+    let idx = pages::PAGES.iter().position(|p| std::ptr::eq(p, entry));
+    let prev = idx
+        .and_then(|i| i.checked_sub(1))
+        .and_then(|i| pages::PAGES.get(i))
+        .map(|p| {
+            let href = if p.section == entry.section {
+                p.filename.to_owned()
+            } else {
+                format!("../{}/{}", p.section.dir(), p.filename)
+            };
+            (href, p.title)
+        });
+    let next = idx.and_then(|i| pages::PAGES.get(i + 1)).map(|p| {
+        let href = if p.section == entry.section {
+            p.filename.to_owned()
+        } else {
+            format!("../{}/{}", p.section.dir(), p.filename)
+        };
+        (href, p.title)
+    });
+    Nav { prev, next }
+}
+
+/// Look up the per-lesson body renderer based on `entry.filename`.
+/// T8+ each register a function pointer in this match arm.
+#[allow(clippy::match_single_binding)]
+fn render_lesson_body(entry: &pages::LessonEntry) -> anyhow::Result<String> {
+    match entry.filename {
+        // T8+ insert match arms here, e.g.:
+        // "01-what-is-agentprof.html" => Ok(usage_01::render()),
+        _ => anyhow::bail!(
+            "no renderer wired for {}; please update visual_guide::mod::render_lesson_body",
+            entry.filename
+        ),
+    }
+}
+
+/// Find the workspace root (parent of `Cargo.lock`).
+fn workspace_root() -> anyhow::Result<PathBuf> {
+    let mut dir: PathBuf = std::env::current_dir()?;
+    loop {
+        if dir.join("Cargo.lock").exists() {
+            return Ok(dir);
+        }
+        if !dir.pop() {
+            anyhow::bail!("workspace root not found (no Cargo.lock in any ancestor)");
+        }
+    }
+}
+
+#[cfg(test)]
+mod pages_tests {
+    use super::pages;
+
+    #[test]
+    fn pages_array_is_non_empty_or_empty_but_well_formed() {
+        for entry in pages::PAGES {
+            assert!(std::path::Path::new(entry.filename)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("html")));
+            assert!(!entry.title.is_empty());
+            assert!(matches!(
+                entry.section,
+                pages::Section::Usage | pages::Section::Wiki
+            ));
+        }
+        // PAGES can be empty at T7; T8+ adds entries.
+    }
+
+    #[test]
+    fn render_index_includes_doctype_and_section_cards() {
+        let html = pages::render_index().expect("render");
+        assert!(html.contains("<!DOCTYPE html>"));
+        assert!(html.contains("用法"));
+        assert!(html.contains("Wiki"));
+    }
 }
 
 #[cfg(test)]
