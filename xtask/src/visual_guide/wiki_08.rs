@@ -269,10 +269,9 @@ cargo deny check</code></pre>
     s.push_str(r#"<h2>本套指南到此完结</h2>
 <p>这是 agentprof 可视化指南的<strong>最后一课</strong> —— 用法 6 课带你从安装到 dashboard、Wiki 8 课带你从架构到贡献。如果你跟着读到了这里：感谢你的耐心，欢迎来 GitHub <a href="https://github.com/verdenmax/agentprof">verdenmax/agentprof</a> 提 issue / PR / Discussion。</p>
 
-<p>📄 参考：
-<a href="https://github.com/verdenmax/agentprof/blob/main/CONTRIBUTING.md"><code>CONTRIBUTING.md</code></a> ·
-<a href="https://github.com/verdenmax/agentprof/blob/main/.github/copilot-instructions.md"><code>.github/copilot-instructions.md</code></a> ·
-<a href="https://github.com/verdenmax/agentprof/blob/main/CHANGELOG.md"><code>CHANGELOG.md</code></a></p>
+<p class="src-ref">📂 相关源码：<a href="https://github.com/verdenmax/agentprof/blob/main/CONTRIBUTING.md"><code>CONTRIBUTING.md</code></a> &nbsp;<code class="mono">顶级贡献规则</code></p>
+<p class="src-ref">📂 相关源码：<a href="https://github.com/verdenmax/agentprof/blob/main/.github/copilot-instructions.md"><code>.github/copilot-instructions.md</code></a> &nbsp;<code class="mono">AI / 人共用的详尽 pipeline 文档</code></p>
+<p class="src-ref">📂 相关源码：<a href="https://github.com/verdenmax/agentprof/blob/main/CHANGELOG.md"><code>CHANGELOG.md</code></a> &nbsp;<code class="mono">Keep-a-Changelog 历史</code></p>
 "#);
 
     s

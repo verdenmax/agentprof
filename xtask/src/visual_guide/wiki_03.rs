@@ -145,7 +145,7 @@ agentprof 支持多 agent CLI 的关键抽象是 <code>agentprof_core::adapter::
 pub const fn supported_agents() -&gt; &amp;'static [AgentKind] {
     &amp;[AgentKind::Copilot]
 }</code></pre>
-<p style="margin:.4em 0 0;font-size:.92rem;color:var(--muted)">⚠️ 当前签名是 <code>Option&lt;CopilotAdapter&gt;</code>（concrete 类型），<strong>一旦第二个 adapter（M3.1 Claude）ship，签名必须改</strong> — 候选方案：<code>Option&lt;AnyAdapter&gt;</code> enum 或 trait-object 擦除。registry.rs 顶部 doc 已标记 TODO 等下一份 adapter-layer ADR。</p>
+<p style="margin:.4em 0 0;font-size:.92rem;color:var(--muted)">⚠️ 当前签名是 <code>Option&lt;CopilotAdapter&gt;</code>（concrete 类型），<strong>一旦第二个 adapter（M3.1 Claude）ship，签名必须改</strong> — 候选方案：<code>Option&lt;AnyAdapter&gt;</code> enum 或 trait-object 擦除。registry.rs 顶部 doc 已标记为待办。</p>
 </div>
 </div>"#,
     ));
@@ -158,7 +158,7 @@ pub const fn supported_agents() -&gt; &amp;'static [AgentKind] {
 <div class="a">
 <ol style="margin:.3em 0 0 1.5em">
 <li><strong>实现 trait</strong>：新建 <code>crates/agentprof-adapters/src/claude/</code>（建议 mod 拆 <code>adapter.rs</code> / <code>event.rs</code> / <code>parser.rs</code> / <code>paths.rs</code>，照搬 copilot 结构）；<code>pub struct ClaudeAdapter;</code> + <code>impl Adapter for ClaudeAdapter</code> 实现 4 方法 + 关联类型 <code>type Event = ClaudeEvent</code>。</li>
-<li><strong>修 <code>registry.rs</code></strong>：把 <code>adapter_for</code> 的返回类型从 <code>Option&lt;CopilotAdapter&gt;</code> 改为类型擦除形式（<strong>这是 M3.1 真正的设计决策</strong>，要走 brainstorming → ADR → plan 三阶段；当前 registry 头部 doc 已标 TODO）；同时 <code>supported_agents()</code> 加入 <code>AgentKind::Claude</code>。</li>
+<li><strong>修 <code>registry.rs</code></strong>：把 <code>adapter_for</code> 的返回类型从 <code>Option&lt;CopilotAdapter&gt;</code> 改为类型擦除形式（<strong>这是 M3.1 真正的设计决策</strong>，要走 brainstorming → ADR → plan 三阶段；当前 registry 头部 doc 已标待办）；同时 <code>supported_agents()</code> 加入 <code>AgentKind::Claude</code>。</li>
 <li><strong>fixture</strong>：<code>crates/agentprof-adapters/tests/fixtures/claude/</code> 放至少 1 个匿名化过的 <code>session.jsonl</code>；用户 prompt / file path / API key 等敏感字段必须替换为 <code>&lt;redacted&gt;</code> 占位（参考 <code>xtask anonymize</code> 子命令的未来计划，或手动 sed）。</li>
 <li><strong>集成测试</strong>：<code>crates/agentprof-adapters/tests/claude.rs</code> 至少 1 个 <code>assert_cmd</code> case：<code>agentprof analyze --agent claude --path tests/fixtures/claude --export json</code> 应返回 exit 0 且 JSON 含至少 1 个 <code>tool_rank</code> 行。</li>
 <li><strong>文档</strong>：更新 <code>docs/adapters.md</code>（L2 adapter 指南）+ <code>crates/agentprof-adapters/README.md</code>（"支持的 agent"段）；新 adapter mod 顶部写 <code>//!</code> 模块文档；公开类型加 <code># Examples</code>（否则 CI <code>missing_docs</code> 报错）。</li>

@@ -132,7 +132,7 @@ agentprof 的 <strong>「花得值不值」</strong>信号全来自 <code>agentp
 <div class="a"><code>analyze()</code> 是<strong>纯函数 + 无 I/O</strong>：输入是 borrowed refs，输出 owned <code>AnalysisReport</code>，不读文件、不写 SQLite、不发 OTLP — 全部 side effect 在 caller 那侧。这让它在 doctest / unit test / snapshot test 三个层级都 trivial，也是 ADR-0004 「lenient parsing + pure analyzer」分层决策的体现。</div>
 
 <div class="q">🔀 其他选择</div>
-<div class="a"><strong>streaming 增量算法</strong>（adapter 每读 1 个 event 立刻喂给 analyzer，rollup 在线更新）— 内存占用 O(unique_tools) 而非 O(events)，对超大 session 友好；但当前 session 通常 &lt; 10 MB（≤ 数万 events），<strong>批量算 + 内存常驻</strong>简单且足够快。streaming 版本作为 M4+ 「OTLP live mode」的潜在升级路径在 ADR-0017 留了 TODO，目前不需要。</div>
+<div class="a"><strong>streaming 增量算法</strong>（adapter 每读 1 个 event 立刻喂给 analyzer，rollup 在线更新）— 内存占用 O(unique_tools) 而非 O(events)，对超大 session 友好；但当前 session 通常 &lt; 10 MB（≤ 数万 events），<strong>批量算 + 内存常驻</strong>简单且足够快。streaming 版本作为 M4+ 「OTLP live mode」的潜在升级路径在 ADR-0017 留了待办标记，目前不需要。</div>
 </div>"#);
     s.push_str(&accordion(
         1,
