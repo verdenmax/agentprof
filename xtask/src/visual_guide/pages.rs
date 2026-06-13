@@ -119,6 +119,13 @@ pub const PAGES: &[LessonEntry] = &[
             "Event → Episode → AnalysisReport 三层关系 + 关键字段表 — agentprof 数据流的核心类型。",
         section: Section::Wiki,
     },
+    LessonEntry {
+        filename: "03-adapter.html",
+        title: "Adapter trait + 怎么写新 adapter",
+        description:
+            "Adapter trait 接口 + AgentKind 枚举 + CopilotAdapter 案例 + 写 Claude / Codex adapter 的 6 步指南。",
+        section: Section::Wiki,
+    },
 ];
 
 #[derive(Template)]

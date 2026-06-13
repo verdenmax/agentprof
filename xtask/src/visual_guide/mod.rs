@@ -2,7 +2,7 @@
 //! HTML site under `docs/visual-guide/`.
 //!
 //! Output: 1 `index.html` + 6 `usage/*.html` + 8 `wiki/*.html` = 15 files.
-//! Usage chapter is complete as of T13 (6/6). Wiki chapter at T15: 2/8.
+//! Usage chapter is complete as of T13 (6/6). Wiki chapter at T16: 3/8.
 //!
 //! See `docs/superpowers/specs/2026-06-13-visual-guide-design.md` for
 //! the full design; ADR-0025 (T21) codifies the 7 decisions.
@@ -25,6 +25,7 @@ pub mod usage_05;
 pub mod usage_06;
 pub mod wiki_01;
 pub mod wiki_02;
+pub mod wiki_03;
 
 /// Best-effort git short SHA (12 chars); `"unknown"` on failure (e.g.
 /// CI checkout without `.git`, or git not on PATH). Footer-only;
@@ -187,6 +188,7 @@ fn render_lesson_body(entry: &pages::LessonEntry) -> anyhow::Result<String> {
         "06-db-otlp.html" => Ok(usage_06::render()),
         "01-architecture.html" => Ok(wiki_01::render()),
         "02-data-model.html" => Ok(wiki_02::render()),
+        "03-adapter.html" => Ok(wiki_03::render()),
         _ => anyhow::bail!(
             "no renderer wired for {}; please update visual_guide::mod::render_lesson_body",
             entry.filename
@@ -551,5 +553,59 @@ mod wiki_01_test {
         assert!(html.contains("L1"));
         assert!(html.contains("L2"));
         assert!(html.contains("L3"));
+    }
+}
+
+#[cfg(test)]
+mod wiki_03_test {
+    #[test]
+    fn renders_non_empty_with_required_marks() {
+        let html = super::wiki_03::render();
+        assert!(
+            html.len() > 1500,
+            "expect substantial content, got {} chars",
+            html.len()
+        );
+        assert!(html.contains("agentprof"));
+        assert!(html.contains("class=\"lead\""));
+        assert!(html.contains("<table"));
+        assert!(html.contains("class=\"accordion\""));
+        // 真实 trait 接口名（recon 后确认）
+        assert!(html.contains("Adapter"));
+        assert!(html.contains("agent_kind"));
+        assert!(html.contains("default_session_root"));
+        assert!(html.contains("discover_sessions"));
+        assert!(html.contains("load_session"));
+        assert!(html.contains("RawSession"));
+        // AgentKind 3 variants + non_exhaustive
+        assert!(html.contains("AgentKind"));
+        assert!(html.contains("Copilot"));
+        assert!(html.contains("Claude"));
+        assert!(html.contains("Codex"));
+        assert!(html.contains("#[non_exhaustive]"));
+        // CopilotAdapter 案例 + 真实路径
+        assert!(html.contains("CopilotAdapter"));
+        assert!(html.contains("CopilotEvent"));
+        assert!(html.contains("events.jsonl"));
+        assert!(html.contains("~/.copilot/session-state"));
+        // registry 真实 API
+        assert!(html.contains("adapter_for"));
+        assert!(html.contains("supported_agents"));
+        // 6 步清单关键词
+        assert!(html.contains("CHANGELOG"));
+        assert!(html.contains("assert_cmd"));
+        assert!(html.contains("fixture"));
+        assert!(html.contains("docs/adapters.md"));
+        // parse_agent 坑提示（recon 发现 storage 侧需要更新）
+        assert!(html.contains("parse_agent"));
+        // ADR-0004 cross-ref
+        assert!(html.contains("ADR-0004"));
+        // M3.1 / M3.2 roadmap
+        assert!(html.contains("M3.1"));
+        assert!(html.contains("M3.2"));
+        // 3 source_ref
+        assert!(html.contains("crates/agentprof-core/src/adapter.rs"));
+        assert!(html.contains("crates/agentprof-adapters/src/registry.rs"));
+        assert!(html.contains("crates/agentprof-adapters/src/copilot/adapter.rs"));
     }
 }
