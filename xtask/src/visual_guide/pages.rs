@@ -112,6 +112,13 @@ pub const PAGES: &[LessonEntry] = &[
             "5 crate 依赖图 + L1/L2/L3 文档体系 + 24 份 ADR 索引 — 整个项目的全景图。",
         section: Section::Wiki,
     },
+    LessonEntry {
+        filename: "02-data-model.html",
+        title: "数据模型",
+        description:
+            "Event → Episode → AnalysisReport 三层关系 + 关键字段表 — agentprof 数据流的核心类型。",
+        section: Section::Wiki,
+    },
 ];
 
 #[derive(Template)]

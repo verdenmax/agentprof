@@ -2,7 +2,7 @@
 //! HTML site under `docs/visual-guide/`.
 //!
 //! Output: 1 `index.html` + 6 `usage/*.html` + 8 `wiki/*.html` = 15 files.
-//! Usage chapter is complete as of T13 (6/6).
+//! Usage chapter is complete as of T13 (6/6). Wiki chapter at T15: 2/8.
 //!
 //! See `docs/superpowers/specs/2026-06-13-visual-guide-design.md` for
 //! the full design; ADR-0025 (T21) codifies the 7 decisions.
@@ -24,6 +24,7 @@ pub mod usage_04;
 pub mod usage_05;
 pub mod usage_06;
 pub mod wiki_01;
+pub mod wiki_02;
 
 /// Best-effort git short SHA (12 chars); `"unknown"` on failure (e.g.
 /// CI checkout without `.git`, or git not on PATH). Footer-only;
@@ -185,6 +186,7 @@ fn render_lesson_body(entry: &pages::LessonEntry) -> anyhow::Result<String> {
         "05-serve.html" => Ok(usage_05::render()),
         "06-db-otlp.html" => Ok(usage_06::render()),
         "01-architecture.html" => Ok(wiki_01::render()),
+        "02-data-model.html" => Ok(wiki_02::render()),
         _ => anyhow::bail!(
             "no renderer wired for {}; please update visual_guide::mod::render_lesson_body",
             entry.filename
@@ -482,6 +484,44 @@ mod usage_05_test {
         assert!(html.contains("/mcp-waste"));
         assert!(html.contains("localStorage"));
         assert!(html.contains("../assets/dashboard-overview.png"));
+    }
+}
+
+#[cfg(test)]
+mod wiki_02_test {
+    #[test]
+    fn renders_non_empty_with_required_marks() {
+        let html = super::wiki_02::render();
+        assert!(
+            html.len() > 1500,
+            "expect substantial content, got {} chars",
+            html.len()
+        );
+        assert!(html.contains("agentprof"));
+        assert!(html.contains("class=\"lead\""));
+        assert!(html.contains("<table"));
+        assert!(html.contains("class=\"accordion\""));
+        // 三层数据模型必须都出现
+        assert!(html.contains("Event"));
+        assert!(html.contains("Episode"));
+        assert!(html.contains("AnalysisReport"));
+        // 真实类型名（recon 后修正）
+        assert!(html.contains("EventKind"));
+        assert!(html.contains("derive_episodes"));
+        assert!(html.contains("ToolEpisode"));
+        assert!(html.contains("HookEpisode"));
+        assert!(html.contains("Span"));
+        assert!(html.contains("DeriveWarning"));
+        assert!(html.contains("NonMonotonicTimestamp"));
+        assert!(html.contains("analyze"));
+        assert!(html.contains("SessionMeta"));
+        assert!(html.contains("ModelUsage"));
+        assert!(html.contains("cache_metrics"));
+        assert!(html.contains("ADR-0004"));
+        // SVG 流程图
+        assert!(html.contains("<svg class=\"diagram\""));
+        // 4 节点 pipeline 标签
+        assert!(html.contains("events.jsonl"));
     }
 }
 
