@@ -104,11 +104,20 @@ agentprof 默认每次 <code>analyze</code> 都要重新 parse JSONL —— 单 
 
     let mut hybrid_card = String::from(
         r#"<div class="qa">
-<div class="q">🤔 为什么</div>
-<div class="a">dev 单人本地用，cache 自动够用（开箱即用，<code>analyze</code> 第二次跑直接走 SQLite，sub-second 响应）；CI / 团队 / 长期 trend 分析需要<strong>稳定路径 + 显式备份 / 同步</strong>，那就升级到 store。<strong>同一套 schema、两个物理位置</strong>，关键差异在「<strong>谁拥有这个 db 文件 + 何时清理</strong>」。</div>
-<div class="q">🛠 agentprof 怎么做</div>
-<div class="a">数据流：
-"#,
+<div class="q">🤔 用户视角：cache 还是 store？</div>
+<div class="a">一句话决策：<strong>dev 本地 → cache</strong>（不用管，自动开）；<strong>CI / 团队 / 长期 trend / OTLP push → store</strong>（显式 <code>--storage-path</code>）。两者 schema 完全相同，<strong>从 cache 升级到 store 不需要数据迁移</strong>：重新 <code>analyze --storage-mode store</code> 即可，旧 cache 文件可保留也可删。</div>
+<div class="q">🛠 怎么开</div>
+<div class="a">默认就是 cache，啥都不用做。想用 store：
+<pre class="code">agentprof db init --storage-path ~/.local/share/agentprof/store.sqlite
+agentprof analyze --storage-mode store   <span class="cm"># 后续命令显式带 --storage-mode store</span></pre>
+也可以写进 <code>~/.config/agentprof/config.toml</code> 一劳永逸：
+<pre class="code">[storage]
+mode = "store"
+path = "~/.local/share/agentprof/store.sqlite"</pre></div>
+<div class="q">📂 文件落在哪</div>
+<div class="a"><code>Cache</code>：<code>$XDG_CACHE_HOME/agentprof/cache.sqlite</code>（默认 <code>~/.cache/agentprof/</code>，OS 可以随时清，agentprof 容忍丢）<br><code>Store</code>：<code>$XDG_DATA_HOME/agentprof/store.sqlite</code>（默认 <code>~/.local/share/agentprof/</code>，用户拥有，agentprof 不主动动）。<br>OTLP receiver 写当前 mode 对应的<strong>单一</strong> storage，由 <code>--storage-mode</code> / <code>--storage-path</code> 决定，默认 cache。</div>
+<div class="q">🔁 数据流（cache / store 通用）</div>
+<div class="a">"#,
     );
     hybrid_card.push_str(&flow_diagram(&[
         "events.jsonl",
@@ -117,9 +126,9 @@ agentprof 默认每次 <code>analyze</code> 都要重新 parse JSONL —— 单 
         "SQLite",
     ]));
     hybrid_card.push_str(
-        r#"<p><code>StorageConfig</code> + <code>StorageMode</code> enum 在 <code>agentprof-storage::config</code> 里定义两个 variant：<code>Cache</code>（<code>XDG_CACHE_HOME/agentprof/cache.sqlite</code>，OS 可以随时清，agentprof 容忍丢）/ <code>Store</code>（<code>XDG_DATA_HOME/agentprof/store.sqlite</code>，用户拥有，agentprof 不主动动）。<code>analyze</code> 看 mode 决定写哪边；OTLP receiver 写当前 mode 对应的<strong>单一</strong> storage（由 <code>--storage-mode</code> / <code>--storage-path</code> 决定，默认 cache）。</p></div>
-<div class="q">🪜 其他选择</div>
-<div class="a">考虑过 <strong>dual-path 模式</strong>（cache + store 同步双写）—— 否决，复杂度高 + 一致性问题不值得，详见 <strong>[ADR-0018]</strong>。当前模式：cache 是「<strong>性能优化</strong>」，store 是「<strong>业务数据</strong>」，两者不混。</div>
+        r#"</div>
+<div class="q">🪜 为什么这么设计</div>
+<div class="a">完整设计决策（XDG 命名背后的取舍 / dual-path read fan-out / dual-write 为何被否决）在 <strong>Wiki §5 「存储层 hybrid mode」</strong>详述，本课只覆盖「用户怎么选」。简短回答：cache 是「<strong>性能优化</strong>」，store 是「<strong>业务数据</strong>」，两者职责清晰不混 —— 见 <strong>ADR-0019</strong>。</div>
 </div>"#,
     );
 
@@ -135,12 +144,66 @@ agentprof 默认每次 <code>analyze</code> 都要重新 parse JSONL —— 单 
         r#"<div class="qa">
 <div class="q">🤔 为什么</div>
 <div class="a">file-based 模式（read JSONL）只覆盖 <strong>Copilot CLI / 老 Claude</strong> 这类「<strong>写日志到磁盘</strong>」的 agent。<strong>Claude Code（新版）/ Codex</strong> 用 OTel SDK 是 native —— 它们已经会发 spans，agentprof 只需要在另一头听就行，不用让 agent 团队额外写「<strong>导出 events.jsonl</strong>」逻辑。</div>
-<div class="q">🛠 agentprof 怎么做</div>
-<div class="a">启动 <code>agentprof ingest-otlp --bind 127.0.0.1:4317</code>（gRPC 默认端口）或 <code>:4318</code>（HTTP）。需要编译时开 <code>otlp</code> feature（拉 workspace dep <code>tonic</code> + <code>prost</code> + <code>axum</code>）。Claude Code 的 OTel SDK 配 endpoint 指向 agentprof 即可。
-<ul>
-<li>spans 进来 → <code>StorageFlushSink</code> → <code>upsert_report</code> → SQLite（<strong>无新 schema migration</strong>，复用 store 的 sessions 表）</li>
-<li><strong>4 层防御</strong>（详见 <strong>[ADR-0022]</strong>）：Bearer token <em>常时间比较</em>（防时序攻击）/ 每信号大小上限（防 OOM）/ LRU eviction（防内存撑爆）/ <code>session.id</code> 256-byte 上限（防 path injection）</li>
-</ul></div>
+
+<div class="q">🛠 启动 receiver（agentprof 端）</div>
+<div class="a"><pre class="code"><span class="cm"># gRPC（默认，性能最好）</span>
+agentprof ingest-otlp --bind 127.0.0.1:4317 \
+  --storage-path ~/.local/share/agentprof/store.sqlite
+
+<span class="cm"># HTTP/protobuf（防火墙穿透更友好）</span>
+agentprof ingest-otlp --bind 127.0.0.1:4318 --protocol http \
+  --storage-path ~/.local/share/agentprof/store.sqlite
+
+<span class="cm"># 想加 bearer auth（生产建议）</span>
+agentprof ingest-otlp --bind 0.0.0.0:4317 \
+  --auth-token-file ~/.config/agentprof/otlp-bearer.txt \
+  --tls-cert ./server.pem --tls-key ./server.key</pre>
+需要编译时开 <code>otlp</code> feature（拉 workspace dep <code>tonic</code> + <code>prost</code> + <code>axum</code>）。<code>full</code> 默认含。</div>
+
+<div class="q">⚙️ Agent 端（OTel SDK / Claude Code）配置</div>
+<div class="a">Claude Code / Codex SDK 都遵循 OTel 标准环境变量协议：
+<pre class="code"><span class="cm"># Bash / zsh（gRPC 默认）</span>
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4317
+export OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+export OTEL_SERVICE_NAME=claude-code
+<span class="cm"># 可选：bearer auth</span>
+export OTEL_EXPORTER_OTLP_HEADERS="authorization=Bearer $(cat ~/.config/agentprof/otlp-bearer.txt)"
+
+<span class="cm"># 之后跑 agent，spans 自动 push 到 agentprof</span>
+claude code "your task"</pre>
+
+<p style="margin:.4em 0 0;font-size:.92rem;color:var(--muted)">⚠️ Claude Code 当前 v1.x 通过 <code>OTEL_*</code> 环境变量配 OTLP。如果你跑的是自家 agent / 用了 OTel collector 链路（agent → collector → agentprof），collector 端把 agentprof 作为 exporter：</p>
+
+<pre class="code"><span class="cm"># otel-collector-config.yaml</span>
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+exporters:
+  otlp/agentprof:
+    endpoint: 127.0.0.1:4317
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [otlp/agentprof]</pre></div>
+
+<div class="q">🛡 4 层防御 + 排错</div>
+<div class="a">详见 <strong>ADR-0022</strong>：Bearer 常时间比较（防时序攻击）/ 每信号大小上限 8/2/8 MiB（防 OOM）/ LRU eviction 1024 sessions（防内存撑爆）/ <code>session.id</code> 256-byte 上限（防 path injection）。
+<pre class="code"><span class="cm"># 验证 receiver 在线</span>
+curl -v http://127.0.0.1:4318/v1/traces -X POST   <span class="cm"># 期望 415 (no protobuf body)</span>
+
+<span class="cm"># 看进了多少 session</span>
+agentprof db stats --storage-path ~/.local/share/agentprof/store.sqlite
+
+<span class="cm"># 看实时 receiver 日志</span>
+RUST_LOG=agentprof_storage::otlp=debug agentprof ingest-otlp ...</pre></div>
+
 <div class="q">🪜 其他选择</div>
 <div class="a">自建 <strong>OTel Collector</strong> + ETL 到 agentprof —— 技术上行，但多一层进程 + 多一套配置，单机 / 小团队不值得。agentprof 内置 OTLP receiver 已够覆盖「<strong>5–50 个 dev 同时推</strong>」量级；超过这个量级再上正经 collector。</div>
 </div>"#,
