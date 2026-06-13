@@ -90,7 +90,14 @@ pub const PAGES: &[LessonEntry] = &[
             "不止看一次 session — list 最近 sessions、aggregate 跨 model / tool / day 聚合，看 7-30 天 token 趋势。",
         section: Section::Usage,
     },
-    // T11-T18 will add more
+    LessonEntry {
+        filename: "05-serve.html",
+        title: "serve：浏览器实时看板",
+        description:
+            "从 grep + cron 升级到 Grafana — agentprof serve 拉起 localhost HTTP 看板，5 个视图 5 秒轮询自动刷新。",
+        section: Section::Usage,
+    },
+    // T12-T18 will add more
 ];
 
 #[derive(Template)]

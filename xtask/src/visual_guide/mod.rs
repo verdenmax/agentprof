@@ -20,6 +20,7 @@ pub mod usage_01;
 pub mod usage_02;
 pub mod usage_03;
 pub mod usage_04;
+pub mod usage_05;
 
 /// Best-effort git short SHA (12 chars); `"unknown"` on failure (e.g.
 /// CI checkout without `.git`, or git not on PATH). Footer-only;
@@ -178,6 +179,7 @@ fn render_lesson_body(entry: &pages::LessonEntry) -> anyhow::Result<String> {
         "02-install.html" => Ok(usage_02::render()),
         "03-analyze.html" => Ok(usage_03::render()),
         "04-list-aggregate.html" => Ok(usage_04::render()),
+        "05-serve.html" => Ok(usage_05::render()),
         _ => anyhow::bail!(
             "no renderer wired for {}; please update visual_guide::mod::render_lesson_body",
             entry.filename
@@ -427,5 +429,29 @@ mod usage_04_test {
         assert!(html.contains("--by"));
         assert!(html.contains("--since"));
         assert!(html.contains("aggregate"));
+    }
+}
+
+#[cfg(test)]
+mod usage_05_test {
+    #[test]
+    fn renders_non_empty_with_required_marks() {
+        let html = super::usage_05::render();
+        assert!(
+            html.len() > 1500,
+            "expect substantial content, got {} chars",
+            html.len()
+        );
+        assert!(html.contains("agentprof"));
+        assert!(html.contains("class=\"lead\""));
+        assert!(html.contains("<table"));
+        assert!(html.contains("class=\"accordion\""));
+        assert!(html.contains("serve"));
+        assert!(html.contains("127.0.0.1:4329"));
+        assert!(html.contains("/sessions"));
+        assert!(html.contains("/aggregate"));
+        assert!(html.contains("/mcp-waste"));
+        assert!(html.contains("localStorage"));
+        assert!(html.contains("../assets/dashboard-overview.png"));
     }
 }
