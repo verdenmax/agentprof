@@ -16,6 +16,7 @@ pub mod css;
 pub mod highlight;
 pub mod pages;
 pub mod shell;
+pub mod usage_01;
 
 /// Best-effort git short SHA (12 chars); `"unknown"` on failure (e.g.
 /// CI checkout without `.git`, or git not on PATH). Footer-only;
@@ -168,11 +169,9 @@ fn compute_nav(entry: &pages::LessonEntry) -> Nav {
 
 /// Look up the per-lesson body renderer based on `entry.filename`.
 /// T8+ each register a function pointer in this match arm.
-#[allow(clippy::match_single_binding)]
 fn render_lesson_body(entry: &pages::LessonEntry) -> anyhow::Result<String> {
     match entry.filename {
-        // T8+ insert match arms here, e.g.:
-        // "01-what-is-agentprof.html" => Ok(usage_01::render()),
+        "01-what-is-agentprof.html" => Ok(usage_01::render()),
         _ => anyhow::bail!(
             "no renderer wired for {}; please update visual_guide::mod::render_lesson_body",
             entry.filename
@@ -349,5 +348,22 @@ mod highlight_tests {
         assert!(html.contains(r#"<span class="kw">SELECT</span>"#));
         assert!(html.contains(r#"<span class="kw">FROM</span>"#));
         assert!(html.contains(r#"<span class="kw">WHERE</span>"#));
+    }
+}
+
+#[cfg(test)]
+mod usage_01_test {
+    #[test]
+    fn renders_non_empty_with_required_marks() {
+        let html = super::usage_01::render();
+        assert!(
+            html.len() > 1500,
+            "expect substantial content, got {} chars",
+            html.len()
+        );
+        assert!(html.contains("agentprof"));
+        assert!(html.contains("class=\"lead\""));
+        assert!(html.contains("<table"));
+        assert!(html.contains("class=\"accordion\""));
     }
 }

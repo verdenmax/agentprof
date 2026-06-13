@@ -63,7 +63,14 @@ pub struct LessonEntry {
 
 /// Master list of all lessons. T8-T18 each append one entry here.
 pub const PAGES: &[LessonEntry] = &[
-    // T8-T18 will populate these stubs.
+    LessonEntry {
+        filename: "01-what-is-agentprof.html",
+        title: "agentprof 是什么",
+        description:
+            "用 Rust 写的开源 token profiler — 给 AI agent 用的 perf flamegraph + ROI 报告器。",
+        section: Section::Usage,
+    },
+    // T9-T18 will add more
 ];
 
 #[derive(Template)]
