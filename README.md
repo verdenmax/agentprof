@@ -44,6 +44,13 @@ Next milestone: Phase 3 adapters (Claude — M3.1; Codex — M3.2).
 See [`docs/plan.md`](docs/plan.md) for the roadmap and
 [`docs/architecture.md`](docs/architecture.md) for the architecture (L1).
 
+### 📖 在线阅读：可视化指南
+
+[**📖 在线阅读**](https://verdenmax.github.io/agentprof/) · [本地构建说明](docs/visual-guide/README.md)
+
+- **用法**（6 课）：从「agentprof 是什么」到 `serve` 浏览器实时看板
+- **Wiki**（8 课）：5 crate 架构 + 数据模型 + Adapter trait + 怎么写新 adapter
+
 ---
 
 ## Why agentprof

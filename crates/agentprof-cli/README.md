@@ -2,6 +2,11 @@
 
 > The `agentprof` binary — the only assembly layer in the workspace. Owns the CLI subcommands, config loading, HTML templating, and the `main()` entry point.
 
+### 配套可视化指南
+
+详细的用户教程 + Wiki 见 [`docs/visual-guide/`](../../docs/visual-guide/README.md)
+或 [在线版](https://verdenmax.github.io/agentprof/)。
+
 ## Position in the agentprof architecture
 
 This is the **assembly** crate: it depends on every other workspace crate, but **no lib crate is allowed to depend on it**. See [`docs/architecture.md`](../../docs/architecture.md) §3 (dependency rule) and §8 (CLI protocol).

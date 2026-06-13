@@ -1125,13 +1125,17 @@ agentprof/
 │   │   ├── waste-formula.md
 │   │   ├── tokenizer-strategy.md
 │   │   └── ...
+│   ├── visual-guide/             # 可视化中文教程（xtask 生成 + GH Pages，见 ADR-0025）
+│   │   ├── README.md             # 手工维护
+│   │   └── assets/               # 入 git（生成的 *.html 不入）
 │   └── superpowers/specs/        # 每个 feature 的 spec（brainstorming 产物）
 ├── .github/
 │   ├── copilot-instructions.md   # Copilot/AI agent 入口指南
 │   ├── workflows/
 │   │   ├── ci.yml                # 含 docs-sync job
 │   │   ├── release.yml
-│   │   └── nightly-msrv.yml
+│   │   ├── nightly-msrv.yml
+│   │   └── visual-guide.yml      # GH Pages 部署（main push → xtask 生成 + deploy）
 │   └── ISSUE_TEMPLATE/
 ├── crates/
 │   ├── agentprof-core/
@@ -1198,6 +1202,7 @@ todo        = "warn"
 | `msrv` | weekly | `cargo +1.78 check --workspace` |
 | `docs` | PR + push | `RUSTDOCFLAGS=-Dwarnings cargo doc --no-deps --workspace` |
 | `docs-sync` | PR + push | 见 §14.5：rustdoc 完整性、L2 README 存在性、CHANGELOG 联动检查 |
+| `visual-guide` | PR + push（路径过滤）| PR 跑 `cargo run -p xtask -- visual-guide --check`；main push 额外 build + `actions/deploy-pages@v4` → <https://verdenmax.github.io/agentprof/> |
 | `release` | tag `v*` | `cargo-dist`：x86_64/aarch64 × Linux/macOS/Windows |
 
 ### 15.4 Feature flags

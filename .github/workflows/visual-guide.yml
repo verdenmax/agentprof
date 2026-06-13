@@ -1,0 +1,53 @@
+name: visual-guide
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'xtask/src/visual_guide/**'
+      - 'xtask/templates/visual_guide/**'
+      - 'docs/visual-guide/assets/**'
+      - '.github/workflows/visual-guide.yml'
+  pull_request:
+    paths:
+      - 'xtask/src/visual_guide/**'
+      - 'xtask/templates/visual_guide/**'
+      - 'docs/visual-guide/assets/**'
+      - '.github/workflows/visual-guide.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: visual-guide
+      - name: Validate (xtask --check)
+        run: cargo run -p xtask -- visual-guide --check
+      - name: Build (main push only)
+        if: github.event_name != 'pull_request'
+        run: cargo run -p xtask -- visual-guide
+      - name: Upload Pages artifact (main push only)
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/visual-guide
+      - name: Deploy to Pages (main push only)
+        if: github.event_name != 'pull_request'
+        id: deployment
+        uses: actions/deploy-pages@v4
