@@ -874,3 +874,1012 @@ Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 ```
 
 ---
+
+### Task 5: components.rs — accordion + comparison_table + source_ref + prev/next
+
+**Files:**
+- Create: `xtask/src/visual_guide/components.rs`
+
+These are pure Rust functions that return `String` (HTML fragments). Lesson content modules (`usage_*` / `wiki_*`) call them.
+
+- [ ] **Step 1: Write failing unit tests**
+
+Append to `xtask/src/visual_guide/mod.rs`:
+
+```rust
+#[cfg(test)]
+mod components_tests {
+    use super::components::*;
+
+    #[test]
+    fn accordion_includes_summary_and_body() {
+        let html = accordion(1, "厂商锁定", "<p>示例内容</p>");
+        assert!(html.contains("<details"));
+        assert!(html.contains("<summary"));
+        assert!(html.contains("badge-num"));
+        assert!(html.contains("厂商锁定"));
+        assert!(html.contains("<p>示例内容</p>"));
+    }
+
+    #[test]
+    fn comparison_table_renders_three_columns() {
+        let rows = [
+            ("黑盒", "看不到 token 去向", "agentprof 给出火焰图"),
+            ("无 ROI", "猜哪个 tool 浪费", "agentprof 算 ROI 表"),
+        ];
+        let html = comparison_table(&["痛点", "没工具", "agentprof 的做法"], &rows);
+        assert!(html.contains("<table"));
+        assert!(html.contains("<th>痛点</th>"));
+        assert!(html.contains("<td>看不到 token 去向</td>"));
+        assert!(html.contains("<td>agentprof 算 ROI 表</td>"));
+    }
+
+    #[test]
+    fn source_ref_produces_github_blob_url_without_line_number() {
+        let html = source_ref("agentprof-core", "analyzer/cache.rs", "CacheMetrics");
+        assert!(html.contains("github.com/verdenmax/agentprof/blob/main/crates/agentprof-core/src/analyzer/cache.rs"));
+        assert!(html.contains("CacheMetrics"));
+        assert!(!html.contains("#L"));  // no line numbers per design
+    }
+}
+```
+
+- [ ] **Step 2: Run tests — fail**
+
+```bash
+cargo test -p xtask components_tests 2>&1 | tail -5
+# expect: 3 errors "unresolved module `components`"
+```
+
+- [ ] **Step 3: Implement components.rs**
+
+```rust
+//! HTML fragment helpers used by lesson content modules
+//! (`usage_*` / `wiki_*`).
+//!
+//! Each function returns a `String` of well-formed HTML; callers
+//! concatenate fragments into a final lesson body that gets passed
+//! to [`super::shell::render_page`].
+//!
+//! All public functions are pure: same inputs → same output, no
+//! filesystem or network I/O.
+
+/// Render an accordion (foldable card) block.
+///
+/// `num` is the badge number shown in the summary; `title` is the
+/// summary text; `body_html` is the expanded content (already
+/// HTML-formatted).
+///
+/// # Examples
+///
+/// ```
+/// use xtask::visual_guide::components::accordion;
+/// let html = accordion(1, "厂商锁定", "<p>内容</p>");
+/// assert!(html.contains("<details"));
+/// ```
+#[must_use]
+pub fn accordion(num: u32, title: &str, body_html: &str) -> String {
+    format!(
+        r#"<details class="accordion">
+  <summary><span class="badge-num">{num}</span> {title} <span class="hint">点击展开</span></summary>
+  <div class="acc-body">{body_html}</div>
+</details>
+"#
+    )
+}
+
+/// Render a comparison table — typical three-column "痛点 / 没工具 / agentprof 的做法"
+/// shape but generalised to N columns.
+///
+/// `headers` is a slice of N column headers; `rows` is a slice of
+/// 3-tuples (or N-tuples — see signature). The table is wrapped in
+/// the project's standard `<table class="t">` styling.
+#[must_use]
+pub fn comparison_table(headers: &[&str], rows: &[(&str, &str, &str)]) -> String {
+    let head = headers.iter().fold(String::new(), |mut acc, h| {
+        acc.push_str("<th>");
+        acc.push_str(h);
+        acc.push_str("</th>");
+        acc
+    });
+    let body = rows.iter().fold(String::new(), |mut acc, (a, b, c)| {
+        acc.push_str("<tr><td>");
+        acc.push_str(a);
+        acc.push_str("</td><td>");
+        acc.push_str(b);
+        acc.push_str("</td><td>");
+        acc.push_str(c);
+        acc.push_str("</td></tr>");
+        acc
+    });
+    format!("<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>\n")
+}
+
+/// Render a "相关源码" link to a GitHub blob URL.
+///
+/// The URL points to `main` branch and contains no line number — line
+/// numbers drift on every refactor. Readers Ctrl+F for `symbol`.
+///
+/// `crate_name` is the workspace member name without the `agentprof-`
+/// prefix (e.g. `"core"` becomes `crates/agentprof-core/src/...`).
+/// `path_in_src` is the file path relative to `src/` (e.g.
+/// `"analyzer/cache.rs"`). `symbol` is the rustdoc-visible identifier.
+#[must_use]
+pub fn source_ref(crate_short: &str, path_in_src: &str, symbol: &str) -> String {
+    format!(
+        r#"<p class="src-ref">📂 相关源码：
+<a href="https://github.com/verdenmax/agentprof/blob/main/crates/agentprof-{crate_short}/src/{path_in_src}"><code>{crate_short}/{path_in_src}</code></a>
+&nbsp;<code class="mono">{symbol}</code></p>
+"#
+    )
+}
+
+/// Inline SVG flow diagram — kept simple, intended for 2-5 node
+/// pipeline arrows. Nodes laid out left-to-right; arrows auto-drawn.
+/// Returns an `<svg class="diagram">…</svg>` snippet.
+#[must_use]
+pub fn flow_diagram(nodes: &[&str]) -> String {
+    if nodes.is_empty() {
+        return String::new();
+    }
+    let node_w = 140;
+    let node_h = 50;
+    let gap = 40;
+    let total_w = nodes.len() * node_w + (nodes.len() - 1) * gap;
+    let mut svg = format!(
+        r#"<svg class="diagram" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {total_w} 80">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+    </marker>
+  </defs>"#
+    );
+    for (i, label) in nodes.iter().enumerate() {
+        let x = i * (node_w + gap);
+        svg.push_str(&format!(
+            r#"  <rect x="{x}" y="15" width="{node_w}" height="{node_h}" rx="6" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <text x="{cx}" y="45" font-size="13" text-anchor="middle" fill="currentColor">{label}</text>
+"#,
+            cx = x + node_w / 2,
+        ));
+        if i < nodes.len() - 1 {
+            let from = x + node_w + 2;
+            let to = (i + 1) * (node_w + gap) - 2;
+            svg.push_str(&format!(
+                r#"  <line x1="{from}" y1="40" x2="{to}" y2="40" stroke="currentColor" stroke-width="1.5" marker-end="url(#arr)"/>
+"#
+            ));
+        }
+    }
+    svg.push_str("</svg>\n");
+    svg
+}
+
+/// Render a `<nav class="prev-next">` block at the lesson bottom.
+#[must_use]
+pub fn prev_next(prev: Option<(&str, &str)>, next: Option<(&str, &str)>) -> String {
+    let mut s = String::from(r#"<nav class="prev-next" style="display:flex;justify-content:space-between;margin-top:2em;font-size:.9rem">"#);
+    if let Some((href, title)) = prev {
+        s.push_str(&format!(r#"<a href="{href}">← {title}</a>"#));
+    } else {
+        s.push_str("<span></span>");
+    }
+    if let Some((href, title)) = next {
+        s.push_str(&format!(r#"<a href="{href}">{title} →</a>"#));
+    } else {
+        s.push_str("<span></span>");
+    }
+    s.push_str("</nav>\n");
+    s
+}
+```
+
+Add to `xtask/src/visual_guide/mod.rs`:
+
+```rust
+pub mod components;
+```
+
+- [ ] **Step 4: Run tests — pass**
+
+```bash
+cargo test -p xtask components_tests 2>&1 | tail -5
+# expect: 3 passed
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add xtask/src/visual_guide/components.rs xtask/src/visual_guide/mod.rs
+git commit -m "feat(xtask): visual-guide components (accordion/table/svg/source-ref) (T5)
+
+Pure-Rust HTML fragment helpers used by lesson content modules:
+  - accordion(num, title, body) — foldable card
+  - comparison_table(headers, rows) — three-column 痛点 table
+  - source_ref(crate, path, symbol) — GitHub blob URL (no line number)
+  - flow_diagram(&[nodes]) — inline SVG left-to-right pipeline
+  - prev_next(prev?, next?) — lesson bottom navigation
+
+3 unit tests cover accordion structure, comparison_table column layout,
+and source_ref URL shape (no #L line anchor).
+
+Refs: docs/superpowers/plans/2026-06-13-visual-guide.md Task 5
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
+```
+
+---
+
+### Task 6: highlight.rs — Rust/bash/toml/sql lexer
+
+**Files:**
+- Create: `xtask/src/visual_guide/highlight.rs`
+
+Hand-written lexer ~200 LOC. Identifies keywords / strings / comments / numbers for 4 languages; output is HTML with `<span class="kw">…</span>` etc. matching the CSS classes from T4.
+
+- [ ] **Step 1: Write failing fixture tests**
+
+Append to `xtask/src/visual_guide/mod.rs`:
+
+```rust
+#[cfg(test)]
+mod highlight_tests {
+    use super::highlight::{highlight, Lang};
+
+    #[test]
+    fn rust_marks_keywords_strings_comments() {
+        let src = "// hello\nfn greet(name: &str) {\n    let msg = \"hi\";\n}";
+        let html = highlight(Lang::Rust, src);
+        assert!(html.contains(r#"<span class="cm">// hello</span>"#));
+        assert!(html.contains(r#"<span class="kw">fn</span>"#));
+        assert!(html.contains(r#"<span class="kw">let</span>"#));
+        assert!(html.contains(r#"<span class="st">"hi"</span>"#));
+    }
+
+    #[test]
+    fn bash_marks_comments_and_variables() {
+        let src = "# comment\nfor f in *.rs; do\n  echo \"$f\"\ndone";
+        let html = highlight(Lang::Bash, src);
+        assert!(html.contains(r#"<span class="cm"># comment</span>"#));
+        assert!(html.contains(r#"<span class="kw">for</span>"#));
+        assert!(html.contains(r#"<span class="kw">do</span>"#));
+        assert!(html.contains(r#"<span class="kw">done</span>"#));
+        assert!(html.contains(r#"<span class="st">"$f"</span>"#));
+    }
+
+    #[test]
+    fn toml_marks_section_headers_and_keys() {
+        let src = "[serve]\nbind = \"127.0.0.1:4329\"\n# comment\ninterval = 5";
+        let html = highlight(Lang::Toml, src);
+        assert!(html.contains(r#"<span class="kw">[serve]</span>"#));
+        assert!(html.contains(r#"<span class="st">"127.0.0.1:4329"</span>"#));
+        assert!(html.contains(r#"<span class="cm"># comment</span>"#));
+        assert!(html.contains(r#"<span class="nm">5</span>"#));
+    }
+
+    #[test]
+    fn sql_marks_uppercase_keywords_and_dash_comments() {
+        let src = "-- list sessions\nSELECT id, started_at FROM sessions WHERE started_at > 0;";
+        let html = highlight(Lang::Sql, src);
+        assert!(html.contains(r#"<span class="cm">-- list sessions</span>"#));
+        assert!(html.contains(r#"<span class="kw">SELECT</span>"#));
+        assert!(html.contains(r#"<span class="kw">FROM</span>"#));
+        assert!(html.contains(r#"<span class="kw">WHERE</span>"#));
+    }
+}
+```
+
+- [ ] **Step 2: Run tests — fail**
+
+```bash
+cargo test -p xtask highlight_tests 2>&1 | tail -5
+# expect: 4 unresolved errors
+```
+
+- [ ] **Step 3: Implement highlight.rs**
+
+```rust
+//! Hand-written syntax highlighter for Rust / bash / TOML / SQL.
+//!
+//! Emits HTML with `<span class="kw">`, `<span class="st">`,
+//! `<span class="cm">`, `<span class="nm">` wrappings matching the
+//! CSS classes defined in [`super::css`]. **Not** a full lexer —
+//! covers keywords + string literals + comments + simple numbers
+//! to make code blocks readable; unknown tokens fall through as
+//! plain HTML-escaped text.
+//!
+//! Trade-off: no `syntect` / `tree-sitter` dependency. Misses are
+//! acceptable — the worst case is missing color, not malformed HTML.
+
+/// Languages supported by [`highlight`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Lang {
+    Rust,
+    Bash,
+    Toml,
+    Sql,
+}
+
+const RUST_KW: &[&str] = &[
+    "fn", "let", "mut", "pub", "mod", "use", "struct", "enum", "impl",
+    "trait", "match", "if", "else", "for", "while", "loop", "return",
+    "async", "await", "Self", "self", "where", "type", "const", "static",
+    "ref", "move", "as", "in", "break", "continue", "true", "false",
+];
+
+const BASH_KW: &[&str] = &[
+    "if", "then", "fi", "else", "elif", "for", "in", "do", "done",
+    "while", "case", "esac", "function", "return", "exit", "echo",
+];
+
+const SQL_KW: &[&str] = &[
+    "SELECT", "FROM", "WHERE", "JOIN", "LEFT", "RIGHT", "INNER", "OUTER",
+    "ON", "AND", "OR", "NOT", "NULL", "CREATE", "TABLE", "INDEX",
+    "UPDATE", "DELETE", "INSERT", "VALUES", "PRAGMA", "ORDER", "BY",
+    "GROUP", "HAVING", "LIMIT", "OFFSET", "DISTINCT", "AS",
+];
+
+/// HTML-escape a substring.
+fn esc(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+/// Render `src` (any of the 4 languages) as HTML with syntax-class spans.
+#[must_use]
+pub fn highlight(lang: Lang, src: &str) -> String {
+    match lang {
+        Lang::Rust => highlight_curly(src, RUST_KW, /*c_block*/ true),
+        Lang::Bash => highlight_shell(src, BASH_KW, '#'),
+        Lang::Toml => highlight_toml(src),
+        Lang::Sql  => highlight_shell(src, SQL_KW, '-'), // -- comment is two dashes; handled
+    }
+}
+
+/// Rust-style: `//` line + `/* ... */` block comments, double-quoted
+/// strings, keywords from `kws`, integer literals.
+fn highlight_curly(src: &str, kws: &[&str], _c_block: bool) -> String {
+    let bytes = src.as_bytes();
+    let mut out = String::with_capacity(src.len() * 2);
+    let mut i = 0;
+    while i < bytes.len() {
+        let c = bytes[i] as char;
+        // Line comment //
+        if c == '/' && i + 1 < bytes.len() && bytes[i + 1] == b'/' {
+            let end = bytes[i..].iter().position(|&b| b == b'\n').map_or(bytes.len(), |p| i + p);
+            out.push_str(r#"<span class="cm">"#);
+            out.push_str(&esc(&src[i..end]));
+            out.push_str("</span>");
+            i = end;
+            continue;
+        }
+        // String literal "..."
+        if c == '"' {
+            let start = i;
+            i += 1;
+            while i < bytes.len() && bytes[i] != b'"' {
+                if bytes[i] == b'\\' && i + 1 < bytes.len() {
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            if i < bytes.len() {
+                i += 1;
+            } // include closing "
+            out.push_str(r#"<span class="st">"#);
+            out.push_str(&esc(&src[start..i]));
+            out.push_str("</span>");
+            continue;
+        }
+        // Identifier
+        if c.is_ascii_alphabetic() || c == '_' {
+            let start = i;
+            while i < bytes.len()
+                && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_')
+            {
+                i += 1;
+            }
+            let ident = &src[start..i];
+            if kws.contains(&ident) {
+                out.push_str(r#"<span class="kw">"#);
+                out.push_str(ident);
+                out.push_str("</span>");
+            } else {
+                out.push_str(&esc(ident));
+            }
+            continue;
+        }
+        // Number
+        if c.is_ascii_digit() {
+            let start = i;
+            while i < bytes.len()
+                && (bytes[i].is_ascii_digit() || bytes[i] == b'_' || bytes[i] == b'.')
+            {
+                i += 1;
+            }
+            out.push_str(r#"<span class="nm">"#);
+            out.push_str(&src[start..i]);
+            out.push_str("</span>");
+            continue;
+        }
+        // Anything else: HTML-escape one char
+        out.push_str(&esc(&src[i..i + c.len_utf8()]));
+        i += c.len_utf8();
+    }
+    out
+}
+
+/// Shell / SQL: `#`-or-`--` line comments, double + single string,
+/// keyword list. `comment_lead` is the first char of the comment
+/// marker (`#` for bash, `-` for sql which then requires a second `-`).
+fn highlight_shell(src: &str, kws: &[&str], comment_lead: char) -> String {
+    let bytes = src.as_bytes();
+    let mut out = String::with_capacity(src.len() * 2);
+    let mut i = 0;
+    while i < bytes.len() {
+        let c = bytes[i] as char;
+        // Comment
+        let is_comment = if comment_lead == '#' {
+            c == '#'
+        } else {
+            c == '-' && i + 1 < bytes.len() && bytes[i + 1] == b'-'
+        };
+        if is_comment {
+            let end = bytes[i..].iter().position(|&b| b == b'\n').map_or(bytes.len(), |p| i + p);
+            out.push_str(r#"<span class="cm">"#);
+            out.push_str(&esc(&src[i..end]));
+            out.push_str("</span>");
+            i = end;
+            continue;
+        }
+        if c == '"' || c == '\'' {
+            let quote = bytes[i];
+            let start = i;
+            i += 1;
+            while i < bytes.len() && bytes[i] != quote {
+                i += 1;
+            }
+            if i < bytes.len() {
+                i += 1;
+            }
+            out.push_str(r#"<span class="st">"#);
+            out.push_str(&esc(&src[start..i]));
+            out.push_str("</span>");
+            continue;
+        }
+        if c.is_ascii_alphabetic() || c == '_' {
+            let start = i;
+            while i < bytes.len()
+                && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_')
+            {
+                i += 1;
+            }
+            let ident = &src[start..i];
+            // SQL keywords are uppercased; bash keywords are lowercase.
+            // Compare directly (case-sensitive).
+            if kws.contains(&ident) {
+                out.push_str(r#"<span class="kw">"#);
+                out.push_str(ident);
+                out.push_str("</span>");
+            } else {
+                out.push_str(&esc(ident));
+            }
+            continue;
+        }
+        out.push_str(&esc(&src[i..i + c.len_utf8()]));
+        i += c.len_utf8();
+    }
+    out
+}
+
+/// TOML: `[section]` headers (whole-line keyword), `# comment`,
+/// double-quoted strings, integer numbers.
+fn highlight_toml(src: &str) -> String {
+    let mut out = String::with_capacity(src.len() * 2);
+    for line in src.split_inclusive('\n') {
+        let trim = line.trim_start();
+        let lead = line.len() - trim.len();
+        out.push_str(&line[..lead]);
+        if trim.starts_with('[') {
+            if let Some(close) = trim.find(']') {
+                out.push_str(r#"<span class="kw">"#);
+                out.push_str(&esc(&trim[..=close]));
+                out.push_str("</span>");
+                out.push_str(&esc(&trim[close + 1..]));
+                continue;
+            }
+        }
+        // delegate the rest of the line to a stripped-down shell-ish pass
+        // for comments + strings + numbers
+        let tail = highlight_shell(trim, &[], '#');
+        out.push_str(&tail);
+    }
+    // numbers: a coarse pass — wrap standalone integer values right of '='
+    // (good-enough for our doc examples; not a real TOML parser).
+    let mut numbered = String::with_capacity(out.len());
+    let bytes = out.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'=' {
+            numbered.push('=');
+            i += 1;
+            while i < bytes.len() && bytes[i] == b' ' {
+                numbered.push(' ');
+                i += 1;
+            }
+            if i < bytes.len() && (bytes[i].is_ascii_digit() || bytes[i] == b'-') {
+                let start = i;
+                if bytes[i] == b'-' {
+                    i += 1;
+                }
+                while i < bytes.len()
+                    && (bytes[i].is_ascii_digit() || bytes[i] == b'_' || bytes[i] == b'.')
+                {
+                    i += 1;
+                }
+                numbered.push_str(r#"<span class="nm">"#);
+                numbered.push_str(&out[start..i]);
+                numbered.push_str("</span>");
+                continue;
+            }
+        }
+        numbered.push(bytes[i] as char);
+        i += 1;
+    }
+    numbered
+}
+```
+
+Add to `xtask/src/visual_guide/mod.rs`:
+
+```rust
+pub mod highlight;
+```
+
+- [ ] **Step 4: Run tests — pass**
+
+```bash
+cargo test -p xtask highlight_tests 2>&1 | tail -5
+# expect: 4 passed
+```
+
+If any test fails on string-content escape (e.g. `&quot;` vs raw `"`), revise `esc()` to taste — the tests look for raw `"hi"` quoted in the source so leave `esc()` unchanged.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add xtask/src/visual_guide/highlight.rs xtask/src/visual_guide/mod.rs
+git commit -m "feat(xtask): visual-guide syntax highlighter for rust/bash/toml/sql (T6)
+
+Hand-written ~200 LOC lexer covering keywords / strings / line
+comments / numbers across 4 languages. Output wraps tokens in
+<span class=\"kw|st|cm|nm\">…</span> matching the CSS classes from
+T4 (guide.css .code .kw / .st / .cm / .nm).
+
+Deliberately NOT using syntect or tree-sitter — those would add
+multi-MB deps for a documentation generator. Missed tokens fall
+through as plain HTML-escaped text — acceptable degradation since
+the worst case is missing color, not malformed markup.
+
+4 fixture tests cover one canonical snippet per language with the
+patterns lesson content modules will use (Rust fn, bash for loop,
+TOML [section] block, SQL SELECT).
+
+Refs: docs/superpowers/plans/2026-06-13-visual-guide.md Task 6
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
+```
+
+---
+
+### Task 7: pages.rs — PAGES const + index page renderer
+
+**Files:**
+- Create: `xtask/src/visual_guide/pages.rs`
+- Create: `xtask/templates/visual_guide/index.html`
+- Modify: `xtask/src/visual_guide/mod.rs` — fill `run()` to actually generate files
+
+This task **lights up the pipeline end-to-end**: after T7, `cargo xtask visual-guide` writes a real `index.html` (zero lessons, just the chrome + empty TOC). T8-T18 progressively add lesson modules and re-register them in `PAGES`.
+
+- [ ] **Step 1: Write failing test**
+
+Append to `xtask/src/visual_guide/mod.rs`:
+
+```rust
+#[cfg(test)]
+mod pages_tests {
+    use super::pages;
+
+    #[test]
+    fn pages_array_is_non_empty_and_well_formed() {
+        assert!(!pages::PAGES.is_empty());
+        for entry in pages::PAGES {
+            assert!(entry.filename.ends_with(".html"));
+            assert!(!entry.title.is_empty());
+            assert!(matches!(entry.section, pages::Section::Usage | pages::Section::Wiki));
+        }
+    }
+
+    #[test]
+    fn render_index_includes_doctype_and_section_cards() {
+        let html = pages::render_index().expect("render");
+        assert!(html.contains("<!DOCTYPE html>"));
+        assert!(html.contains("用法"));
+        assert!(html.contains("Wiki"));
+    }
+}
+```
+
+- [ ] **Step 2: Run tests — fail**
+
+```bash
+cargo test -p xtask pages_tests 2>&1 | tail -5
+```
+
+- [ ] **Step 3: Implement pages.rs**
+
+```rust
+//! `PAGES` registry — every lesson here gets generated to disk and
+//! linked from the index. T8-T18 add `usage_*` / `wiki_*` modules
+//! and append entries here.
+//!
+//! Ordering is significant: it drives prev/next nav.
+
+use askama::Template;
+
+/// Which chapter a lesson belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Section {
+    Usage,
+    Wiki,
+}
+
+impl Section {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Usage => "用法",
+            Self::Wiki => "Wiki",
+        }
+    }
+    pub const fn dir(self) -> &'static str {
+        match self {
+            Self::Usage => "usage",
+            Self::Wiki => "wiki",
+        }
+    }
+}
+
+/// One lesson entry.
+pub struct LessonEntry {
+    /// Filename within the section dir, e.g. `"01-what-is-agentprof.html"`.
+    pub filename: &'static str,
+    /// Display title in nav + index.
+    pub title: &'static str,
+    /// One-line description for `<meta description>` + index card.
+    pub description: &'static str,
+    /// Chapter.
+    pub section: Section,
+}
+
+/// Master list of all lessons. T8-T18 each append one entry here.
+pub const PAGES: &[LessonEntry] = &[
+    // Usage (T8-T13 populate these stubs)
+    // Wiki (T14-T18 populate these stubs)
+    // Empty initially; T7 only ships the index page + chrome.
+];
+
+#[derive(Template)]
+#[template(path = "visual_guide/index.html")]
+struct IndexTemplate {
+    usage_lessons: Vec<IndexRow>,
+    wiki_lessons: Vec<IndexRow>,
+    pkg_version: &'static str,
+    generated_at_utc: String,
+    git_sha_short: String,
+    favicon: String,
+    css: &'static str,
+}
+
+struct IndexRow {
+    href: String,
+    title: &'static str,
+    description: &'static str,
+    number: usize,
+}
+
+/// Render the index page (the site root `index.html`).
+pub fn render_index() -> askama::Result<String> {
+    let usage_lessons: Vec<IndexRow> = PAGES
+        .iter()
+        .filter(|p| p.section == Section::Usage)
+        .enumerate()
+        .map(|(i, p)| IndexRow {
+            href: format!("{}/{}", p.section.dir(), p.filename),
+            title: p.title,
+            description: p.description,
+            number: i + 1,
+        })
+        .collect();
+    let wiki_lessons: Vec<IndexRow> = PAGES
+        .iter()
+        .filter(|p| p.section == Section::Wiki)
+        .enumerate()
+        .map(|(i, p)| IndexRow {
+            href: format!("{}/{}", p.section.dir(), p.filename),
+            title: p.title,
+            description: p.description,
+            number: i + 1,
+        })
+        .collect();
+
+    IndexTemplate {
+        usage_lessons,
+        wiki_lessons,
+        pkg_version: env!("CARGO_PKG_VERSION"),
+        generated_at_utc: chrono::Utc::now().format("%Y-%m-%d %H:%M UTC").to_string(),
+        git_sha_short: super::git_sha_short_or_unknown(),
+        favicon: super::shell::favicon_data_url(),
+        css: super::css::ALL_CSS,
+    }
+    .render()
+}
+```
+
+You'll need to make `favicon_data_url` `pub(super)` in `shell.rs`:
+
+```rust
+pub(super) fn favicon_data_url() -> String { /* unchanged */ }
+```
+
+- [ ] **Step 4: Create `xtask/templates/visual_guide/index.html`**
+
+```html
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>agentprof 可视化指南 — 目录</title>
+<meta name="description" content="agentprof 项目的可视化中文教程：用法 + Wiki 共 14 课。">
+<meta name="theme-color" content="#1a1a2e">
+<link rel="icon" type="image/svg+xml" href="{{ favicon }}">
+<style>{{ css|safe }}</style>
+<style>
+.idx-hero { padding: 2em 1.2em; background: var(--accent); color: #eee; text-align: center; }
+.idx-hero h1 { color: #eee; font-size: 2.2rem; margin: 0; }
+.idx-hero p  { color: #b8c1ff; margin-top: .5em; font-size: 1.05rem; }
+.idx-section { padding: 1em 1.2em; max-width: 1100px; margin: 0 auto; }
+.idx-section h2 { font-size: 1.5rem; border-bottom: 2px solid var(--accent-soft); padding-bottom: .3em; margin-top: 1em; }
+.idx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1em; margin-top: 1em; }
+.idx-card {
+  display: block; background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 1em 1.2em; box-shadow: var(--shadow);
+  color: var(--ink); text-decoration: none;
+}
+.idx-card:hover { border-color: var(--accent); text-decoration: none; }
+.idx-card .num { color: var(--accent); font-weight: 700; font-size: .85rem; }
+.idx-card .ttl { font-weight: 600; margin: .25em 0 .35em; }
+.idx-card .desc { color: var(--muted); font-size: .9rem; }
+.empty-note { color: var(--muted); padding: 1em; font-style: italic; }
+</style>
+</head>
+<body>
+<header class="idx-hero">
+  <h1>agentprof 可视化指南</h1>
+  <p>给 AI agent 用的 perf flamegraph + ROI 报告器 · 共 14 课中文图解</p>
+</header>
+
+<section class="idx-section">
+  <h2>用法（面向新手）</h2>
+  {% if usage_lessons.is_empty() %}
+  <p class="empty-note">（暂无课程；构建过程中）</p>
+  {% else %}
+  <div class="idx-grid">
+    {% for l in usage_lessons %}
+    <a class="idx-card" href="{{ l.href }}">
+      <span class="num">用法 {{ l.number }}</span>
+      <div class="ttl">{{ l.title }}</div>
+      <div class="desc">{{ l.description }}</div>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+
+<section class="idx-section">
+  <h2>Wiki（面向中阶 + 开发者）</h2>
+  {% if wiki_lessons.is_empty() %}
+  <p class="empty-note">（暂无课程；构建过程中）</p>
+  {% else %}
+  <div class="idx-grid">
+    {% for l in wiki_lessons %}
+    <a class="idx-card" href="{{ l.href }}">
+      <span class="num">Wiki {{ l.number }}</span>
+      <div class="ttl">{{ l.title }}</div>
+      <div class="desc">{{ l.description }}</div>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+
+<footer class="vg-footer">
+  agentprof 可视化指南 · v{{ pkg_version }} · 生成于 {{ generated_at_utc }} · git {{ git_sha_short }}<br>
+  <a href="https://github.com/verdenmax/agentprof">GitHub</a> · MIT/Apache-2.0
+</footer>
+</body>
+</html>
+```
+
+- [ ] **Step 5: Wire `run()` to actually write files**
+
+Replace `xtask/src/visual_guide/mod.rs::run()`:
+
+```rust
+use std::fs;
+use std::path::PathBuf;
+
+pub fn run(cmd: VisualGuideCmd) -> anyhow::Result<()> {
+    let out_root = workspace_root()?.join("docs").join("visual-guide");
+
+    if cmd.clean {
+        for sub in ["index.html"] {
+            let _ = fs::remove_file(out_root.join(sub));
+        }
+        for chapter in ["usage", "wiki"] {
+            let _ = fs::remove_dir_all(out_root.join(chapter));
+        }
+    }
+
+    let mut written: Vec<PathBuf> = Vec::new();
+
+    // Index page (always)
+    let index_html = pages::render_index()?;
+    if cmd.check {
+        // dry-run: just confirm it rendered to non-empty HTML
+        assert!(index_html.contains("<!DOCTYPE"));
+    } else {
+        fs::create_dir_all(&out_root)?;
+        let idx_path = out_root.join("index.html");
+        fs::write(&idx_path, index_html)?;
+        written.push(idx_path);
+    }
+
+    // Lesson pages (T8+ adds modules per lesson; for now PAGES is empty)
+    for entry in pages::PAGES {
+        let body_html = render_lesson_body(entry)?;
+        let nav = compute_nav(entry);
+        let html = shell::render_page(shell::PageMeta {
+            title: entry.title,
+            description: entry.description,
+            section_label: entry.section.label(),
+            home_href: "../index.html",
+            prev: nav.prev,
+            next: nav.next,
+        }, &body_html)?;
+
+        if !cmd.check {
+            let dir = out_root.join(entry.section.dir());
+            fs::create_dir_all(&dir)?;
+            let path = dir.join(entry.filename);
+            fs::write(&path, html)?;
+            written.push(path);
+        }
+    }
+
+    println!("visual-guide: {} {} files",
+        if cmd.check { "verified" } else { "wrote" },
+        if cmd.check { pages::PAGES.len() + 1 } else { written.len() });
+    for p in &written {
+        println!("  - {}", p.display());
+    }
+    Ok(())
+}
+
+struct Nav<'a> {
+    prev: Option<shell::NavLink<'a>>,
+    next: Option<shell::NavLink<'a>>,
+}
+
+fn compute_nav<'a>(entry: &'a pages::LessonEntry) -> Nav<'a> {
+    let idx = pages::PAGES.iter().position(|p| std::ptr::eq(p, entry));
+    let prev = idx.and_then(|i| i.checked_sub(1)).and_then(|i| pages::PAGES.get(i))
+        .map(|p| shell::NavLink {
+            href: if p.section == entry.section {
+                Box::leak(format!("{}", p.filename).into_boxed_str()) as &str
+            } else {
+                Box::leak(format!("../{}/{}", p.section.dir(), p.filename).into_boxed_str()) as &str
+            },
+            title: p.title,
+        });
+    let next = idx.and_then(|i| pages::PAGES.get(i + 1))
+        .map(|p| shell::NavLink {
+            href: if p.section == entry.section {
+                Box::leak(format!("{}", p.filename).into_boxed_str()) as &str
+            } else {
+                Box::leak(format!("../{}/{}", p.section.dir(), p.filename).into_boxed_str()) as &str
+            },
+            title: p.title,
+        });
+    Nav { prev, next }
+}
+
+/// Look up the per-lesson body renderer based on `entry.filename`. T8+
+/// each register a function pointer in this match arm.
+fn render_lesson_body(entry: &pages::LessonEntry) -> anyhow::Result<String> {
+    match entry.filename {
+        // T8+ insert match arms here, e.g.:
+        // "01-what-is-agentprof.html" => Ok(usage_01::render()),
+        _ => anyhow::bail!("no renderer wired for {}; please update visual_guide::mod::render_lesson_body", entry.filename),
+    }
+}
+
+/// Find the workspace root (parent of `Cargo.lock`).
+fn workspace_root() -> anyhow::Result<PathBuf> {
+    let mut dir: PathBuf = std::env::current_dir()?;
+    loop {
+        if dir.join("Cargo.lock").exists() {
+            return Ok(dir);
+        }
+        if !dir.pop() {
+            anyhow::bail!("workspace root not found (no Cargo.lock in any ancestor)");
+        }
+    }
+}
+```
+
+Add `pub mod pages;` to `xtask/src/visual_guide/mod.rs` near the existing module decls.
+
+**Note on `Box::leak`**: this is a tiny leak (a handful of strings, ~tens of bytes, never freed). For a 1-shot xtask invocation this is fine. If it offends sensibilities, refactor `NavLink` to own `String` instead of `&str` in T19.
+
+- [ ] **Step 6: Run all tests + smoke**
+
+```bash
+cargo test -p xtask 2>&1 | tail -10
+# expect: all pass
+
+cargo xtask visual-guide --check 2>&1 | tail -5
+# expect: "verified 1 files" (just index)
+
+cargo xtask visual-guide 2>&1 | tail -5
+# expect: "wrote 1 files" + path printed
+
+ls docs/visual-guide/
+# expect: index.html  assets/  .gitkeep
+
+# Open in browser to eyeball
+$BROWSER docs/visual-guide/index.html 2>/dev/null || true
+```
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add xtask/src/visual_guide/pages.rs xtask/src/visual_guide/mod.rs xtask/templates/visual_guide/index.html
+git commit -m "feat(xtask): visual-guide PAGES registry + index page + writer (T7)
+
+Lights up the pipeline end-to-end. \`cargo xtask visual-guide\` now
+writes a real \`docs/visual-guide/index.html\` with hero header +
+two empty section grids (用法 / Wiki). PAGES is empty at this stage;
+T8-T18 register lessons by appending to the slice + adding a render
+match arm.
+
+Key types: Section enum, LessonEntry struct, IndexRow VM.
+Key fns:   pages::render_index, mod::render_lesson_body (extensible).
+
+--clean removes index.html + usage/ + wiki/; --check renders to
+memory without writing (CI PR path).
+
+2 unit tests cover PAGES invariants + index DOCTYPE presence.
+Manual smoke: cargo xtask visual-guide writes 1 file (index.html);
+opens in any browser including via file://.
+
+Refs: docs/superpowers/plans/2026-06-13-visual-guide.md Task 7
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
+```
+
+**Phase gate**: After T7, the pipeline is end-to-end functional. T8-T18 only add lesson content modules.
+
+---
