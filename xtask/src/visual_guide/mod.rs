@@ -23,6 +23,7 @@ pub mod usage_03;
 pub mod usage_04;
 pub mod usage_05;
 pub mod usage_06;
+pub mod wiki_01;
 
 /// Best-effort git short SHA (12 chars); `"unknown"` on failure (e.g.
 /// CI checkout without `.git`, or git not on PATH). Footer-only;
@@ -183,6 +184,7 @@ fn render_lesson_body(entry: &pages::LessonEntry) -> anyhow::Result<String> {
         "04-list-aggregate.html" => Ok(usage_04::render()),
         "05-serve.html" => Ok(usage_05::render()),
         "06-db-otlp.html" => Ok(usage_06::render()),
+        "01-architecture.html" => Ok(wiki_01::render()),
         _ => anyhow::bail!(
             "no renderer wired for {}; please update visual_guide::mod::render_lesson_body",
             entry.filename
@@ -480,5 +482,34 @@ mod usage_05_test {
         assert!(html.contains("/mcp-waste"));
         assert!(html.contains("localStorage"));
         assert!(html.contains("../assets/dashboard-overview.png"));
+    }
+}
+
+#[cfg(test)]
+mod wiki_01_test {
+    #[test]
+    fn renders_non_empty_with_required_marks() {
+        let html = super::wiki_01::render();
+        assert!(
+            html.len() > 1500,
+            "expect substantial content, got {} chars",
+            html.len()
+        );
+        assert!(html.contains("agentprof"));
+        assert!(html.contains("class=\"lead\""));
+        assert!(html.contains("<table"));
+        assert!(html.contains("class=\"accordion\""));
+        assert!(html.contains("agentprof-core"));
+        assert!(html.contains("agentprof-cli"));
+        assert!(html.contains("agentprof-adapters"));
+        assert!(html.contains("agentprof-storage"));
+        assert!(html.contains("agentprof-tui"));
+        assert!(html.contains("../assets/architecture-deps.svg"));
+        assert!(html.contains("ADR-0019"));
+        assert!(html.contains("ADR-0024"));
+        assert!(html.contains("ADR-0025"));
+        assert!(html.contains("L1"));
+        assert!(html.contains("L2"));
+        assert!(html.contains("L3"));
     }
 }

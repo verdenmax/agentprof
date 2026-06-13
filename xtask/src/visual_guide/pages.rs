@@ -105,6 +105,13 @@ pub const PAGES: &[LessonEntry] = &[
         section: Section::Usage,
     },
     // T12-T18 will add more
+    LessonEntry {
+        filename: "01-architecture.html",
+        title: "架构全景",
+        description:
+            "5 crate 依赖图 + L1/L2/L3 文档体系 + 24 份 ADR 索引 — 整个项目的全景图。",
+        section: Section::Wiki,
+    },
 ];
 
 #[derive(Template)]
