@@ -2226,3 +2226,427 @@ Subagent ships these in **one commit** since each is shorter (~600 chars baselin
 T18 单 commit 含 4 个新 modules + 4 个新 PAGES entries + 4 个新 match arms + 4 个 render tests.
 
 ---
+
+### Task 19: xtask integration tests + assets
+
+**Files:**
+- Create: `xtask/tests/visual_guide.rs`
+- Create: `docs/visual-guide/assets/flamegraph-sample.svg`
+- Create: `docs/visual-guide/assets/report-html-sample.png`
+- Create: `docs/visual-guide/assets/dashboard-overview.png`
+- Create: `docs/visual-guide/assets/dashboard-aggregate.png`
+- Create: `docs/visual-guide/assets/dashboard-mcp-waste.png`
+- Create: `docs/visual-guide/assets/dashboard-session.png`
+- Create: `docs/visual-guide/assets/architecture-deps.svg`
+
+**Two phases**: (A) record real assets from a running agentprof, (B) write 5 integration tests.
+
+#### Phase A: Record real assets
+
+- [ ] **Step A1: Ingest a sample session into a fresh store**
+
+Use the test fixture session from `agentprof-adapters`. Open a sample tempdb path, init it, run `analyze --export html`, screenshot the result at 1280x800 and save as `docs/visual-guide/assets/report-html-sample.png`.
+
+- [ ] **Step A2: Generate the flamegraph SVG**
+
+Run `agentprof analyze --export html`; extract the embedded `<svg>...</svg>` block from the output HTML and save as `docs/visual-guide/assets/flamegraph-sample.svg`. Add a version watermark text in the bottom-right.
+
+- [ ] **Step A3: Take 4 dashboard screenshots**
+
+Ingest the fixture into the store (`agentprof db ingest`), then start `agentprof serve --storage-path /tmp/sample.db --bind 127.0.0.1:14329 --no-open --quiet` as a backgrounded process. Hit these URLs in a browser and screenshot at 1280×800:
+
+- `http://127.0.0.1:14329/sessions` → `dashboard-overview.png`
+- `http://127.0.0.1:14329/session/<first id>` → `dashboard-session.png`
+- `http://127.0.0.1:14329/aggregate?by=model` → `dashboard-aggregate.png`
+- `http://127.0.0.1:14329/mcp-waste` → `dashboard-mcp-waste.png`
+
+Stop the dev server (note the printed PID and terminate it via your platform's process-management primitive). Crop / resize screenshots to 1280×800 max.
+
+- [ ] **Step A4: Hand-draw 5-crate dependency SVG**
+
+`docs/visual-guide/assets/architecture-deps.svg` — a simple block diagram with 5 boxes (agentprof-cli, agentprof-tui, agentprof-adapters, agentprof-storage, agentprof-core) and arrows reflecting `docs/architecture.md` §3 dependency rule. Write directly as SVG XML by hand or draw.io export. Suggested ~400×300 viewBox, monochrome (`currentColor`).
+
+#### Phase B: Write integration tests
+
+- [ ] **Step B1: Create `xtask/tests/visual_guide.rs`**
+
+```rust
+//! Integration tests for the visual-guide xtask subcommand.
+
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+fn workspace_root() -> PathBuf {
+    let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    p.pop();
+    p
+}
+
+fn run_xtask(args: &[&str]) -> std::process::Output {
+    Command::new(env!("CARGO"))
+        .args(args.iter().copied())
+        .current_dir(workspace_root())
+        .output()
+        .expect("spawn cargo xtask")
+}
+
+#[test]
+fn render_all_produces_expected_file_count() {
+    let out = run_xtask(&["xtask", "visual-guide"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let root = workspace_root().join("docs/visual-guide");
+    assert!(root.join("index.html").exists());
+    let usage = std::fs::read_dir(root.join("usage")).map(|d| d.count()).unwrap_or(0);
+    let wiki  = std::fs::read_dir(root.join("wiki" )).map(|d| d.count()).unwrap_or(0);
+    assert_eq!(usage, 6);
+    assert_eq!(wiki, 8);
+}
+
+#[test]
+fn check_mode_does_not_write_files() {
+    let _ = run_xtask(&["xtask", "visual-guide", "--clean"]);
+    let out = run_xtask(&["xtask", "visual-guide", "--check"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let idx = workspace_root().join("docs/visual-guide/index.html");
+    assert!(!idx.exists(), "--check wrote index.html (should be dry-run)");
+    let _ = run_xtask(&["xtask", "visual-guide"]);
+}
+
+#[test]
+fn prev_next_links_resolve_to_existing_files() {
+    let _ = run_xtask(&["xtask", "visual-guide"]);
+    let root = workspace_root().join("docs/visual-guide");
+    for chapter in ["usage", "wiki"] {
+        for entry in std::fs::read_dir(root.join(chapter)).expect("read") {
+            let entry = entry.unwrap();
+            let html = std::fs::read_to_string(entry.path()).expect("read html");
+            for cap in find_hrefs(&html) {
+                if cap.starts_with("http") || cap.starts_with('#') || cap.starts_with("data:") {
+                    continue;
+                }
+                let resolved = entry.path().parent().unwrap().join(&cap);
+                let ok = resolved.exists() || cap == "../index.html";
+                assert!(ok, "broken link {cap:?} in {:?}", entry.path());
+            }
+        }
+    }
+}
+
+#[test]
+fn asset_refs_resolve_to_existing_files() {
+    let _ = run_xtask(&["xtask", "visual-guide"]);
+    let root = workspace_root().join("docs/visual-guide");
+    let assets = root.join("assets");
+    for chapter in ["usage", "wiki"] {
+        for entry in std::fs::read_dir(root.join(chapter)).expect("dir") {
+            let html = std::fs::read_to_string(entry.unwrap().path()).expect("read");
+            for asset in find_asset_refs(&html) {
+                assert!(assets.join(&asset).exists(), "missing asset {asset:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn output_html_parses_as_well_formed() {
+    let _ = run_xtask(&["xtask", "visual-guide"]);
+    let root = workspace_root().join("docs/visual-guide");
+    for entry in walkdir_html(&root) {
+        let html = std::fs::read_to_string(&entry).expect("read");
+        let mut reader = quick_xml::Reader::from_str(&html);
+        loop {
+            match reader.read_event() {
+                Ok(quick_xml::events::Event::Eof) => break,
+                Ok(_) => continue,
+                Err(e) => panic!("malformed HTML in {entry:?}: {e}"),
+            }
+        }
+    }
+}
+
+fn find_hrefs(html: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let needle = "href=\"";
+    let mut i = 0;
+    while let Some(start) = html[i..].find(needle) {
+        let from = i + start + needle.len();
+        if let Some(end) = html[from..].find('"') {
+            out.push(html[from..from+end].to_owned());
+            i = from + end + 1;
+        } else { break; }
+    }
+    out
+}
+
+fn find_asset_refs(html: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let needle = "../assets/";
+    let mut i = 0;
+    while let Some(start) = html[i..].find(needle) {
+        let from = i + start + needle.len();
+        let end = html[from..].find('"').unwrap_or(html.len() - from);
+        out.push(html[from..from+end].to_owned());
+        i = from + end + 1;
+    }
+    out
+}
+
+fn walkdir_html(root: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    fn rec(d: &Path, out: &mut Vec<PathBuf>) {
+        if let Ok(entries) = std::fs::read_dir(d) {
+            for e in entries.flatten() {
+                let p = e.path();
+                if p.is_dir() { rec(&p, out); }
+                else if p.extension().and_then(|s| s.to_str()) == Some("html") {
+                    out.push(p);
+                }
+            }
+        }
+    }
+    rec(root, &mut out);
+    out
+}
+```
+
+- [ ] **Step B2: Add `quick-xml` dev-dep**
+
+In `xtask/Cargo.toml`:
+
+```toml
+[dev-dependencies]
+quick-xml = "0.36"
+```
+
+- [ ] **Step B3: Run tests**
+
+```bash
+cargo test -p xtask --test visual_guide
+```
+
+Expected: 5 passed.
+
+- [ ] **Step B4: Commit assets + tests**
+
+```bash
+git add docs/visual-guide/assets/ xtask/tests/visual_guide.rs xtask/Cargo.toml Cargo.lock
+git commit -m "test(xtask): visual-guide assets + 5 integration tests (T19)"
+```
+
+---
+
+### Task 20: GH Pages CI workflow + README badge + L1/L2 doc sync
+
+**Files:**
+- Create: `.github/workflows/visual-guide.yml`
+- Create: `docs/visual-guide/README.md`
+- Modify: `README.md` (root)
+- Modify: `docs/architecture.md` §15.1 + §15.3
+- Modify: `crates/agentprof-cli/README.md`
+
+- [ ] **Step 1: Create `.github/workflows/visual-guide.yml`**
+
+```yaml
+name: visual-guide
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'xtask/src/visual_guide/**'
+      - 'xtask/templates/visual_guide/**'
+      - 'docs/visual-guide/assets/**'
+      - '.github/workflows/visual-guide.yml'
+  pull_request:
+    paths:
+      - 'xtask/src/visual_guide/**'
+      - 'xtask/templates/visual_guide/**'
+      - 'docs/visual-guide/assets/**'
+      - '.github/workflows/visual-guide.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: visual-guide
+      - run: cargo xtask visual-guide --check
+      - if: github.event_name != 'pull_request'
+        run: cargo xtask visual-guide
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/visual-guide
+      - if: github.event_name != 'pull_request'
+        id: deployment
+        uses: actions/deploy-pages@v4
+```
+
+- [ ] **Step 2: Create `docs/visual-guide/README.md`**
+
+```markdown
+# agentprof 可视化指南
+
+> 中文 HTML 教程，14 课分两章（用法 + Wiki），自包含可 file:// 直开。
+
+**📖 在线阅读**：<https://verdenmax.github.io/agentprof/>
+
+## 本地构建
+
+```
+cargo xtask visual-guide
+open docs/visual-guide/index.html
+```
+
+## 子命令
+
+- `cargo xtask visual-guide`         — 生成
+- `cargo xtask visual-guide --clean` — 清空旧产物再生成
+- `cargo xtask visual-guide --check` — 仅校验
+
+## 章节
+
+- **用法**（6 课）：what / install / analyze / list-aggregate / serve / db-otlp
+- **Wiki**（8 课）：architecture / data-model / adapter / analyzer / storage / otlp / web-dashboard / contributing
+
+生成的 *.html 不入 git（见 ADR-0025 D-2），只 commit 源码 + assets。
+```
+
+- [ ] **Step 3: Add section to root `README.md`**
+
+Insert after Status block:
+
+```markdown
+### 📖 在线阅读：可视化指南
+
+[在线阅读](https://verdenmax.github.io/agentprof/) · [本地构建说明](docs/visual-guide/README.md)
+
+- **用法**（6 课）：从「agentprof 是什么」到 `serve` 实时看板
+- **Wiki**（8 课）：5 crate 架构 + 数据模型 + Adapter trait
+```
+
+- [ ] **Step 4: Update `docs/architecture.md` §15.1 + §15.3**
+
+§15.1 repo layout, add under `docs/`:
+
+```
+│   ├── visual-guide/         可视化中文教程（xtask 生成 + GH Pages，见 ADR-0025）
+│   │   ├── README.md         手工维护
+│   │   └── assets/           入 git（生成的 *.html 不入）
+```
+
+§15.3 CI matrix row:
+
+```
+| `visual-guide.yml` | xtask build + GH Pages deploy | PR --check; main push deploys |
+```
+
+- [ ] **Step 5: Mention in `crates/agentprof-cli/README.md`**
+
+```markdown
+### 配套可视化指南
+
+详细的用户教程 + Wiki 见 [`docs/visual-guide/`](../../docs/visual-guide/README.md)
+或 [在线版](https://verdenmax.github.io/agentprof/)。
+```
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add .github/workflows/visual-guide.yml docs/visual-guide/README.md README.md docs/architecture.md crates/agentprof-cli/README.md
+git commit -m "ci+docs(visual-guide): GH Pages workflow + L1/L2 doc sync (T20)"
+```
+
+---
+
+### Task 21: ADR-0025 + CHANGELOG + release decision
+
+**Files:**
+- Create: `docs/internals/adr-0025-visual-guide.md`
+- Modify: `docs/architecture.md` §14.4 (ADR table)
+- Modify: `CHANGELOG.md`
+- Optional (per spec §11 deferred decision): `Cargo.toml` + path-deps for v0.3.4
+
+- [ ] **Step 1: Write ADR-0025**
+
+Create `docs/internals/adr-0025-visual-guide.md` mirroring ADR-0024 structure. 7 D-* sections matching spec §3 D-1..D-7 verbatim; 4 Implementation Notes from T3 (askama path), T6 (lexer trade-off), T7 (Box::leak), T3 (favicon base64). Target length: 250-350 lines.
+
+- [ ] **Step 2: Add ADR-0025 row to `docs/architecture.md` §14.4 table**
+
+```
+| 0025 | Visual guide architecture (post-M2.3 docs wave) | Accepted | 2026-06-13 |
+```
+
+- [ ] **Step 3: Update CHANGELOG `[Unreleased]`**
+
+Append Added (docs — visual guide) / Documentation / Tests sections describing the ship.
+
+- [ ] **Step 4: Release decision (deferred from spec §11)**
+
+Ask user: "Release as v0.3.4 (tag + path-dep bumps + CHANGELOG promoted) or commit-only on main (no tag, just merge feat/visual-guide)?"
+
+**If v0.3.4 tag**: bump 7 sites with `sed -i 's/version = "0.3.3"/version = "0.3.4"/g' Cargo.toml xtask/Cargo.toml`; verify with `grep -rE 'version = "0\.3\.[34]"' --include='*.toml' .`; promote CHANGELOG `[Unreleased]` → `[0.3.4] - 2026-06-13`; full gate; commit + tag per established M2.3 template.
+
+**If commit-only**: skip version bump and tag; CHANGELOG entry stays under `[Unreleased]`.
+
+- [ ] **Step 5: Final workspace gate**
+
+```bash
+cargo fmt --all
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-features
+RUSTDOCFLAGS="-Dwarnings" cargo doc --no-deps --workspace --all-features
+cargo deny check
+cargo xtask visual-guide --check
+```
+
+All green expected.
+
+- [ ] **Step 6: Commit ADR + (optional) tag**
+
+```bash
+git add docs/internals/adr-0025-visual-guide.md docs/architecture.md CHANGELOG.md
+git commit -m "docs(visual-guide): ADR-0025 + ADR table + CHANGELOG (T21)"
+```
+
+- [ ] **Step 7: Merge to main + push**
+
+```bash
+git checkout main
+git merge --ff-only feat/visual-guide
+git push origin main
+# If tagged: git push origin v0.3.4
+git branch -d feat/visual-guide
+```
+
+GitHub Pages workflow triggers on main push and deploys to `https://verdenmax.github.io/agentprof/`. Verify deployment URL is live before final sign-off.
+
+---
+
+## Self-review checklist
+
+- [x] **Spec coverage**: every spec D-1..D-7 maps to a task. D-1→T7, D-2→T7+T0, D-3→T1, D-4→T8-T18, D-5→T8 template, D-6→T20, D-7→T21.
+- [x] **No placeholders**: T9-T18 use *content briefs* not "TBD" — subagent fills prose following T8's exact template.
+- [x] **Type consistency**: `Section::{Usage,Wiki}`, `LessonEntry::filename` ↔ `render_lesson_body` match arms, `accordion(num,title,body)` 3-arg ✓, `source_ref(crate,path,symbol)` 3-arg ✓.
+- [x] **Asset references**: T10/T12/T14 reference assets that don't exist until T19 — OK because broken `<img>` shows alt text, not a hard error; T19 test #4 catches at CI time.
+- [x] **CI risk**: `visual-guide.yml` triggers only on `xtask/src/visual_guide/**` or `docs/visual-guide/assets/**` changes — no interference with main `ci.yml`.
+
+---
+
+## End of plan.
