@@ -41,7 +41,6 @@ pub fn render() -> String {
     let mut s = String::new();
 
     s.push_str(r#"
-<h1>存储层 hybrid mode</h1>
 
 <p class="lead">
 agentprof 的持久化层只有<strong>一个文件 + 一个 enum</strong>：<code>agentprof_storage::Db</code> 是 <code>rusqlite::Connection</code> 的薄封装，开库时自动跑全部嵌入式 migration；<code>StorageMode</code> 枚举（<code>Cache</code> / <code>Store</code>）决定 SQLite 文件落在 <code>$XDG_CACHE_HOME/agentprof/cache.sqlite</code> 还是 <code>$XDG_DATA_HOME/agentprof/store.sqlite</code>。「hybrid」不是「双 DB 同步」，而是「<strong>同一套 schema、两种生命周期策略</strong>」—— 用户按场景选 mode，agentprof 行为完全一致，只是数据落点不同。

@@ -9,67 +9,104 @@
 <link rel="icon" type="image/svg+xml" href="{{ favicon }}">
 <style>{{ css|safe }}</style>
 <style>
-.idx-hero { padding: 2em 1.2em; background: var(--accent); color: #eee; text-align: center; }
-.idx-hero h1 { color: #eee; font-size: 2.2rem; margin: 0; }
-.idx-hero p  { color: #b8c1ff; margin-top: .5em; font-size: 1.05rem; }
-.idx-section { padding: 1em 1.2em; max-width: 1100px; margin: 0 auto; }
-.idx-section h2 { font-size: 1.5rem; border-bottom: 2px solid var(--accent-soft); padding-bottom: .3em; margin-top: 1em; }
-.idx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1em; margin-top: 1em; }
-.idx-card {
-  display: block; background: var(--panel); border: 1px solid var(--line);
-  border-radius: var(--radius); padding: 1em 1.2em; box-shadow: var(--shadow);
+/* Index-specific additions on top of the shared shell */
+.idx-hero {
+  background: linear-gradient(135deg, var(--accent) 0%, #2a2a4e 100%);
+  color: #eee; padding: 3rem 1.4rem 2.4rem; text-align: center;
+}
+.idx-hero h1 { color: #fff; font-size: 2.4rem; margin: 0; font-weight: 750; letter-spacing: -.01em; }
+.idx-hero p { color: #b8c1ff; margin-top: .7rem; font-size: 1.08rem; max-width: 640px; margin-left: auto; margin-right: auto; }
+.idx-hero .badges { display: flex; justify-content: center; gap: .55rem; flex-wrap: wrap; margin-top: 1.4rem; }
+.idx-hero .badges .b {
+  background: rgba(255,255,255,.12); color: #fff; padding: .3rem .8rem;
+  border-radius: 999px; font-size: .78rem; font-weight: 600;
+  backdrop-filter: blur(8px);
+}
+.idx-part {
+  font-size: .78rem; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--accent); margin: 2rem 0 .8rem; font-weight: 700;
+}
+.idx-part:first-of-type { margin-top: .8rem; }
+.toc { display: grid; gap: .65rem; }
+.toc a {
+  display: flex; align-items: center; gap: .95rem;
+  padding: .9rem 1.1rem; border-radius: var(--radius);
+  background: var(--panel); border: 1px solid var(--line);
+  box-shadow: var(--shadow); transition: .15s ease;
   color: var(--ink); text-decoration: none;
 }
-.idx-card:hover { border-color: var(--accent); text-decoration: none; }
-.idx-card .num { color: var(--accent); font-weight: 700; font-size: .85rem; }
-.idx-card .ttl { font-weight: 600; margin: .25em 0 .35em; }
-.idx-card .desc { color: var(--muted); font-size: .9rem; }
-.empty-note { color: var(--muted); padding: 1em; font-style: italic; }
+.toc a:hover { border-color: var(--accent); transform: translateX(3px); box-shadow: var(--shadow-lg); text-decoration: none; }
+.toc .n {
+  width: 32px; height: 32px; border-radius: 8px;
+  background: var(--accent-soft); color: var(--accent-ink);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: .85rem; flex-shrink: 0;
+}
+.toc .meta { flex: 1; min-width: 0; }
+.toc .tt { font-weight: 650; color: var(--ink); font-size: 1rem; }
+.toc .ds { color: var(--muted); font-size: .85rem; margin-top: .15rem; }
+.toc .arr { color: var(--faint); font-size: 1.2rem; flex-shrink: 0; transition: transform .15s; }
+.toc a:hover .arr { transform: translateX(3px); color: var(--accent); }
+.empty-note { color: var(--muted); padding: 1.2rem; font-style: italic; background: var(--panel-2); border-radius: var(--radius); text-align: center; }
+@media (max-width: 720px) {
+  .idx-hero { padding: 2.2rem 1rem 1.8rem; }
+  .idx-hero h1 { font-size: 1.7rem; }
+  .idx-hero p { font-size: .95rem; }
+}
 </style>
 </head>
 <body>
 <header class="idx-hero">
-  <h1>agentprof 可视化指南</h1>
-  <p>给 AI agent 用的 perf flamegraph + ROI 报告器 · 共 14 课中文图解</p>
+  <h1>📊 agentprof 可视化指南</h1>
+  <p>给 AI agent 用的 perf flamegraph + ROI 报告器 · 共 14 课中文图解 · 自包含可 file:// 直开</p>
+  <div class="badges">
+    <span class="b">📘 用法 6 课</span>
+    <span class="b">🔧 Wiki 8 课</span>
+    <span class="b">v{{ pkg_version }}</span>
+  </div>
 </header>
 
-<section class="idx-section">
-  <h2>用法（面向新手）</h2>
+<div class="wrap">
+  <div class="idx-part">📘 用法（面向新手）</div>
   {% if usage_lessons.is_empty() %}
-  <p class="empty-note">（暂无课程；构建过程中）</p>
+  <div class="empty-note">（暂无课程；构建过程中）</div>
   {% else %}
-  <div class="idx-grid">
+  <div class="toc">
     {% for l in usage_lessons %}
-    <a class="idx-card" href="{{ l.href }}">
-      <span class="num">用法 {{ l.number }}</span>
-      <div class="ttl">{{ l.title }}</div>
-      <div class="desc">{{ l.description }}</div>
+    <a href="{{ l.href }}">
+      <div class="n">{{ l.number }}</div>
+      <div class="meta">
+        <div class="tt">{{ l.title }}</div>
+        <div class="ds">{{ l.description }}</div>
+      </div>
+      <div class="arr">→</div>
     </a>
     {% endfor %}
   </div>
   {% endif %}
-</section>
 
-<section class="idx-section">
-  <h2>Wiki（面向中阶 + 开发者）</h2>
+  <div class="idx-part">🔧 Wiki（面向中阶 + 开发者）</div>
   {% if wiki_lessons.is_empty() %}
-  <p class="empty-note">（暂无课程；构建过程中）</p>
+  <div class="empty-note">（暂无课程；构建过程中）</div>
   {% else %}
-  <div class="idx-grid">
+  <div class="toc">
     {% for l in wiki_lessons %}
-    <a class="idx-card" href="{{ l.href }}">
-      <span class="num">Wiki {{ l.number }}</span>
-      <div class="ttl">{{ l.title }}</div>
-      <div class="desc">{{ l.description }}</div>
+    <a href="{{ l.href }}">
+      <div class="n">{{ l.number }}</div>
+      <div class="meta">
+        <div class="tt">{{ l.title }}</div>
+        <div class="ds">{{ l.description }}</div>
+      </div>
+      <div class="arr">→</div>
     </a>
     {% endfor %}
   </div>
   {% endif %}
-</section>
 
-<footer class="vg-footer">
-  agentprof 可视化指南 · v{{ pkg_version }} · 生成于 {{ generated_at_utc }} · git {{ git_sha_short }}<br>
-  <a href="https://github.com/verdenmax/agentprof">GitHub</a> · MIT/Apache-2.0
-</footer>
+  <footer class="vg-footer">
+    agentprof 可视化指南 · v{{ pkg_version }} · 生成于 {{ generated_at_utc }} · git {{ git_sha_short }}<br>
+    <a href="https://github.com/verdenmax/agentprof">GitHub</a> · MIT/Apache-2.0
+  </footer>
+</div>
 </body>
 </html>

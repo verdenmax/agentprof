@@ -22,7 +22,6 @@ pub fn render() -> String {
     let mut s = String::new();
 
     s.push_str(r#"
-<h1>5 分钟上手</h1>
 
 <p class="lead">
 装好 agentprof 比装 IDE 插件还快 —— <strong>3 种装法任选其一</strong>，最后一句 <code>agentprof analyze --agent copilot</code> 就能看到你第一张<strong>火焰图</strong>。整个流程不超过 5 分钟，也<strong>不需要修改你的 agent 配置</strong>。

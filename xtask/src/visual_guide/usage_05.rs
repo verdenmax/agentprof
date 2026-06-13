@@ -25,7 +25,6 @@ pub fn render() -> String {
     let mut s = String::new();
 
     s.push_str(r#"
-<h1>serve：浏览器实时看板</h1>
 
 <p class="lead">
 静态 HTML 报告（上节学的 <code>analyze --export html</code>）是<strong>快照</strong>；<code>agentprof serve</code> 拉起一个本机端口（默认 <code>127.0.0.1:4329</code>），<strong>5 个视图自动每 5 秒轮询刷新</strong>，跑 agent 边看 token 趋势 —— 不用每次手动重新导。

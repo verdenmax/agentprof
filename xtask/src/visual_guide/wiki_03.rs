@@ -25,7 +25,6 @@ pub fn render() -> String {
     let mut s = String::new();
 
     s.push_str(r#"
-<h1>Adapter trait + 怎么写新 adapter</h1>
 
 <p class="lead">
 agentprof 支持多 agent CLI 的关键抽象是 <code>agentprof_core::adapter::Adapter</code> trait — 每个 agent（Copilot CLI / Claude Code / OpenAI Codex）把它的 session 日志格式实现成一个 adapter。<strong>Copilot 已 ship（M1.2）</strong>，Claude / Codex 在 <code>AgentKind</code> 中保留位置但 adapter 尚未接入（M3.1 / M3.2 路线图）。<code>agentprof-core</code> 完全不知道任何 agent 的具体文件格式 — 它只接受 <code>Event</code> trait 流，分层关注分离。

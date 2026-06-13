@@ -23,7 +23,6 @@ pub fn render() -> String {
     let mut s = String::new();
 
     s.push_str(r#"
-<h1>架构全景</h1>
 
 <p class="lead">
 agentprof 是一个 <strong>5 crate 的 Rust workspace</strong>（<code>core</code> / <code>adapters</code> / <code>storage</code> / <code>tui</code> / <code>cli</code>，外加构建辅助 <code>xtask</code>）。

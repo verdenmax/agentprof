@@ -43,7 +43,6 @@ pub fn render() -> String {
     let mut s = String::new();
 
     s.push_str(r#"
-<h1>贡献指南</h1>
 
 <p class="lead">
 给 agentprof 提 PR 不是「随便写写然后 push」—— 整个流程被钉成一个 <strong>9 阶段 pipeline</strong>（详见 <a href="https://github.com/verdenmax/agentprof/blob/main/.github/copilot-instructions.md"><code>.github/copilot-instructions.md</code></a> §5）：从 brainstorming 起步、写 spec、必要时写 ADR、写 plan、TDD 实现、本地 gate 验证、PR 审、合并。每个 stage 有专门 skill 支撑（meta、TDD、ADR、release 等）。Commit message 走 <strong>Conventional Commits</strong>，CHANGELOG 走 <strong>Keep a Changelog</strong>，SemVer 严格执行。

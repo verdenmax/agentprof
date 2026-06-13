@@ -26,7 +26,6 @@ pub fn render() -> String {
     let mut s = String::new();
 
     s.push_str(r#"
-<h1>db + ingest-otlp：存数据库 + 接入 OTLP</h1>
 
 <p class="lead">
 agentprof 默认每次 <code>analyze</code> 都要重新 parse JSONL —— 单 session 还好，<strong>跨 30 天几百个 session</strong> 就开始肉眼可见地慢。<code>hybrid storage</code> 让 cache 自动接管（dev 默认开），<code>db</code> 子命令族把 sessions 显式持久化到 store，<code>ingest-otlp</code> 让 <strong>Claude Code / Codex 的 OTel SDK 直接 push</strong> session 进来 —— file-based 之外的第二条数据进入路径。

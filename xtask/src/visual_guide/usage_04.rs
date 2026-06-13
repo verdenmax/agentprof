@@ -23,7 +23,6 @@ pub fn render() -> String {
     let mut s = String::new();
 
     s.push_str(r#"
-<h1>list / aggregate：跨 session 视角</h1>
 
 <p class="lead">
 一次 session 只是数据点，<strong>连续观测才是趋势</strong> —— <code>agentprof list</code> 列最近 sessions 给你「本周用得多吗」的即时感，<code>agentprof aggregate --by model/tool/day</code> 给跨 session 报表回答「<strong>哪个模型 cache 命中率高</strong>」「<strong>哪个 tool 是 token 大户</strong>」「<strong>这一周 agent 是不是在空转</strong>」。

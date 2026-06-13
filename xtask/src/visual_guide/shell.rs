@@ -35,6 +35,12 @@ pub struct PageMeta<'a> {
     pub home_href: &'a str,
     pub prev: Option<NavLink<'a>>,
     pub next: Option<NavLink<'a>>,
+    /// 1-based lesson position within the entire `PAGES` slice (used in
+    /// topbar progress pill "N / total" and the top progress bar fill).
+    pub lesson_index: usize,
+    /// Total lesson count across all chapters. Used together with
+    /// `lesson_index` for the topbar pill.
+    pub total_lessons: usize,
 }
 
 /// Navigation link (prev / next) in the top bar.

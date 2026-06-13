@@ -108,7 +108,8 @@ pub fn run(cmd: VisualGuideCmd) -> anyhow::Result<()> {
         written.push(idx_path);
     }
 
-    for entry in pages::PAGES {
+    let total = pages::PAGES.len();
+    for (idx0, entry) in pages::PAGES.iter().enumerate() {
         let body_html = render_lesson_body(entry)?;
         let nav = compute_nav(entry);
         let html = shell::render_page(
@@ -125,6 +126,8 @@ pub fn run(cmd: VisualGuideCmd) -> anyhow::Result<()> {
                     href: &n.0,
                     title: n.1,
                 }),
+                lesson_index: idx0 + 1,
+                total_lessons: total,
             },
             &body_html,
         )?;
@@ -262,11 +265,15 @@ mod css_smoke {
         assert!(css.contains("--ink:"));
         assert!(css.contains("--accent:"));
         assert!(css.contains("prefers-color-scheme: dark"));
-        assert!(css.contains(".vg-top"));
-        assert!(css.contains(".vg-footer"));
+        // Step A redesign: new chrome class names.
+        assert!(css.contains(".topbar"));
+        assert!(css.contains(".vg-hero"));
         assert!(css.contains(".vg-main"));
+        assert!(css.contains(".vg-footer"));
+        assert!(css.contains(".footnav"));
         assert!(css.contains("#vg-progress-bar"));
         assert!(css.contains(".code"));
+        assert!(css.contains(".src-ref"));
     }
 }
 
@@ -285,16 +292,22 @@ mod shell_smoke {
                 home_href: "../index.html",
                 prev: None,
                 next: None,
+                lesson_index: 3,
+                total_lessons: 14,
             },
             body,
         )
         .expect("render");
         assert!(html.contains("<!DOCTYPE html>"));
-        assert!(html.contains("<title>agentprof 可视化指南 — Test Lesson</title>"));
+        assert!(html.contains("<title>3 · Test Lesson — agentprof 可视化指南</title>"));
         assert!(html.contains("data:image/svg+xml;base64,"));
         assert!(html.contains("<nav"));
         assert!(html.contains("<footer"));
         assert!(html.contains(body));
+        // New chrome assertions (Step A redesign):
+        assert!(html.contains("vg-hero"), "hero block missing");
+        assert!(html.contains("footnav"), "footer nav missing");
+        assert!(html.contains("3 / 14"), "lesson progress pill missing");
     }
 }
 

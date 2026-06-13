@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>agentprof 可视化指南 — {{ meta.title }}</title>
+<title>{{ meta.lesson_index }} · {{ meta.title }} — agentprof 可视化指南</title>
 <meta name="description" content="{{ meta.description }}">
 <meta name="theme-color" content="#1a1a2e">
 <link rel="icon" type="image/svg+xml" href="{{ favicon }}">
@@ -14,23 +14,36 @@
 <style>{{ css|safe }}</style>
 </head>
 <body>
-<nav class="vg-top">
-  <a class="brand" href="{{ meta.home_href }}">agentprof</a>
-  <span class="section">· {{ meta.section_label }} ·</span>
-  <span class="title">{{ meta.title }}</span>
-  <span class="spacer"></span>
-  {% match meta.prev %}{% when Some with (p) %}<a class="navlink" href="{{ p.href }}">← {{ p.title }}</a>{% when None %}{% endmatch %}
-  <a class="navlink" href="{{ meta.home_href }}">目录</a>
-  {% match meta.next %}{% when Some with (n) %}<a class="navlink" href="{{ n.href }}">{{ n.title }} →</a>{% when None %}{% endmatch %}
-</nav>
-<div class="vg-progress"><div id="vg-progress-bar"></div></div>
-<main class="vg-main">
+<div class="topbar">
+  <div class="topbar-inner">
+    <a class="home" href="{{ meta.home_href }}">📊 agentprof 可视化指南 · <b>目录</b></a>
+    <span class="pill">{{ meta.section_label }}</span>
+    <span class="pill mono">{{ meta.lesson_index }} / {{ meta.total_lessons }}</span>
+  </div>
+  <div class="progress"><span id="vg-progress-bar"></span></div>
+</div>
+
+<div class="wrap">
+  <header class="vg-hero">
+    <div class="part">{{ meta.section_label }}</div>
+    <h1>{{ meta.title }}</h1>
+  </header>
+
+  <main class="vg-main">
 {{ body_html|safe }}
-</main>
-<footer class="vg-footer">
-  agentprof 可视化指南 · v{{ pkg_version }} · 生成于 {{ generated_at_utc }} · git {{ git_sha_short }}<br>
-  <a href="https://github.com/verdenmax/agentprof">GitHub</a> · MIT/Apache-2.0
-</footer>
+  </main>
+
+  <nav class="footnav" aria-label="lesson navigation">
+    {% match meta.prev %}{% when Some with (p) %}<a class="prev" href="{{ p.href }}"><div class="dir">← 上一课</div><div class="ttl">{{ p.title }}</div></a>{% when None %}<a class="prev" href="{{ meta.home_href }}"><div class="dir">← 返回</div><div class="ttl">目录</div></a>{% endmatch %}
+    {% match meta.next %}{% when Some with (n) %}<a class="next" href="{{ n.href }}"><div class="dir">下一课 →</div><div class="ttl">{{ n.title }}</div></a>{% when None %}<a class="next" href="{{ meta.home_href }}"><div class="dir">完成 →</div><div class="ttl">返回目录</div></a>{% endmatch %}
+  </nav>
+
+  <footer class="vg-footer">
+    agentprof 可视化指南 · v{{ pkg_version }} · 生成于 {{ generated_at_utc }} · git {{ git_sha_short }}<br>
+    <a href="https://github.com/verdenmax/agentprof">GitHub</a> · MIT/Apache-2.0
+  </footer>
+</div>
+
 <script>
 (function(){
   var bar = document.getElementById('vg-progress-bar');
@@ -46,3 +59,4 @@
 </script>
 </body>
 </html>
+

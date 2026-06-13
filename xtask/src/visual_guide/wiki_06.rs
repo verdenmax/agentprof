@@ -44,7 +44,6 @@ pub fn render() -> String {
     let mut s = String::new();
 
     s.push_str(r#"
-<h1>OTLP receiver</h1>
 
 <p class="lead">
 启用 <code>otlp</code> feature 后，<code>agentprof-storage</code> 内置一个<strong>双栈 OpenTelemetry receiver</strong> —— gRPC 在 <strong>:4317</strong>、HTTP/protobuf 在 <strong>:4318</strong>，原生收 Claude Code / Codex / Copilot CLI / 任何 OTel SDK 的 <code>logs / metrics / traces</code> 三信号，落到 SQLite store。<strong>不需要外置 collector</strong> —— agent 直接 push 到 agentprof，本地循环到「写文件 → 跑 cli」的路径在生产场景里消失。架构由 ADR-0021 钉死，安全硬化由 ADR-0022 钉死。

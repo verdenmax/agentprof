@@ -21,7 +21,6 @@ pub fn render() -> String {
     let mut s = String::new();
 
     s.push_str(r#"
-<h1>agentprof 是什么</h1>
 
 <p class="lead">
 agentprof 是用 Rust 写的<strong>开源命令行工具</strong>，专门用来分析 AI agent CLI（Claude Code / GitHub Copilot CLI / OpenAI Codex）<strong>每一次对话烧掉的 token 都花在哪</strong>。
