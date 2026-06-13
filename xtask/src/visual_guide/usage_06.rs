@@ -68,7 +68,7 @@ agentprof 默认每次 <code>analyze</code> 都要重新 parse JSONL —— 单 
             (
                 "Store（显式持久化）",
                 "Adapter → SQLite store（<code>XDG_DATA_HOME</code>）",
-                "<code>agentprof db init --storage-path ~/.local/share/agentprof/store.db</code>",
+                "<code>agentprof db init --storage-path ~/.local/share/agentprof/store.sqlite</code>",
             ),
             (
                 "OTLP push",
@@ -117,7 +117,7 @@ agentprof 默认每次 <code>analyze</code> 都要重新 parse JSONL —— 单 
         "SQLite",
     ]));
     hybrid_card.push_str(
-        r#"<p><code>StorageConfig</code> + <code>StorageMode</code> enum 在 <code>agentprof-storage::config</code> 里定义两个 variant：<code>Cache</code>（<code>XDG_CACHE_HOME/agentprof/cache.db</code>，OS 可以随时清，agentprof 容忍丢）/ <code>Store</code>（<code>XDG_DATA_HOME/agentprof/store.db</code>，用户拥有，agentprof 不主动动）。<code>analyze</code> 看 mode 决定写哪边；OTLP receiver 总是写 store。</p></div>
+        r#"<p><code>StorageConfig</code> + <code>StorageMode</code> enum 在 <code>agentprof-storage::config</code> 里定义两个 variant：<code>Cache</code>（<code>XDG_CACHE_HOME/agentprof/cache.sqlite</code>，OS 可以随时清，agentprof 容忍丢）/ <code>Store</code>（<code>XDG_DATA_HOME/agentprof/store.sqlite</code>，用户拥有，agentprof 不主动动）。<code>analyze</code> 看 mode 决定写哪边；OTLP receiver 写当前 mode 对应的<strong>单一</strong> storage（由 <code>--storage-mode</code> / <code>--storage-path</code> 决定，默认 cache）。</p></div>
 <div class="q">🪜 其他选择</div>
 <div class="a">考虑过 <strong>dual-path 模式</strong>（cache + store 同步双写）—— 否决，复杂度高 + 一致性问题不值得，详见 <strong>[ADR-0018]</strong>。当前模式：cache 是「<strong>性能优化</strong>」，store 是「<strong>业务数据</strong>」，两者不混。</div>
 </div>"#,
@@ -155,13 +155,13 @@ agentprof analyze
 agentprof list --since 7d
 
 <span class="cm"># 2. 想长期保留 / 跨机器同步 — 显式 store</span>
-agentprof db init --storage-path ~/.local/share/agentprof/store.db
+agentprof db init --storage-path ~/.local/share/agentprof/store.sqlite
 agentprof db ingest --since 30d
 agentprof db stats
 
 <span class="cm"># 3. 接 Claude Code / Codex 实时数据 — OTLP receiver</span>
 agentprof ingest-otlp --bind 127.0.0.1:4317 \
-  --storage-path ~/.local/share/agentprof/store.db
+  --storage-path ~/.local/share/agentprof/store.sqlite
 <span class="cm"># （另一边 Claude Code 配 OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4317）</span></pre>
 
 <h2>结语：用法章节完结</h2>

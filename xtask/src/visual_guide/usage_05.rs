@@ -80,7 +80,7 @@ pub fn render() -> String {
 <div class="q">🧪 看到什么</div>
 <div class="a">最近 200 个 session 的紧凑表，<strong>30 天窗口</strong>默认（见 <code>cmd/serve/handlers</code> 里的 <code>DEFAULT_SESSIONS_WINDOW</code>）。5 列：<strong>Started</strong>（开始时间，倒序）/ <strong>Model</strong> / <strong>Turns</strong> / <strong>Out-tokens</strong> / <strong>Cache%</strong>。点 session id 直接跳详情页。
 <figure>
-<img class="shot" src="../assets/dashboard-overview.svg" alt="dashboard /sessions 视图 (T19 添)">
+<img class="shot" src="../assets/dashboard-overview.svg" alt="dashboard /sessions 视图">
 <figcaption>sessions 列表 — Started/Model/Turns/Out-tokens/Cache% 5 列</figcaption>
 </figure>
 </div>
@@ -98,7 +98,7 @@ pub fn render() -> String {
 <div class="q">🧪 看到什么</div>
 <div class="a"><strong>跟 T10 学的 <code>analyze --export html</code> 长得一模一样</strong>：Turn Summary 表 + Tool Rank 火焰图 + Cache 段 + Wasted Tool 提示。技术上是同一段 HTML —— serve handler 调 <code>format::html::render_body_only</code> 把 body 段抽出来，外层换上 serve 自己的 chrome（带工具栏的）。
 <figure>
-<img class="shot" src="../assets/dashboard-session.svg" alt="dashboard /session/:id 详情视图 (T19 添)">
+<img class="shot" src="../assets/dashboard-session.svg" alt="dashboard /session/:id 详情视图">
 <figcaption>详情视图 — 与 analyze --export html 同款 body</figcaption>
 </figure>
 </div>
@@ -116,7 +116,7 @@ pub fn render() -> String {
 <div class="q">🧪 看到什么</div>
 <div class="a">和 CLI <code>aggregate --by ...</code>（上节课）<strong>同样的三张表</strong>，只是渲染到浏览器：<code>?by=model</code> 出 CacheCr/CacheRd/Hit%/NetSaved；<code>?by=tool</code> 出调用次数 + 总 token；<code>?by=day</code> 出时间桶 + low-utilization 标记。
 <figure>
-<img class="shot" src="../assets/dashboard-aggregate.svg" alt="dashboard /aggregate 视图 (T19 添)">
+<img class="shot" src="../assets/dashboard-aggregate.svg" alt="dashboard /aggregate 视图">
 <figcaption>aggregate 视图 — 浏览器版的 --by model / tool / day</figcaption>
 </figure>
 </div>
@@ -134,7 +134,7 @@ pub fn render() -> String {
 <div class="q">🧪 看到什么</div>
 <div class="a">两层视图：<strong>list</strong>（每个 mcp-server 一行，浪费分数排序）+ <strong>detail</strong>（点进去看哪些 tool 加载了但从没被调用 / 调用次数极低）。<strong>heuristic-only 模式</strong> —— serve 端不要求 sidecar 在线，给的是基于启发式的估算。
 <figure>
-<img class="shot" src="../assets/dashboard-mcp-waste.svg" alt="dashboard /mcp-waste 视图 (T19 添)">
+<img class="shot" src="../assets/dashboard-mcp-waste.svg" alt="dashboard /mcp-waste 视图">
 <figcaption>mcp-waste — 浪费分数 + 详情两层</figcaption>
 </figure>
 </div>

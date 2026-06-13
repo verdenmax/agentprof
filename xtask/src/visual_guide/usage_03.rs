@@ -92,7 +92,7 @@ pub fn render() -> String {
 <div class="q">🧪 输出长什么样</div>
 <div class="a">单个 HTML 文件，含 <strong>内联 CSS</strong> + <strong>内嵌 SVG 火焰图</strong>，零外部依赖（无 CDN、无字体请求）。直接邮件 / IM 发给同事，对方双击就能看；离线打开也没问题。
 <figure style="margin:.75rem 0">
-  <img class="shot" src="../assets/report-html-sample.svg" alt="HTML 报告示例 (T19 添)" style="max-width:100%;border:1px solid var(--border);border-radius:6px">
+  <img class="shot" src="../assets/report-html-sample.svg" alt="HTML 报告示例" style="max-width:100%;border:1px solid var(--border);border-radius:6px">
   <figcaption style="color:var(--muted);font-size:.85rem;margin-top:.3rem">HTML 报表示例 — 火焰图 + Tool Rank 表（真实截图在 T19 落）</figcaption>
 </figure></div>
 <div class="q">🤔 为什么这么设计</div>
@@ -100,7 +100,7 @@ pub fn render() -> String {
 <div class="q">✅ agentprof 怎么做</div>
 <div class="a">用 <strong>askama 模板</strong>编译期渲染 HTML 骨架；火焰图走 <code>agentprof-core::flamegraph</code> 生成 SVG 字符串后内嵌；CSS 直接 <code>include_str!</code> 进 binary。整张报表生成后 <strong>一次写盘</strong>（<code>--output report.html</code>）。想要纯数据喂给别的工具链（grafana / lakera / 自家 dashboard）改 <code>--export json</code> 输出结构化 <code>Analysis</code>；想喂给 <a href="https://www.speedscope.app/">speedscope.app</a> 看交互火焰图改 <code>--export speedscope</code> —— 输出的 SVG 长这样：
 <figure style="margin:.5rem 0">
-  <img class="diagram" src="../assets/flamegraph-sample.svg" alt="flamegraph SVG 示例 (T19 添)" style="max-width:100%">
+  <img class="diagram" src="../assets/flamegraph-sample.svg" alt="flamegraph SVG 示例" style="max-width:100%">
   <figcaption style="color:var(--muted);font-size:.85rem;margin-top:.3rem">speedscope 火焰图示例 — 真实样本在 T19 落</figcaption>
 </figure></div>
 </div>"#,

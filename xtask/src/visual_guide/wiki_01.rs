@@ -27,14 +27,14 @@ pub fn render() -> String {
 <p class="lead">
 agentprof 是一个 <strong>5 crate 的 Rust workspace</strong>（<code>core</code> / <code>adapters</code> / <code>storage</code> / <code>tui</code> / <code>cli</code>，外加构建辅助 <code>xtask</code>）。
 <strong><code>agentprof-core</code> 是依赖图的叶子</strong>（零 workspace 依赖），<strong><code>agentprof-cli</code> 是唯一组装层</strong>（依赖所有其他 crate）。
-项目级关键决策由 <strong>24 份 ADR</strong> 锁定，连同 L1/L2/L3 三级文档体系一起，构成「读了 30 分钟就能动手贡献」的知识地基。
+项目级关键决策由 <strong>25 份 ADR</strong> 锁定，连同 L1/L2/L3 三级文档体系一起，构成「读了 30 分钟就能动手贡献」的知识地基。
 </p>
 "#);
 
     s.push_str(&metric_grid(&[
         ("crate 数", "5", "+xtask 辅助"),
         ("ADR 数", "25", "决策记录"),
-        ("workspace 测试", "1332", "0 failures"),
+        ("workspace 测试", "1337", "0 failures"),
         ("代码层", "L1 / L2 / L3", "文档三级体系"),
     ]));
 
@@ -86,7 +86,7 @@ agentprof 是一个 <strong>5 crate 的 Rust workspace</strong>（<code>core</co
         ],
     ));
 
-    s.push_str(r#"<p class="acc-intro" style="color:var(--muted);font-size:.92rem">👇 三张卡片分别讲：① 依赖图与无环规则 · ② L1/L2/L3 三级文档体系 · ③ 24 份 ADR 索引。每张都给「为什么 / agentprof 怎么做 / 其他选择」。</p>"#);
+    s.push_str(r#"<p class="acc-intro" style="color:var(--muted);font-size:.92rem">👇 三张卡片分别讲：① 依赖图与无环规则 · ② L1/L2/L3 三级文档体系 · ③ 25 份 ADR 索引。每张都给「为什么 / agentprof 怎么做 / 其他选择」。</p>"#);
 
     s.push_str(&accordion(
         1,
@@ -134,10 +134,10 @@ agentprof 是一个 <strong>5 crate 的 Rust workspace</strong>（<code>core</co
 
     s.push_str(&accordion(
         3,
-        "24 份 ADR 决策记录索引（最近 6 份）",
+        "25 份 ADR 决策记录索引（最近 6 份）",
         r#"<div class="qa">
 <div class="q">📜 什么是 ADR</div>
-<div class="a">Architectural Decision Record — 每个「选 A 不选 B」的决策都写一份 markdown，存在 <code>docs/internals/adr-NNNN-&lt;topic&gt;.md</code>。截至 v0.4.x 共 24 份（编号 0001–0024），第 25 份「visual guide」在 T21 落盘。</div>
+<div class="a">Architectural Decision Record — 每个「选 A 不选 B」的决策都写一份 markdown，存在 <code>docs/internals/adr-NNNN-&lt;topic&gt;.md</code>。截至 v0.3.x 共 25 份（编号 0001–0025），其中 ADR-0025 是本指南本身的架构决策。</div>
 <div class="q">📋 最近 6 份</div>
 <div class="a">
 <table>
@@ -148,10 +148,10 @@ agentprof 是一个 <strong>5 crate 的 Rust workspace</strong>（<code>core</co
 <tr><td>ADR-0022</td><td>OTLP capacity caps + LRU eviction</td><td>Accepted</td><td>2026-05</td><td><a href="https://github.com/verdenmax/agentprof/blob/main/docs/internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md"><code>adr-0022</code></a></td></tr>
 <tr><td>ADR-0023</td><td>Cache metrics（honest + naive hit rate）</td><td>Accepted</td><td>2026-06</td><td><a href="https://github.com/verdenmax/agentprof/blob/main/docs/internals/adr-0023-cache-metrics.md"><code>adr-0023</code></a></td></tr>
 <tr><td>ADR-0024</td><td>Web dashboard architecture（<code>serve</code>）</td><td>Accepted</td><td>2026-06</td><td><a href="https://github.com/verdenmax/agentprof/blob/main/docs/internals/adr-0024-web-dashboard-architecture.md"><code>adr-0024</code></a></td></tr>
-<tr><td>ADR-0025</td><td>Visual guide（本指南）</td><td>Pending（T21 落盘）</td><td>2026-06</td><td>—</td></tr>
+<tr><td>ADR-0025</td><td>Visual guide（本指南）</td><td>Accepted</td><td>2026-06</td><td>—</td></tr>
 </tbody>
 </table>
-<p style="font-size:.88rem;color:var(--muted);margin-top:.3em">完整 24 份索引见 <a href="https://github.com/verdenmax/agentprof/tree/main/docs/internals"><code>docs/internals/</code></a>。</p>
+<p style="font-size:.88rem;color:var(--muted);margin-top:.3em">完整 25 份索引见 <a href="https://github.com/verdenmax/agentprof/tree/main/docs/internals"><code>docs/internals/</code></a>。</p>
 </div>
 <div class="q">🤔 为什么必要</div>
 <div class="a">决策不写下来，半年后没人记得「为什么 storage 选 hybrid 不选纯 SQLite」「为什么 cache hit rate 同时算 honest 和 naive」。ADR 给每个非显然的选择一份「上下文 + 候选方案 + 决策 + 后果」的固定模板。</div>

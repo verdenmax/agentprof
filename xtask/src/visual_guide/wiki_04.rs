@@ -202,7 +202,10 @@ saved_net   = round(read × 0.9 − creation × 0.25)             // 净节省�
 <div class="a">honest 是更<strong>诚实</strong>的指标但<strong>不直观</strong>：用户问「我有多少 prompt 命中了 cache？」时 honest 不能直接回答。naive 直观但容易自欺欺人。两个都报 + 文档解释差异，让用户自己判断 — 这是 ADR-0023 的核心权衡（informative over prescriptive）。</div>
 
 <div class="q">🔀 其他选择</div>
-<div class="a"><strong>只报 saved_net（dollar / token 节省）</strong>不报 hit rate — 简洁，但用户无法判断 cache 策略本身的健康度（同样 net 节省可能来自高效 cache 也可能来自天量 prompt）；<strong>报 cache_creation / cache_read 原始值不算 rate</strong> — 信息无损但要用户脑补算除法。当前「两个 rate + 一个净值 + 一个毛值」组合是「教育成本」与「决策支持」的平衡点。</div>
+<div class="a">两条被否决的简化：<br>
+① <strong>只报 saved_net</strong>（dollar / token 节省）— 简洁，但用户无法判断 cache 策略本身的健康度。同样的 net 节省，可能来自高效 cache，也可能来自天量 prompt。<br>
+② <strong>只报 cache_creation / cache_read 原始值</strong>，不算 rate — 信息无损，但要用户脑补算除法。<br>
+当前「两个 rate + 一个净值 + 一个毛值」组合，是「教育成本」与「决策支持」的平衡点。</div>
 </div>"#,
     ));
 
