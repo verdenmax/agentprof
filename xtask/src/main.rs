@@ -11,6 +11,7 @@ use anyhow::Result;
 use clap::Parser;
 
 mod schema_audit;
+mod visual_guide;
 
 #[derive(Parser, Debug)]
 #[command(name = "xtask", about = "agentprof workspace tasks", version)]
@@ -22,11 +23,15 @@ enum Cli {
     /// `ParseWarning` distribution, and reports `start`/`end` pair balance.
     /// Use after Copilot CLI upgrades to detect schema drift.
     SchemaAudit(schema_audit::SchemaAuditCmd),
+
+    /// Generate the agentprof visual guide HTML site under `docs/visual-guide/`.
+    VisualGuide(visual_guide::VisualGuideCmd),
 }
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli {
         Cli::SchemaAudit(cmd) => schema_audit::run(cmd),
+        Cli::VisualGuide(cmd) => visual_guide::run(cmd),
     }
 }
