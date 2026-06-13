@@ -84,7 +84,7 @@ pub fn render() -> String {
 <div class="q">🧪 输出长什么样</div>
 <div class="a">单个 HTML 文件，含 <strong>内联 CSS</strong> + <strong>内嵌 SVG 火焰图</strong>，零外部依赖（无 CDN、无字体请求）。直接邮件 / IM 发给同事，对方双击就能看；离线打开也没问题。
 <figure style="margin:.75rem 0">
-  <img class="shot" src="../assets/report-html-sample.png" alt="HTML 报告示例 (T19 添)" style="max-width:100%;border:1px solid var(--border);border-radius:6px">
+  <img class="shot" src="../assets/report-html-sample.svg" alt="HTML 报告示例 (T19 添)" style="max-width:100%;border:1px solid var(--border);border-radius:6px">
   <figcaption style="color:var(--muted);font-size:.85rem;margin-top:.3rem">HTML 报表示例 — 火焰图 + Tool Rank 表（真实截图在 T19 落）</figcaption>
 </figure></div>
 <div class="q">🤔 为什么这么设计</div>

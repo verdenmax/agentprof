@@ -428,7 +428,7 @@ mod usage_03_test {
         assert!(html.contains("<table"));
         assert!(html.contains("class=\"accordion\""));
         assert!(html.contains("--export"));
-        assert!(html.contains("../assets/report-html-sample.png"));
+        assert!(html.contains("../assets/report-html-sample.svg"));
     }
 }
 
@@ -496,7 +496,7 @@ mod usage_05_test {
         assert!(html.contains("/aggregate"));
         assert!(html.contains("/mcp-waste"));
         assert!(html.contains("localStorage"));
-        assert!(html.contains("../assets/dashboard-overview.png"));
+        assert!(html.contains("../assets/dashboard-overview.svg"));
     }
 }
 

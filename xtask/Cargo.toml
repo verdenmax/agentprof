@@ -25,3 +25,4 @@ agentprof-adapters = { path = "../crates/agentprof-adapters", version = "0.3.3" 
 
 [dev-dependencies]
 tempfile = { workspace = true }
+quick-xml = "0.36"

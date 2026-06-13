@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" preserveAspectRatio="xMidYMid meet"
+     role="img" aria-label="agentprof 5-crate dependency diagram">
+  <title>agentprof crate dependency graph</title>
+  <desc>cli depends on tui / adapters / storage; tui and storage both depend on adapters; adapters depends on core (leaf).</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+  <style>
+    .box { fill: none; stroke: currentColor; stroke-width: 1.5; }
+    .label { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+             font-size: 14px; fill: currentColor; }
+    .edge { stroke: currentColor; stroke-width: 1.5; fill: none; }
+    .note { font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            font-size: 11px; fill: currentColor; opacity: 0.6; }
+  </style>
+
+  <!-- Row 1: agentprof-cli (top) -->
+  <rect class="box" x="320" y="40" width="160" height="50" rx="6"/>
+  <text class="label" x="400" y="71" text-anchor="middle">agentprof-cli</text>
+
+  <!-- Row 2: agentprof-tui (left), agentprof-adapters (center), agentprof-storage (right) -->
+  <rect class="box" x="80"  y="170" width="160" height="50" rx="6"/>
+  <text class="label" x="160" y="201" text-anchor="middle">agentprof-tui</text>
+
+  <rect class="box" x="320" y="170" width="160" height="50" rx="6"/>
+  <text class="label" x="400" y="201" text-anchor="middle">agentprof-adapters</text>
+
+  <rect class="box" x="560" y="170" width="160" height="50" rx="6"/>
+  <text class="label" x="640" y="201" text-anchor="middle">agentprof-storage</text>
+
+  <!-- Row 3: agentprof-core (leaf) -->
+  <rect class="box" x="320" y="300" width="160" height="50" rx="6"/>
+  <text class="label" x="400" y="331" text-anchor="middle">agentprof-core</text>
+
+  <!-- Edges from cli down -->
+  <!-- cli → tui (left diagonal) -->
+  <line class="edge" x1="340" y1="90" x2="200" y2="170" marker-end="url(#arrow)"/>
+  <!-- cli → adapters (straight down) -->
+  <line class="edge" x1="400" y1="90" x2="400" y2="170" marker-end="url(#arrow)"/>
+  <!-- cli → storage (right diagonal) -->
+  <line class="edge" x1="460" y1="90" x2="600" y2="170" marker-end="url(#arrow)"/>
+
+  <!-- Edges from tui → adapters (horizontal) -->
+  <line class="edge" x1="240" y1="195" x2="320" y2="195" marker-end="url(#arrow)"/>
+
+  <!-- Edges from adapters → core (straight down) -->
+  <line class="edge" x1="400" y1="220" x2="400" y2="300" marker-end="url(#arrow)"/>
+
+  <!-- Edges from storage → core (diagonal down-left) -->
+  <line class="edge" x1="600" y1="220" x2="480" y2="320" marker-end="url(#arrow)"/>
+
+  <!-- Footer note -->
+  <text class="note" x="400" y="380" text-anchor="middle">
+    依赖箭头 X → Y 表示 X 依赖 Y。core 是依赖图的叶子，不引用任何 workspace crate。
+  </text>
+</svg>
