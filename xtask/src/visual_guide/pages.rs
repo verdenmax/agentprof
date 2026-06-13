@@ -83,6 +83,13 @@ pub const PAGES: &[LessonEntry] = &[
             "5 种 export 格式怎么挑 — md / tui / html / json / speedscope；如何读 Turn Summary、Tool Rank、Cache 段。",
         section: Section::Usage,
     },
+    LessonEntry {
+        filename: "04-list-aggregate.html",
+        title: "list / aggregate：跨 session 视角",
+        description:
+            "不止看一次 session — list 最近 sessions、aggregate 跨 model / tool / day 聚合，看 7-30 天 token 趋势。",
+        section: Section::Usage,
+    },
     // T11-T18 will add more
 ];
 
