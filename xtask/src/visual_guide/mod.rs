@@ -347,6 +347,71 @@ mod components_tests {
         assert!(html.contains("CacheMetrics"));
         assert!(!html.contains("#L"));
     }
+
+    #[test]
+    fn visual_compare_renders_grid_items() {
+        let html = visual_compare(&[
+            ("🕳️", "看不见", "归属不明"),
+            ("📉", "无 ROI", "MCP 装一堆"),
+            ("🌫️", "Cache 黑盒", "命中率？"),
+        ]);
+        assert!(html.contains("vis-cmp"));
+        assert!(html.contains("vis-cmp-item"));
+        assert!(html.contains("🕳️"));
+        assert!(html.contains("Cache 黑盒"));
+    }
+
+    #[test]
+    fn decision_tree_renders_question_and_branches() {
+        let html = decision_tree(
+            "已装 Rust？",
+            &[("✅ 是", "cargo install"), ("❌ 否", "one-line installer")],
+        );
+        assert!(html.contains("dec-tree"));
+        assert!(html.contains("dec-q"));
+        assert!(html.contains("已装 Rust？"));
+        assert!(html.contains("dec-branch"));
+        assert!(html.contains("cargo install"));
+    }
+
+    #[test]
+    fn schema_table_renders_four_columns() {
+        let html = schema_table(&[
+            ("id", "String", "✓", "Session id"),
+            ("agent", "AgentKind", "✓", "Copilot/Claude/Codex"),
+        ]);
+        assert!(html.contains("schema-table"));
+        assert!(html.contains("sf-field"));
+        assert!(html.contains("sf-type"));
+        assert!(html.contains("<code>id</code>"));
+        assert!(html.contains("AgentKind"));
+    }
+
+    #[test]
+    fn metric_grid_renders_cells_with_values() {
+        let html = metric_grid(&[
+            ("crate 数", "5", "(+xtask)"),
+            ("测试", "1332", "0 failures"),
+        ]);
+        assert!(html.contains("metric-grid"));
+        assert!(html.contains("class=\"label\""));
+        assert!(html.contains("class=\"value\""));
+        assert!(html.contains("1332"));
+        assert!(html.contains("0 failures"));
+    }
+
+    #[test]
+    fn step_list_renders_ol_with_titles() {
+        let html = step_list(&[
+            ("实现 trait", "impl Adapter for X"),
+            ("注册", "registry.rs"),
+        ]);
+        assert!(html.contains("step-list"));
+        assert!(html.contains("<ol"));
+        assert!(html.contains("st-ttl"));
+        assert!(html.contains("st-dt"));
+        assert!(html.contains("实现 trait"));
+    }
 }
 
 #[cfg(test)]

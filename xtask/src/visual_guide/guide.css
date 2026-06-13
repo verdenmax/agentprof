@@ -289,3 +289,102 @@ img.shot, img.diagram {
   .footnav a.next { text-align: left; }
   .vg-main table { display: block; overflow-x: auto; }
 }
+
+/* ---- Step B: visual_compare grid (3-5 cards row) ---- */
+.vis-cmp {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: .85rem; margin: 1.3rem 0;
+}
+.vis-cmp-item {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 1rem 1.1rem;
+  box-shadow: var(--shadow); transition: .15s ease;
+  text-align: center;
+}
+.vis-cmp-item:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); border-color: var(--accent); }
+.vis-cmp-item .icon { font-size: 1.8rem; line-height: 1; margin-bottom: .55rem; }
+.vis-cmp-item .ttl { font-weight: 700; color: var(--accent-ink); font-size: .95rem; margin-bottom: .3rem; }
+.vis-cmp-item .ln { color: var(--muted); font-size: .85rem; line-height: 1.5; }
+
+/* ---- Step B: decision_tree ---- */
+.dec-tree {
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-left: 4px solid var(--blue); border-radius: var(--radius);
+  padding: 1.1rem 1.3rem; margin: 1.3rem 0;
+}
+.dec-tree .dec-q {
+  font-weight: 700; color: var(--accent-ink); font-size: 1rem; margin-bottom: .9rem;
+}
+.dec-tree .dec-branch {
+  display: grid; grid-template-columns: minmax(110px, auto) 30px 1fr;
+  gap: .65rem; align-items: center;
+  padding: .55rem .8rem; margin: .35rem 0;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; font-size: .92rem;
+}
+.dec-tree .dec-cond { font-weight: 650; color: var(--ink); white-space: nowrap; }
+.dec-tree .dec-arr { color: var(--accent); font-weight: 700; text-align: center; }
+.dec-tree .dec-recom { color: var(--muted); line-height: 1.55; }
+
+/* ---- Step B: schema_table ---- */
+.schema-table { margin: 1.3rem 0; }
+.schema-table .sf-field { width: 22%; }
+.schema-table .sf-type { width: 25%; color: var(--accent-ink); }
+.schema-table .sf-req { width: 8%; text-align: center; color: var(--accent); font-weight: 700; }
+.schema-table .sf-desc { color: var(--muted); }
+.schema-table .sf-field code, .schema-table .sf-type code {
+  background: transparent; border: 0; padding: 0; color: var(--accent-ink);
+  font-size: .9em;
+}
+
+/* ---- Step B: metric_grid (KPI cards) ---- */
+.metric-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: .8rem; margin: 1.3rem 0;
+}
+.metric {
+  background: linear-gradient(135deg, var(--accent-soft) 0%, var(--panel) 80%);
+  border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 1rem 1.1rem; text-align: center;
+  box-shadow: var(--shadow);
+}
+.metric .label {
+  font-size: .76rem; color: var(--muted); text-transform: uppercase;
+  letter-spacing: .06em; font-weight: 650;
+}
+.metric .value {
+  font-size: 1.85rem; color: var(--accent-ink); font-weight: 750;
+  margin: .25rem 0; line-height: 1.1;
+  font-family: "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+}
+.metric .sub { font-size: .8rem; color: var(--faint); }
+
+/* ---- Step B: step_list (numbered procedural) ---- */
+ol.step-list {
+  list-style: none; counter-reset: step; margin: 1.3rem 0; padding: 0;
+}
+ol.step-list li {
+  counter-increment: step; display: grid;
+  grid-template-columns: 36px 1fr; gap: .85rem; align-items: start;
+  padding: .85rem 1rem .85rem .6rem; margin-bottom: .55rem;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+}
+ol.step-list li::before {
+  content: counter(step);
+  width: 30px; height: 30px; border-radius: 8px;
+  background: var(--accent); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: .9rem;
+  font-family: "SF Mono", ui-monospace, monospace;
+}
+ol.step-list .st-ttl {
+  font-weight: 650; color: var(--ink); margin-bottom: .2rem;
+}
+ol.step-list .st-dt { color: var(--muted); font-size: .92rem; line-height: 1.6; }
+
+@media (max-width: 720px) {
+  .vis-cmp { grid-template-columns: 1fr 1fr; }
+  .metric-grid { grid-template-columns: 1fr 1fr; }
+  .metric .value { font-size: 1.5rem; }
+}
