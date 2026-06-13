@@ -6,7 +6,7 @@
 //! (cache / store) + `agentprof db` 6 个子命令 + `agentprof ingest-otlp`
 //! 接入流程。本节是「用法」章节最后一节（6/6）。
 
-use super::components::{accordion, comparison_table, flow_diagram, source_ref};
+use super::components::{accordion, comparison_table, flow_diagram, source_ref, visual_compare};
 
 /// Render the HTML body for usage lesson 6.
 ///
@@ -30,7 +30,23 @@ pub fn render() -> String {
 <p class="lead">
 agentprof 默认每次 <code>analyze</code> 都要重新 parse JSONL —— 单 session 还好，<strong>跨 30 天几百个 session</strong> 就开始肉眼可见地慢。<code>hybrid storage</code> 让 cache 自动接管（dev 默认开），<code>db</code> 子命令族把 sessions 显式持久化到 store，<code>ingest-otlp</code> 让 <strong>Claude Code / Codex 的 OTel SDK 直接 push</strong> session 进来 —— file-based 之外的第二条数据进入路径。
 </p>
+"#);
 
+    s.push_str(&visual_compare(&[
+        (
+            "💾",
+            "Cache (默认)",
+            "Adapter → SQLite cache @ XDG_CACHE_HOME",
+        ),
+        ("🗄️", "Store (显式)", "agentprof db init --storage-path ..."),
+        (
+            "📡",
+            "OTLP push",
+            "OTel SDK → :4317 (gRPC) or :4318 (HTTP) → SQLite",
+        ),
+    ]));
+
+    s.push_str(r#"
 <div class="card analogy">
   <div class="tag">🔌 生活类比</div>
   从 <strong><code>grep</code> 单文件</strong>升级到 <strong>SQLite + Prometheus push gateway</strong> —— 不再每次扫一遍 JSONL，不再要求 agent 必须先写 <code>events.jsonl</code> 才能被分析；Claude Code 跑着就把 spans 推进来，agentprof 在另一边实时聚合。

@@ -5,7 +5,7 @@
 //! Turn Summary / Tool Rank / Cache 段怎么读，以及 `--section` 控制
 //! 输出范围。
 
-use super::components::{accordion, comparison_table, source_ref};
+use super::components::{accordion, comparison_table, flow_diagram, source_ref};
 
 /// Render the HTML body for usage lesson 3.
 ///
@@ -27,7 +27,16 @@ pub fn render() -> String {
 <p class="lead">
 <code>agentprof analyze</code> 是核心子命令 —— 把<strong>同一份 session 数据</strong>渲染成 <strong>5 种 export</strong>（<code>md</code> / <code>tui</code> / <code>html</code> / <code>json</code> / <code>speedscope</code>），按你下一步想做什么挑：CI 流水线看 <code>md</code>，浏览器分享 <code>html</code>，本地开发调优 <code>tui</code>。底层都是一份 <code>Analysis</code> 结构体，渲染层只是换了个壳。
 </p>
+"#);
 
+    s.push_str(&flow_diagram(&[
+        "events.jsonl",
+        "Adapter parse",
+        "compute_analysis",
+        "5 种 export",
+    ]));
+
+    s.push_str(r#"
 <div class="card analogy">
   <div class="tag">🔌 生活类比</div>
   像 <strong><code>perf top</code> 看 CPU 热点</strong> —— <code>agentprof analyze</code> 看 <strong>token 热点</strong>。

@@ -4,7 +4,7 @@
 //! `list --since` 列最近 sessions，`aggregate --by model / tool /
 //! mcp-server / day` 跨 session 聚合，以及「何时用哪个 `--by`」决策。
 
-use super::components::{accordion, comparison_table, source_ref};
+use super::components::{accordion, comparison_table, decision_tree, source_ref};
 
 /// Render the HTML body for usage lesson 4.
 ///
@@ -27,7 +27,31 @@ pub fn render() -> String {
 <p class="lead">
 一次 session 只是数据点，<strong>连续观测才是趋势</strong> —— <code>agentprof list</code> 列最近 sessions 给你「本周用得多吗」的即时感，<code>agentprof aggregate --by model/tool/day</code> 给跨 session 报表回答「<strong>哪个模型 cache 命中率高</strong>」「<strong>哪个 tool 是 token 大户</strong>」「<strong>这一周 agent 是不是在空转</strong>」。
 </p>
+"#);
 
+    s.push_str(&decision_tree(
+        "你想看的是什么维度？",
+        &[
+            (
+                "📊 模型对比",
+                "<code>aggregate --by model</code> — 含 cache 命中列 (ADR-0023)",
+            ),
+            (
+                "🔧 找浪费 tool",
+                "<code>aggregate --by tool</code> — 按 total_duration 排",
+            ),
+            (
+                "📅 时间趋势",
+                "<code>aggregate --by day</code> + <code>--low-utilization-threshold</code>",
+            ),
+            (
+                "📋 单 session 列表",
+                "<code>list --since 7d --limit 20</code>",
+            ),
+        ],
+    ));
+
+    s.push_str(r#"
 <div class="card analogy">
   <div class="tag">🔌 生活类比</div>
   从 <strong><code>top</code> 升级到 <code>Grafana</code></strong> —— <code>analyze</code> 是<strong>单点快照</strong>（这一刻 CPU 在干嘛），<code>list</code> + <code>aggregate</code> 是<strong>仪表盘</strong>（这一周 CPU 用在了哪里、哪个进程一直涨）。同样的数据源，换一个时间维度看就是另一个故事。

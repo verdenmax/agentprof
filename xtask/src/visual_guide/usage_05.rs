@@ -5,7 +5,7 @@
 //! 5 个视图（/sessions / /session/:id / /aggregate / /mcp-waste /
 //! 工具栏）+ `[serve]` config block + serve vs static HTML 决策。
 
-use super::components::{accordion, comparison_table, source_ref};
+use super::components::{accordion, comparison_table, source_ref, visual_compare};
 
 /// Render the HTML body for usage lesson 5.
 ///
@@ -29,7 +29,17 @@ pub fn render() -> String {
 <p class="lead">
 静态 HTML 报告（上节学的 <code>analyze --export html</code>）是<strong>快照</strong>；<code>agentprof serve</code> 拉起一个本机端口（默认 <code>127.0.0.1:4329</code>），<strong>5 个视图自动每 5 秒轮询刷新</strong>，跑 agent 边看 token 趋势 —— 不用每次手动重新导。
 </p>
+"#);
 
+    s.push_str(&visual_compare(&[
+        ("📋", "/sessions", "近 200 sessions × 5 列"),
+        ("🔍", "/session/:id", "单 session 完整报告"),
+        ("📊", "/aggregate", "by=model/tool/day"),
+        ("🗑️", "/mcp-waste", "heuristic 浪费分析"),
+        ("⚙️", "工具栏", "暂停 / 1-30s / localStorage"),
+    ]));
+
+    s.push_str(r#"
 <div class="card analogy">
   <div class="tag">🔌 生活类比</div>
   从 <strong><code>cron</code> + 邮件升级到 <code>Grafana</code></strong> —— 不用每次手动 <code>analyze --export html</code> 邮件转发给自己，agent 跑着就能看实时数据；浏览器开着一个 tab，token 涨没涨、cache 命中没命中、哪个 tool 一直在调，全在那儿动。

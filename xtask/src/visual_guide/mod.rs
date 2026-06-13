@@ -474,6 +474,7 @@ mod usage_01_test {
         assert!(html.contains("class=\"lead\""));
         assert!(html.contains("<table"));
         assert!(html.contains("class=\"accordion\""));
+        assert!(html.contains("vis-cmp"));
     }
 }
 
@@ -491,6 +492,7 @@ mod usage_02_test {
         assert!(html.contains("class=\"lead\""));
         assert!(html.contains("<table"));
         assert!(html.contains("class=\"accordion\""));
+        assert!(html.contains("dec-tree"));
     }
 }
 
@@ -510,6 +512,7 @@ mod usage_03_test {
         assert!(html.contains("class=\"accordion\""));
         assert!(html.contains("--export"));
         assert!(html.contains("../assets/report-html-sample.svg"));
+        assert!(html.contains("<svg class=\"diagram\""));
     }
 }
 
@@ -530,6 +533,7 @@ mod usage_04_test {
         assert!(html.contains("--by"));
         assert!(html.contains("--since"));
         assert!(html.contains("aggregate"));
+        assert!(html.contains("dec-tree"));
     }
 }
 
@@ -554,6 +558,7 @@ mod usage_06_test {
         assert!(html.contains("XDG_DATA_HOME"));
         assert!(html.contains("<svg class=\"diagram\""));
         assert!(html.contains("agentprof db"));
+        assert!(html.contains("vis-cmp"));
     }
 }
 
@@ -578,6 +583,7 @@ mod usage_05_test {
         assert!(html.contains("/mcp-waste"));
         assert!(html.contains("localStorage"));
         assert!(html.contains("../assets/dashboard-overview.svg"));
+        assert!(html.contains("vis-cmp"));
     }
 }
 

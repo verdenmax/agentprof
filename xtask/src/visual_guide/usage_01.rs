@@ -3,7 +3,7 @@
 //! Target audience: complete newcomer who has never run agentprof and
 //! is not sure what "token profiling" means.
 
-use super::components::{accordion, comparison_table, source_ref};
+use super::components::{accordion, comparison_table, source_ref, visual_compare};
 
 /// Render the HTML body for usage lesson 1.
 ///
@@ -26,7 +26,23 @@ pub fn render() -> String {
 agentprof 是用 Rust 写的<strong>开源命令行工具</strong>，专门用来分析 AI agent CLI（Claude Code / GitHub Copilot CLI / OpenAI Codex）<strong>每一次对话烧掉的 token 都花在哪</strong>。
 不止统计花了多少，更回答<strong>「花得值不值」</strong>。
 </p>
+"#);
 
+    s.push_str(&visual_compare(&[
+        (
+            "🕳️",
+            "看不见 token 去向",
+            "总数对，归属不明 — 哪个 turn / tool 拿走的？",
+        ),
+        ("📉", "没有 ROI 信号", "MCP 装了 20 个 tool，到底用了几个？"),
+        (
+            "🌫️",
+            "Prompt cache 黑盒",
+            "命中率多少？省了多少 token / 钱？",
+        ),
+    ]));
+
+    s.push_str(r#"
 <div class="card analogy">
   <div class="tag">🔌 生活类比</div>
   把 AI agent 想成一台<strong>很费油的车</strong>。市面上的 token 计费工具只告诉你「这次开了 500 公里、烧了 30 升油」。

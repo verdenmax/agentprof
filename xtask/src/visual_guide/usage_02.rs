@@ -4,7 +4,7 @@
 //! （cargo install / one-line installer / from source）+ 第一次跑
 //! `analyze --agent copilot` + 常见报错对应方案。
 
-use super::components::{accordion, comparison_table, source_ref};
+use super::components::{accordion, comparison_table, decision_tree, source_ref};
 
 /// Render the HTML body for usage lesson 2.
 ///
@@ -18,6 +18,7 @@ use super::components::{accordion, comparison_table, source_ref};
 /// assert!(html.contains("cargo install"));
 /// ```
 #[must_use]
+#[allow(clippy::too_many_lines)]
 pub fn render() -> String {
     let mut s = String::new();
 
@@ -26,7 +27,27 @@ pub fn render() -> String {
 <p class="lead">
 装好 agentprof 比装 IDE 插件还快 —— <strong>3 种装法任选其一</strong>，最后一句 <code>agentprof analyze --agent copilot</code> 就能看到你第一张<strong>火焰图</strong>。整个流程不超过 5 分钟，也<strong>不需要修改你的 agent 配置</strong>。
 </p>
+"#);
 
+    s.push_str(&decision_tree(
+        "你已经装好 Rust toolchain（rustc + cargo）了吗？",
+        &[
+            (
+                "✅ 是",
+                "<code>cargo install agentprof-cli</code> — 30 秒搞定，含 full feature",
+            ),
+            (
+                "❌ 否",
+                "用 one-line installer（<code>curl ... | sh</code>）— 拉预编译 binary，不需要 Rust",
+            ),
+            (
+                "🛠️ 想改源码",
+                "<code>git clone</code> + <code>cargo build --release -p agentprof-cli --features full</code>",
+            ),
+        ],
+    ));
+
+    s.push_str(r#"
 <div class="card analogy">
   <div class="tag">🔌 生活类比</div>
   把 agentprof 想成 <strong>事后回放的 Wireshark</strong>：
