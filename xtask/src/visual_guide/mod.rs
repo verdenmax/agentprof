@@ -11,6 +11,30 @@
 
 use clap::Args;
 
+pub mod css;
+pub mod shell;
+
+/// Best-effort git short SHA (12 chars); `"unknown"` on failure (e.g.
+/// CI checkout without `.git`, or git not on PATH). Footer-only;
+/// not security-sensitive.
+///
+/// # Examples
+///
+/// ```text
+/// let sha = git_sha_short_or_unknown();
+/// assert!(!sha.is_empty());
+/// ```
+#[must_use]
+pub fn git_sha_short_or_unknown() -> String {
+    std::process::Command::new("git")
+        .args(["rev-parse", "--short=12", "HEAD"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map_or_else(|| "unknown".to_owned(), |s| s.trim().to_owned())
+}
+
 /// CLI arguments for `cargo xtask visual-guide`.
 #[derive(Debug, Args)]
 pub struct VisualGuideCmd {
@@ -49,4 +73,32 @@ pub fn run(cmd: VisualGuideCmd) -> anyhow::Result<()> {
     }
     println!("visual-guide: render (not yet implemented, T7+)");
     Ok(())
+}
+
+#[cfg(test)]
+mod shell_smoke {
+    use super::shell;
+
+    #[test]
+    fn page_includes_required_chrome() {
+        let body = "<p>Hello agentprof.</p>";
+        let html = shell::render_page(
+            shell::PageMeta {
+                title: "Test Lesson",
+                description: "Test desc",
+                section_label: "用法",
+                home_href: "../index.html",
+                prev: None,
+                next: None,
+            },
+            body,
+        )
+        .expect("render");
+        assert!(html.contains("<!DOCTYPE html>"));
+        assert!(html.contains("<title>agentprof 可视化指南 — Test Lesson</title>"));
+        assert!(html.contains("data:image/svg+xml;base64,"));
+        assert!(html.contains("<nav"));
+        assert!(html.contains("<footer"));
+        assert!(html.contains(body));
+    }
 }

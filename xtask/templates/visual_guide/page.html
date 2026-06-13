@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>agentprof 可视化指南 — {{ meta.title }}</title>
+<meta name="description" content="{{ meta.description }}">
+<meta name="theme-color" content="#1a1a2e">
+<link rel="icon" type="image/svg+xml" href="{{ favicon }}">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="agentprof 可视化指南">
+<meta property="og:title" content="{{ meta.title }}">
+<meta property="og:description" content="{{ meta.description }}">
+<style>{{ css|safe }}</style>
+</head>
+<body>
+<nav class="vg-top">
+  <a class="brand" href="{{ meta.home_href }}">agentprof</a>
+  <span class="section">· {{ meta.section_label }} ·</span>
+  <span class="title">{{ meta.title }}</span>
+  <span class="spacer"></span>
+  {% match meta.prev %}{% when Some with (p) %}<a class="navlink" href="{{ p.href }}">← {{ p.title }}</a>{% when None %}{% endmatch %}
+  <a class="navlink" href="{{ meta.home_href }}">目录</a>
+  {% match meta.next %}{% when Some with (n) %}<a class="navlink" href="{{ n.href }}">{{ n.title }} →</a>{% when None %}{% endmatch %}
+</nav>
+<div class="vg-progress"><div id="vg-progress-bar"></div></div>
+<main class="vg-main">
+{{ body_html|safe }}
+</main>
+<footer class="vg-footer">
+  agentprof 可视化指南 · v{{ pkg_version }} · 生成于 {{ generated_at_utc }} · git {{ git_sha_short }}<br>
+  <a href="https://github.com/verdenmax/agentprof">GitHub</a> · MIT/Apache-2.0
+</footer>
+<script>
+(function(){
+  var bar = document.getElementById('vg-progress-bar');
+  if(!bar) return;
+  function update(){
+    var h = document.documentElement;
+    var max = (h.scrollHeight - h.clientHeight) || 1;
+    bar.style.width = Math.round(100 * (h.scrollTop || document.body.scrollTop) / max) + '%';
+  }
+  window.addEventListener('scroll', update, { passive: true });
+  update();
+})();
+</script>
+</body>
+</html>
