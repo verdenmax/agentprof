@@ -2,7 +2,8 @@
 //! HTML site under `docs/visual-guide/`.
 //!
 //! Output: 1 `index.html` + 6 `usage/*.html` + 8 `wiki/*.html` = 15 files.
-//! Usage chapter is complete as of T13 (6/6). Wiki chapter at T17: 4/8.
+//! Usage chapter is complete as of T13 (6/6). Wiki chapter complete as
+//! of T18 (8/8) — full 14-lesson set delivered.
 //!
 //! See `docs/superpowers/specs/2026-06-13-visual-guide-design.md` for
 //! the full design; ADR-0025 (T21) codifies the 7 decisions.
@@ -27,6 +28,10 @@ pub mod wiki_01;
 pub mod wiki_02;
 pub mod wiki_03;
 pub mod wiki_04;
+pub mod wiki_05;
+pub mod wiki_06;
+pub mod wiki_07;
+pub mod wiki_08;
 
 /// Best-effort git short SHA (12 chars); `"unknown"` on failure (e.g.
 /// CI checkout without `.git`, or git not on PATH). Footer-only;
@@ -191,6 +196,10 @@ fn render_lesson_body(entry: &pages::LessonEntry) -> anyhow::Result<String> {
         "02-data-model.html" => Ok(wiki_02::render()),
         "03-adapter.html" => Ok(wiki_03::render()),
         "04-analyzer.html" => Ok(wiki_04::render()),
+        "05-storage.html" => Ok(wiki_05::render()),
+        "06-otlp-receiver.html" => Ok(wiki_06::render()),
+        "07-web-dashboard.html" => Ok(wiki_07::render()),
+        "08-contributing.html" => Ok(wiki_08::render()),
         _ => anyhow::bail!(
             "no renderer wired for {}; please update visual_guide::mod::render_lesson_body",
             entry.filename
@@ -675,5 +684,149 @@ mod wiki_04_test {
         assert!(html.contains("crates/agentprof-core/src/analyzer/mod.rs"));
         assert!(html.contains("crates/agentprof-core/src/analyzer/cache.rs"));
         assert!(html.contains("crates/agentprof-core/src/analyzer/waste.rs"));
+    }
+}
+
+#[cfg(test)]
+mod wiki_05_test {
+    #[test]
+    fn renders_non_empty_with_required_marks() {
+        let html = super::wiki_05::render();
+        assert!(
+            html.len() > 1500,
+            "expect substantial content, got {} chars",
+            html.len()
+        );
+        assert!(html.contains("agentprof"));
+        assert!(html.contains("class=\"lead\""));
+        assert!(html.contains("<table"));
+        assert!(html.contains("class=\"accordion\""));
+        // hybrid mode 关键术语
+        assert!(html.contains("cache"));
+        assert!(html.contains("store"));
+        assert!(html.contains("StorageMode"));
+        assert!(html.contains("XDG_CACHE_HOME"));
+        assert!(html.contains("XDG_DATA_HOME"));
+        // schema 真实表名
+        assert!(html.contains("sessions"));
+        assert!(html.contains("tools_loaded"));
+        assert!(html.contains("turn_buckets"));
+        assert!(html.contains("episodes_json"));
+        // ADR-0019
+        assert!(html.contains("ADR-0019"));
+        // dual-path
+        assert!(html.contains("dual-path"));
+        // 2 source_ref
+        assert!(html.contains("crates/agentprof-storage/src/db.rs"));
+        assert!(html.contains("crates/agentprof-storage/src/config.rs"));
+    }
+}
+
+#[cfg(test)]
+mod wiki_06_test {
+    #[test]
+    fn renders_non_empty_with_required_marks() {
+        let html = super::wiki_06::render();
+        assert!(
+            html.len() > 1500,
+            "expect substantial content, got {} chars",
+            html.len()
+        );
+        assert!(html.contains("agentprof"));
+        assert!(html.contains("class=\"lead\""));
+        assert!(html.contains("<table"));
+        assert!(html.contains("class=\"accordion\""));
+        // OTLP 协议 + 端口
+        assert!(html.contains("OTLP"));
+        assert!(html.contains("4317"));
+        assert!(html.contains("4318"));
+        assert!(html.contains("gRPC"));
+        // 真实 fn 名
+        assert!(html.contains("serve_grpc"));
+        assert!(html.contains("serve_http"));
+        // ADRs
+        assert!(html.contains("ADR-0021"));
+        assert!(html.contains("ADR-0022"));
+        // 4 层防御
+        assert!(html.contains("subtle"));
+        assert!(html.contains("ConstantTimeEq"));
+        assert!(html.contains("LRU"));
+        assert!(html.contains("1024"));
+        assert!(html.contains("256"));
+        assert!(html.contains("session.id") || html.contains("session_id"));
+        // flow diagram
+        assert!(html.contains("<svg"));
+        // 2 source_ref
+        assert!(html.contains("crates/agentprof-storage/src/otlp/server_grpc.rs"));
+        assert!(html.contains("crates/agentprof-storage/src/otlp/server_http.rs"));
+    }
+}
+
+#[cfg(test)]
+mod wiki_07_test {
+    #[test]
+    fn renders_non_empty_with_required_marks() {
+        let html = super::wiki_07::render();
+        assert!(
+            html.len() > 1500,
+            "expect substantial content, got {} chars",
+            html.len()
+        );
+        assert!(html.contains("agentprof"));
+        assert!(html.contains("class=\"lead\""));
+        assert!(html.contains("<table"));
+        assert!(html.contains("class=\"accordion\""));
+        // 关键术语
+        assert!(html.contains("askama"));
+        assert!(html.contains("axum"));
+        assert!(html.contains("serve"));
+        assert!(html.contains("chunk"));
+        // ADR-0024
+        assert!(html.contains("ADR-0024"));
+        // 7 决策
+        assert!(html.contains("D-1"));
+        assert!(html.contains("D-7"));
+        // 真实 fn 名
+        assert!(html.contains("build_router"));
+        assert!(html.contains("render_body_only"));
+        // 5 视图 handler
+        assert!(html.contains("sessions"));
+        assert!(html.contains("aggregate"));
+        assert!(html.contains("mcp_waste") || html.contains("mcp-waste"));
+        // 2 source_ref
+        assert!(html.contains("crates/agentprof-cli/src/cmd/serve/router.rs"));
+        assert!(html.contains("crates/agentprof-cli/src/cmd/serve/handlers.rs"));
+    }
+}
+
+#[cfg(test)]
+mod wiki_08_test {
+    #[test]
+    fn renders_non_empty_with_required_marks() {
+        let html = super::wiki_08::render();
+        assert!(
+            html.len() > 1500,
+            "expect substantial content, got {} chars",
+            html.len()
+        );
+        assert!(html.contains("agentprof"));
+        assert!(html.contains("class=\"lead\""));
+        assert!(html.contains("<table"));
+        assert!(html.contains("class=\"accordion\""));
+        // Conventional Commits
+        assert!(html.contains("Conventional Commits"));
+        assert!(html.contains("feat"));
+        assert!(html.contains("fix"));
+        assert!(html.contains("docs"));
+        // 9 阶段 pipeline
+        assert!(html.contains("pipeline"));
+        assert!(html.contains("brainstorming"));
+        assert!(html.contains("ADR"));
+        assert!(html.contains("TDD"));
+        // CHANGELOG
+        assert!(html.contains("CHANGELOG"));
+        // Wiki 8 link: 手写 a 链接到 .github/* 或 CONTRIBUTING.md
+        assert!(html.contains("CONTRIBUTING.md") || html.contains("copilot-instructions.md"));
+        assert!(html.contains("github.com/verdenmax/agentprof"));
     }
 }

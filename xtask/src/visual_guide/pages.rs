@@ -133,6 +133,34 @@ pub const PAGES: &[LessonEntry] = &[
             "analyze() 流水线 + turn_summary / tool_rank / hook_rank / CacheMetrics 公式 + MCP waste 计算 — agentprof 的核心 ROI 算法。",
         section: Section::Wiki,
     },
+    LessonEntry {
+        filename: "05-storage.html",
+        title: "存储层 hybrid mode",
+        description:
+            "ADR-0019 hybrid cache/store + SQLite schema (sessions / tools_loaded / turn_buckets) + dual-path 选择 — agentprof 怎么持久化 session 数据。",
+        section: Section::Wiki,
+    },
+    LessonEntry {
+        filename: "06-otlp-receiver.html",
+        title: "OTLP receiver",
+        description:
+            "ADR-0021 架构 (receiver → router → buffer → flush sink → upsert → SQLite) + ADR-0022 4 层防御 (subtle 常时间 bearer / per-signal size caps / LRU cap=1024 / 256-byte session.id 上限)。",
+        section: Section::Wiki,
+    },
+    LessonEntry {
+        filename: "07-web-dashboard.html",
+        title: "Web dashboard 架构",
+        description:
+            "ADR-0024 全 7 决策 (D-1..D-7) + chunk-endpoint pattern + axum + askama + vanilla JS poller — agentprof serve 的实现全景。",
+        section: Section::Wiki,
+    },
+    LessonEntry {
+        filename: "08-contributing.html",
+        title: "贡献指南",
+        description:
+            "Conventional Commits + 9 阶段 pipeline (brainstorming → spec → ADR → plan → TDD → CI → review) + 怎么开 PR / 加 ADR / 通过 CI。",
+        section: Section::Wiki,
+    },
 ];
 
 #[derive(Template)]
