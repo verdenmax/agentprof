@@ -97,7 +97,10 @@ pub fn run(cmd: VisualGuideCmd) -> anyhow::Result<()> {
 
     let index_html = pages::render_index()?;
     if cmd.check {
-        assert!(index_html.contains("<!DOCTYPE"));
+        anyhow::ensure!(
+            index_html.contains("<!DOCTYPE"),
+            "index template missing DOCTYPE"
+        );
     } else {
         fs::create_dir_all(&out_root)?;
         let idx_path = out_root.join("index.html");

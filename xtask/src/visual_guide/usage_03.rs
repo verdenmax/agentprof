@@ -90,7 +90,11 @@ pub fn render() -> String {
 <div class="q">🤔 为什么这么设计</div>
 <div class="a">分享场景里「<strong>对方不装 agentprof</strong>」是常态。如果用 markdown 还得让对方装 viewer + 火焰图渲染不了；如果用 PNG 截图就丢了可点击 / 可复制。单 HTML 文件兼顾「<strong>视觉</strong>」与「<strong>可交互</strong>」（hover tooltip / 折叠表）+「<strong>可归档</strong>」。</div>
 <div class="q">✅ agentprof 怎么做</div>
-<div class="a">用 <strong>askama 模板</strong>编译期渲染 HTML 骨架；火焰图走 <code>agentprof-core::flamegraph</code> 生成 SVG 字符串后内嵌；CSS 直接 <code>include_str!</code> 进 binary。整张报表生成后 <strong>一次写盘</strong>（<code>--output report.html</code>）。想要纯数据喂给别的工具链（grafana / lakera / 自家 dashboard）改 <code>--export json</code> 输出结构化 <code>Analysis</code>；想喂给 <a href="https://www.speedscope.app/">speedscope.app</a> 看交互火焰图改 <code>--export speedscope</code>。</div>
+<div class="a">用 <strong>askama 模板</strong>编译期渲染 HTML 骨架；火焰图走 <code>agentprof-core::flamegraph</code> 生成 SVG 字符串后内嵌；CSS 直接 <code>include_str!</code> 进 binary。整张报表生成后 <strong>一次写盘</strong>（<code>--output report.html</code>）。想要纯数据喂给别的工具链（grafana / lakera / 自家 dashboard）改 <code>--export json</code> 输出结构化 <code>Analysis</code>；想喂给 <a href="https://www.speedscope.app/">speedscope.app</a> 看交互火焰图改 <code>--export speedscope</code> —— 输出的 SVG 长这样：
+<figure style="margin:.5rem 0">
+  <img class="diagram" src="../assets/flamegraph-sample.svg" alt="flamegraph SVG 示例 (T19 添)" style="max-width:100%">
+  <figcaption style="color:var(--muted);font-size:.85rem;margin-top:.3rem">speedscope 火焰图示例 — 真实样本在 T19 落</figcaption>
+</figure></div>
 </div>"#,
     ));
 
