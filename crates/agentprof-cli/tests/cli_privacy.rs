@@ -135,11 +135,12 @@ fn aggregate_privacy_redact_models_to_family() {
         .stdout
         .clone();
     let s = String::from_utf8(out).unwrap();
-    // The fixture model `claude-opus-4.7-1m-internal` collapses to its
-    // two-segment family `claude-opus`, so the `-1m-internal` suffix must
-    // not survive into the rendered aggregate.
+    // `claude-sonnet-4.6` IS in the un-redacted `--by model` output; redact
+    // collapses it to its two-segment family `claude-sonnet`. The original
+    // full model name must not survive into the rendered aggregate.
     assert!(
-        !s.contains("-1m-internal"),
-        "internal model name leaked:\n{s}"
+        !s.contains("claude-sonnet-4.6"),
+        "original model name leaked:\n{s}"
     );
+    assert!(s.contains("claude-sonnet"), "family form missing:\n{s}");
 }
