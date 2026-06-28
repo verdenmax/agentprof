@@ -35,6 +35,7 @@ prefix used in commit messages).
 ### Tests
 
 - **+27 tests**（workspace 整体 1301 → 1328）：xtask 新增 5 integration tests (`tests/visual_guide.rs`) + 22 unit tests（shell smoke + css smoke + components ×3 + highlight ×4 + pages ×2 + 14 lesson render tests + 1 surface）。
+- **cli:** 修复 `cli_list_cache_column::list_header_includes_cache_pct_column`：原测试对空 `--root` 目录断言表头，但 `list` 对空目录走 `(no sessions …)` 早返回分支、从不渲染表头，故该测试自 `be592a1`（M2.5 T8）引入起一直失败。改为针对 committed Copilot fixtures + `--since all` 校验 8 列表头含 `Cache%`。
 
 ## [0.3.3] - 2026-06-11
 
