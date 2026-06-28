@@ -241,3 +241,35 @@ fn edit_prefers_visual_over_editor() {
         .assert()
         .success();
 }
+
+// Locks the `show` resolve-error path (exit 2): TOML parses, but a block
+// fails to resolve via its real resolver. Distinct from a parse failure.
+#[cfg(feature = "otlp")]
+#[test]
+fn show_rejects_unresolvable_otlp_block() {
+    let tmp = TempDir::new().unwrap();
+    let cfg = tmp.path().join("config.toml");
+    std::fs::write(&cfg, "[otlp]\nsession_idle_timeout = \"not-a-duration\"\n").unwrap();
+    bin()
+        .env("AGENTPROF_CONFIG", &cfg)
+        .args(["config", "show"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("invalid [otlp] config"));
+}
+
+// Locks the editor spawn-failure path (exit 3) — distinct from a runnable
+// editor returning non-zero (exit 1).
+#[test]
+fn edit_spawn_failure_is_output_error() {
+    let tmp = TempDir::new().unwrap();
+    let cfg = tmp.path().join("config.toml");
+    bin()
+        .env("AGENTPROF_CONFIG", &cfg)
+        .env("EDITOR", "/nonexistent/xyz-editor-binary")
+        .env_remove("VISUAL")
+        .args(["config", "edit"])
+        .assert()
+        .code(3)
+        .stderr(predicate::str::contains("failed to launch editor"));
+}
