@@ -339,9 +339,35 @@ pub fn run(
     // the original (real) data, never the redacted copy. The shadowed
     // `report` below is only used for rendering + the sidecar.
     let (report, redaction_map) = report.redact(cmd.privacy);
-    let rendered = render_report(&report, &episodes, &raw.meta, &cmd, waste.as_ref())?;
+
+    // Part B (deferred-with-guard): warn that flamegraph frames still leak
+    // original turn-ids even after the meta is redacted above. See the helper.
+    warn_unredacted_flamegraph(&cmd);
+
+    // Pass the REDACTED report's meta (not `raw.meta`) so html/speedscope render
+    // the redacted session id + started_at. At `PrivacyLevel::None` it is
+    // byte-identical to `raw.meta`, so non-privacy behavior is unchanged.
+    let rendered = render_report(&report, &episodes, &report.meta, &cmd, waste.as_ref())?;
     write_output(&rendered, cmd.output.as_deref())?;
     emit_redaction_sidecar(cmd.privacy, &redaction_map, cmd.output.as_deref())
+}
+
+/// Warn that html/speedscope flamegraph frames keep original turn-ids.
+///
+/// Part A redacts [`AnalysisReport::meta`], but the html/speedscope flamegraph
+/// frames are built from `episodes` (un-redacted) — there is no
+/// `Episodes::redact` yet — so original turn-ids still leak into the SVG/frames.
+/// This warns (without blocking) when a privacy level is active and the export
+/// is `Html` or `Speedscope`, steering fully-redacted sharing to `md`/`json`.
+fn warn_unredacted_flamegraph(cmd: &AnalyzeCmd) {
+    if cmd.privacy != agentprof_core::analyzer::redact::PrivacyLevel::None
+        && matches!(cmd.export, ExportFormat::Html | ExportFormat::Speedscope)
+    {
+        tracing::warn!(
+            export = ?cmd.export,
+            "flamegraph frames retain original turn-ids; episodes are not yet redacted — use --export md|json for fully-redacted sharing"
+        );
+    }
 }
 
 /// Emit the `anonymize` redaction-map sidecar after the report is written.
