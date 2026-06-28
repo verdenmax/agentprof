@@ -17,10 +17,10 @@ pub struct ConfigCmd {
     action: ConfigAction,
 }
 
-/// The `config` actions (`path` / `show` / `init` wired; `edit` lands in a
-/// later task). `#[non_exhaustive]` documents intent for external readers
-/// but is inert while the enum is private, so `run`'s `match` must still
-/// be updated when variants are added.
+/// The `config` actions (all four wired: `path` / `show` / `edit` / `init`).
+/// `#[non_exhaustive]` documents intent for external readers but is inert
+/// while the enum is private, so `run`'s `match` must still be updated when
+/// variants are added.
 #[derive(Subcommand, Debug)]
 #[non_exhaustive]
 enum ConfigAction {
@@ -29,6 +29,8 @@ enum ConfigAction {
     /// Show the effective configuration (built-in defaults merged with
     /// file overrides), annotating each value's source.
     Show,
+    /// Open the config file in `$VISUAL`/`$EDITOR` (creating it first if absent).
+    Edit,
     /// Write a commented default config template to the resolved path.
     Init {
         /// Overwrite an existing file.
@@ -52,6 +54,7 @@ pub fn run(cmd: ConfigCmd) -> anyhow::Result<()> {
     match cmd.action {
         ConfigAction::Path => run_path(),
         ConfigAction::Show => run_show(),
+        ConfigAction::Edit => run_edit(),
         ConfigAction::Init { force } => run_init(force),
     }
 }
@@ -114,6 +117,31 @@ auto_prune_days = 30
 # auto_open = true
 "#;
 
+/// Write [`CONFIG_TEMPLATE`] to `path`, creating any missing parent dirs.
+/// Shared by `init` and `edit` (the latter self-heals an absent file, D-4).
+///
+/// # Errors
+///
+/// [`ExitKind::OutputError`] when the parent directory cannot be created or
+/// the file cannot be written.
+fn write_template(path: &std::path::Path) -> anyhow::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| {
+            ExitKind::OutputError.into_anyhow(format!(
+                "failed to create config directory {}: {e}",
+                parent.display()
+            ))
+        })?;
+    }
+    std::fs::write(path, CONFIG_TEMPLATE).map_err(|e| {
+        ExitKind::OutputError.into_anyhow(format!(
+            "failed to write config file {}: {e}",
+            path.display()
+        ))
+    })?;
+    Ok(())
+}
+
 /// Write [`CONFIG_TEMPLATE`] to the resolved path, creating parent dirs.
 ///
 /// # Errors
@@ -128,21 +156,47 @@ fn run_init(force: bool) -> anyhow::Result<()> {
             path.display()
         )));
     }
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| {
-            ExitKind::OutputError.into_anyhow(format!(
-                "failed to create config directory {}: {e}",
-                parent.display()
-            ))
-        })?;
-    }
-    std::fs::write(&path, CONFIG_TEMPLATE).map_err(|e| {
-        ExitKind::OutputError.into_anyhow(format!(
-            "failed to write config file {}: {e}",
-            path.display()
-        ))
-    })?;
+    write_template(&path)?;
     println!("wrote default config to {}", path.display());
+    Ok(())
+}
+
+/// Open the config file in `$VISUAL` (preferred) or `$EDITOR`. Creates the
+/// file from [`CONFIG_TEMPLATE`] first when absent (D-4).
+///
+/// # Errors
+///
+/// [`ExitKind::UserError`] when neither editor env var is set or the editor
+/// exits non-zero; [`ExitKind::OutputError`] on a missing config dir, a
+/// template-write failure, or an editor-spawn failure.
+fn run_edit() -> anyhow::Result<()> {
+    // An empty var (`VISUAL=`) is treated as unset so it falls through to
+    // $EDITOR rather than spawning `""` (which would mis-report as exit 3).
+    let editor = std::env::var_os("VISUAL")
+        .filter(|v| !v.is_empty())
+        .or_else(|| std::env::var_os("EDITOR").filter(|v| !v.is_empty()))
+        .ok_or_else(|| {
+            ExitKind::UserError
+                .into_anyhow("no editor configured: set $VISUAL or $EDITOR".to_string())
+        })?;
+    let path = agentprof_cli::config::resolve_config_path().ok_or_else(config_dir_err)?;
+    // Self-heal: write the template before spawning so the editor always
+    // opens an existing, parseable file (D-4).
+    if !path.exists() {
+        write_template(&path)?;
+    }
+    let status = std::process::Command::new(&editor)
+        .arg(&path)
+        .status()
+        .map_err(|e| {
+            ExitKind::OutputError.into_anyhow(format!("failed to launch editor {editor:?}: {e}"))
+        })?;
+    if !status.success() {
+        return Err(ExitKind::UserError.into_anyhow(status.code().map_or_else(
+            || "editor terminated by signal".to_string(),
+            |c| format!("editor exited with status {c}"),
+        )));
+    }
     Ok(())
 }
 

@@ -148,3 +148,96 @@ fn init_force_overwrites() {
     let written = std::fs::read_to_string(&cfg).unwrap();
     assert!(written.contains("agentprof configuration"));
 }
+
+#[test]
+fn edit_creates_template_when_absent() {
+    let tmp = TempDir::new().unwrap();
+    let cfg = tmp.path().join("config.toml");
+    bin()
+        .env("AGENTPROF_CONFIG", &cfg)
+        .env("EDITOR", "true") // unix no-op editor, exits 0
+        .env_remove("VISUAL")
+        .args(["config", "edit"])
+        .assert()
+        .success();
+    // Template content written (not just an empty file).
+    assert!(std::fs::read_to_string(&cfg)
+        .unwrap()
+        .contains("agentprof configuration"));
+}
+
+#[test]
+fn edit_without_editor_env_errors() {
+    let tmp = TempDir::new().unwrap();
+    let cfg = tmp.path().join("config.toml");
+    bin()
+        .env("AGENTPROF_CONFIG", &cfg)
+        .env_remove("EDITOR")
+        .env_remove("VISUAL")
+        .args(["config", "edit"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("set $VISUAL or $EDITOR"));
+}
+
+#[test]
+fn edit_preserves_existing_file() {
+    let tmp = TempDir::new().unwrap();
+    let cfg = tmp.path().join("config.toml");
+    std::fs::write(&cfg, "[storage]\nmode = \"store\"\n").unwrap();
+    bin()
+        .env("AGENTPROF_CONFIG", &cfg)
+        .env("EDITOR", "true")
+        .env_remove("VISUAL")
+        .args(["config", "edit"])
+        .assert()
+        .success();
+    // edit must open the file as-is, never re-template it.
+    assert_eq!(
+        std::fs::read_to_string(&cfg).unwrap(),
+        "[storage]\nmode = \"store\"\n"
+    );
+}
+
+#[test]
+fn edit_empty_visual_falls_through_to_editor() {
+    let tmp = TempDir::new().unwrap();
+    let cfg = tmp.path().join("config.toml");
+    // An empty $VISUAL must NOT shadow a valid $EDITOR (regression: an empty
+    // var was once spawned as `""`, yielding a misleading exit 3).
+    bin()
+        .env("AGENTPROF_CONFIG", &cfg)
+        .env("VISUAL", "")
+        .env("EDITOR", "true")
+        .args(["config", "edit"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn edit_nonzero_editor_exits_user_error() {
+    let tmp = TempDir::new().unwrap();
+    let cfg = tmp.path().join("config.toml");
+    bin()
+        .env("AGENTPROF_CONFIG", &cfg)
+        .env("EDITOR", "false") // runs but exits 1
+        .env_remove("VISUAL")
+        .args(["config", "edit"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("editor exited with status"));
+}
+
+#[test]
+fn edit_prefers_visual_over_editor() {
+    let tmp = TempDir::new().unwrap();
+    let cfg = tmp.path().join("config.toml");
+    // VISUAL=true (exit 0) preferred over EDITOR=false (exit 1) => success.
+    bin()
+        .env("AGENTPROF_CONFIG", &cfg)
+        .env("VISUAL", "true")
+        .env("EDITOR", "false")
+        .args(["config", "edit"])
+        .assert()
+        .success();
+}
