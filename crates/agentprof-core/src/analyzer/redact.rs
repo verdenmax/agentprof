@@ -403,13 +403,14 @@ impl<B: RedactBucket + Clone> AggregateReport<B> {
     /// # Examples
     ///
     /// ```
-    /// use agentprof_core::analyzer::aggregate::{AggregateReport, ModelBucket};
+    /// use agentprof_core::analyzer::aggregate::{AggregateKey, AggregateReport, ModelBucket};
     /// use agentprof_core::analyzer::redact::PrivacyLevel;
     /// use chrono::Duration;
     ///
-    /// let report: AggregateReport<ModelBucket> = AggregateReport::from_buckets(vec![
-    ///     ModelBucket::new("claude-opus-4.7-1m".into(), 0, 0, 0, Duration::zero()),
-    /// ]);
+    /// let report: AggregateReport<ModelBucket> = AggregateReport::new(
+    ///     AggregateKey::Model, None, 0, 0, Duration::zero(),
+    ///     vec![ModelBucket::new("claude-opus-4.7-1m".into(), 0, 0, 0, Duration::zero())],
+    /// );
     /// let (out, map) = report.redact(PrivacyLevel::Redact);
     /// assert_eq!(out.buckets[0].model, "claude-opus");
     /// assert!(map.is_empty()); // map filled only at Anonymize

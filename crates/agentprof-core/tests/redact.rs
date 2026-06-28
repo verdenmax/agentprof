@@ -195,9 +195,12 @@ fn redaction_clears_diagnostics() {
 // --- L-1 T3: AggregateReport::redact ---------------------------------------
 
 use agentprof_core::analyzer::aggregate::bucket::{DayBucket, McpServerBucket, ModelBucket};
-use agentprof_core::analyzer::aggregate::AggregateReport;
+use agentprof_core::analyzer::aggregate::{AggregateKey, AggregateReport};
 use chrono::NaiveDate;
 
+const fn report<B>(by: AggregateKey, buckets: Vec<B>) -> AggregateReport<B> {
+    AggregateReport::new(by, None, 0, 0, Duration::zero(), buckets)
+}
 fn model_bucket(model: &str) -> ModelBucket {
     ModelBucket::new(model.into(), 0, 0, 0, Duration::zero())
 }
@@ -220,8 +223,10 @@ fn day_bucket(date: &str) -> DayBucket {
 
 #[test]
 fn aggregate_model_bucket_redacts_to_family() {
-    let report: AggregateReport<ModelBucket> =
-        AggregateReport::from_buckets(vec![model_bucket("claude-opus-4.7-1m-internal")]);
+    let report: AggregateReport<ModelBucket> = report(
+        AggregateKey::Model,
+        vec![model_bucket("claude-opus-4.7-1m-internal")],
+    );
     let (out, _map) = report.redact(PrivacyLevel::Redact);
     assert_eq!(out.buckets[0].model, "claude-opus");
 }
@@ -229,7 +234,7 @@ fn aggregate_model_bucket_redacts_to_family() {
 #[test]
 fn aggregate_mcp_server_hashed_only_at_anonymize() {
     let report: AggregateReport<McpServerBucket> =
-        AggregateReport::from_buckets(vec![mcp_bucket("github")]);
+        report(AggregateKey::McpServer, vec![mcp_bucket("github")]);
     let (redacted, m1) = report.redact(PrivacyLevel::Redact);
     assert_eq!(redacted.buckets[0].server, "github"); // redact: unchanged
     assert!(m1.is_empty());
@@ -241,7 +246,7 @@ fn aggregate_mcp_server_hashed_only_at_anonymize() {
 #[test]
 fn aggregate_day_bucket_never_redacted() {
     let report: AggregateReport<DayBucket> =
-        AggregateReport::from_buckets(vec![day_bucket("2026-05-26")]);
+        report(AggregateKey::Day, vec![day_bucket("2026-05-26")]);
     let (out, _) = report.redact(PrivacyLevel::Anonymize);
     assert_eq!(
         out.buckets[0].date,

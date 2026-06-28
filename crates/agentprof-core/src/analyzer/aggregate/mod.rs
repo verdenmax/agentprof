@@ -293,62 +293,6 @@ impl<B> AggregateReport<B> {
     }
 }
 
-/// Maps a bucket row type to the [`AggregateKey`] it is grouped by.
-///
-/// Lets generic constructors / transforms over `AggregateReport<B>`
-/// (e.g. [`AggregateReport::from_buckets`]) recover the correct
-/// [`AggregateReport::by`] from the bucket type alone, instead of
-/// threading the key through every call site.
-///
-/// # Examples
-///
-/// ```
-/// use agentprof_core::analyzer::aggregate::{AggregateKey, BucketKind, ModelBucket};
-/// assert_eq!(ModelBucket::KEY, AggregateKey::Model);
-/// ```
-pub trait BucketKind {
-    /// The [`AggregateKey`] rows of this bucket type are grouped by.
-    const KEY: AggregateKey;
-}
-
-impl BucketKind for ToolBucket {
-    const KEY: AggregateKey = AggregateKey::Tool;
-}
-impl BucketKind for McpServerBucket {
-    const KEY: AggregateKey = AggregateKey::McpServer;
-}
-impl BucketKind for DayBucket {
-    const KEY: AggregateKey = AggregateKey::Day;
-}
-impl BucketKind for ModelBucket {
-    const KEY: AggregateKey = AggregateKey::Model;
-}
-
-impl<B: BucketKind> AggregateReport<B> {
-    /// Build an [`AggregateReport`] from just its `buckets`, inferring
-    /// [`AggregateReport::by`] from `B` via [`BucketKind`] and zeroing the
-    /// remaining summary fields (`since = None`, counts `0`, wall
-    /// `Duration::zero()`).
-    ///
-    /// Convenience constructor for tests and redaction round-trips that
-    /// only care about the per-row buckets; production aggregators use
-    /// [`Self::new`] to populate the summary fields.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use agentprof_core::analyzer::aggregate::{AggregateKey, AggregateReport, ModelBucket};
-    ///
-    /// let r: AggregateReport<ModelBucket> = AggregateReport::from_buckets(Vec::new());
-    /// assert_eq!(r.by, AggregateKey::Model);
-    /// assert!(r.buckets.is_empty());
-    /// ```
-    #[must_use]
-    pub const fn from_buckets(buckets: Vec<B>) -> Self {
-        Self::new(B::KEY, None, 0, 0, Duration::zero(), buckets)
-    }
-}
-
 /// M2.5 — sealed-ish contract for per-bucket cache attribution.
 ///
 /// Implemented for [`AggregateReport`] bucket types that carry
