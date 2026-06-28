@@ -3,10 +3,11 @@
 
 use agentprof_core::adapter::AgentKind;
 use agentprof_core::analyzer::redact::PrivacyLevel;
-use agentprof_core::analyzer::{AnalysisReport, TurnSummaryRow};
+use agentprof_core::analyzer::{AnalysisReport, ModelUsage, ToolRankRow, TurnSummaryRow};
 use agentprof_core::episode::TurnStatus;
-use agentprof_core::model::SessionMeta;
-use chrono::{TimeZone, Utc};
+use agentprof_core::model::{SessionMeta, ToolSource};
+use chrono::{Duration, TimeZone, Utc};
+use std::collections::BTreeMap;
 
 fn sample() -> AnalysisReport {
     let mut meta = SessionMeta::new(
@@ -69,4 +70,124 @@ fn none_is_identity() {
     let (out, map) = sample().redact(PrivacyLevel::None);
     assert_eq!(out, sample());
     assert!(map.is_empty());
+}
+
+#[test]
+fn anonymize_hashes_mcp_tool_and_records_server() {
+    let mut r = sample();
+    r.tool_rank.push(ToolRankRow::new(
+        "mcp__github__search_issues".into(),
+        ToolSource::Mcp {
+            server: "github".into(),
+        },
+        1,
+        1,
+        0,
+        0,
+        0,
+        Duration::zero(),
+        Duration::zero(),
+        Duration::zero(),
+        Duration::zero(),
+    ));
+    r.loaded_mcp_tools
+        .insert("mcp__github__search_issues".into());
+
+    let (out, map) = r.redact(PrivacyLevel::Anonymize);
+
+    let name = &out.tool_rank[0].name;
+    assert!(name.starts_with("mcp__"), "got {name}");
+    assert!(name.ends_with("__search_issues"), "got {name}");
+    assert_ne!(name, "mcp__github__search_issues"); // server segment changed
+    assert!(
+        map.mcp_servers.values().any(|v| v == "github"),
+        "mcp_servers should map a hash back to github: {:?}",
+        map.mcp_servers
+    );
+}
+
+#[test]
+fn cross_site_uuid_stability() {
+    let shared = "33333333-3333-3333-3333-333333333333";
+    let mut meta = SessionMeta::new(
+        shared.into(),
+        AgentKind::Copilot,
+        Utc.with_ymd_and_hms(2026, 5, 26, 2, 43, 0).unwrap(),
+        false,
+    );
+    meta.cwd = Some("/home/alice/x".into());
+    let mut r = AnalysisReport::new(meta);
+    r.turn_summary.push(TurnSummaryRow::new(
+        shared.into(),
+        Utc.with_ymd_and_hms(2026, 5, 26, 2, 43, 0).unwrap(),
+        None,
+        TurnStatus::Open,
+        None,
+        None,
+        None,
+        0,
+        0,
+        0,
+    ));
+
+    let (out, _map) = r.redact(PrivacyLevel::Redact);
+    assert_eq!(
+        out.meta.id, out.turn_summary[0].turn_id,
+        "same source UUID must map to the same placeholder"
+    );
+}
+
+#[test]
+fn model_metrics_merge_on_family_collision() {
+    let mut r = sample();
+    let mut a = ModelUsage::new();
+    a.input_tokens = 100;
+    a.output_tokens = 10;
+    a.cache_read_tokens = 5;
+    a.cache_write_tokens = 1;
+    let mut b = ModelUsage::new();
+    b.input_tokens = 200;
+    b.output_tokens = 20;
+    b.cache_read_tokens = 7;
+    b.cache_write_tokens = 2;
+    let mut mm = BTreeMap::new();
+    mm.insert("gpt-5".to_string(), a);
+    mm.insert("gpt-5-mini".to_string(), b);
+    r.model_metrics = Some(mm);
+
+    let (out, _map) = r.redact(PrivacyLevel::Redact);
+    let merged = out.model_metrics.expect("model_metrics present");
+    assert_eq!(merged.len(), 1, "both collapse to one gpt-5 family");
+    let g = merged.get("gpt-5").expect("gpt-5 family key");
+    assert_eq!(g.input_tokens, 300);
+    assert_eq!(g.output_tokens, 30);
+    assert_eq!(g.cache_read_tokens, 12);
+    assert_eq!(g.cache_write_tokens, 3);
+}
+
+#[test]
+fn redaction_clears_diagnostics() {
+    use agentprof_core::adapter::EventKind;
+    use agentprof_core::episode::DeriveWarning;
+    use agentprof_core::error::ParseWarning;
+
+    let mut r = sample();
+    r.warnings.push(DeriveWarning::PayloadNameMissing {
+        kind: EventKind::ToolExecStart,
+        event_id: "44444444-4444-4444-4444-444444444444".into(),
+    });
+    r.parse_warnings.push(ParseWarning::UnclosedTurn {
+        turn_id: "55555555-5555-5555-5555-555555555555".into(),
+    });
+
+    let (redacted, _m) = r.clone().redact(PrivacyLevel::Redact);
+    assert!(redacted.warnings.is_empty(), "warnings must be cleared");
+    assert!(
+        redacted.parse_warnings.is_empty(),
+        "parse_warnings must be cleared"
+    );
+
+    let (anon, _m) = r.redact(PrivacyLevel::Anonymize);
+    assert!(anon.warnings.is_empty());
+    assert!(anon.parse_warnings.is_empty());
 }

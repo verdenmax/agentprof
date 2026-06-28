@@ -169,6 +169,10 @@ impl crate::analyzer::AnalysisReport {
     /// `agent_version` / `producer`, zeroes `started_at`, hashes MCP server
     /// names, and fills the [`RedactionMap`] so a trusted holder can invert.
     ///
+    /// Diagnostic `warnings` / `parse_warnings` are cleared under redaction
+    /// because their payloads embed raw event UUIDs and timestamps; they are
+    /// local diagnostics, not part of the shareable ROI signal.
+    ///
     /// # Examples
     ///
     /// ```
@@ -193,17 +197,21 @@ impl crate::analyzer::AnalysisReport {
         let mut models: BTreeMap<String, String> = BTreeMap::new();
         let mut servers: BTreeMap<String, String> = BTreeMap::new();
 
+        // meta — 🔴 HIGH (both levels)
         redact_opt(&mut out.meta.cwd);
         redact_opt(&mut out.meta.branch);
         redact_opt(&mut out.meta.repository);
         out.meta.id = uuids.redact(&out.meta.id);
 
+        // meta — anonymize-only
         if anon {
             redact_opt(&mut out.meta.agent_version);
             redact_opt(&mut out.meta.producer);
+            // 1970 = sentinel (started_at can't be "<redacted>")
             out.meta.started_at = chrono::DateTime::<chrono::Utc>::UNIX_EPOCH;
         }
 
+        // turn rows — stable UUIDs (cross-site stable with meta.id) + model→family
         for row in &mut out.turn_summary {
             row.turn_id = uuids.redact(&row.turn_id);
             if let Some(m) = row.model.take() {
@@ -213,16 +221,19 @@ impl crate::analyzer::AnalysisReport {
             }
         }
 
+        // model_metrics — collapse to family, MERGING counters on collision
         if let Some(mm) = out.model_metrics.take() {
-            let mut new_mm = BTreeMap::new();
+            let mut new_mm: BTreeMap<String, crate::analyzer::ModelUsage> = BTreeMap::new();
             for (model, usage) in mm {
                 let fam = model_family(&model);
                 models.entry(fam.clone()).or_insert(model);
-                new_mm.insert(fam, usage);
+                let slot = new_mm.entry(fam).or_default();
+                slot.merge(&usage);
             }
             out.model_metrics = Some(new_mm);
         }
 
+        // tool names — anonymize-only: hash MCP server segment
         if anon {
             for row in &mut out.tool_rank {
                 record_mcp_server(&row.name, &mut servers);
@@ -237,6 +248,10 @@ impl crate::analyzer::AnalysisReport {
                 })
                 .collect();
         }
+
+        // diagnostics cleared — embed raw ids/timestamps
+        out.warnings = Vec::new();
+        out.parse_warnings = Vec::new();
 
         let map = if anon {
             RedactionMap {

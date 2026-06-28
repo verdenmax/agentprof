@@ -121,6 +121,34 @@ impl ModelUsage {
             .saturating_add(self.cache_read_tokens)
             .saturating_add(self.cache_write_tokens)
     }
+
+    /// Fold `other` into `self`, `saturating_add`ing each of the four
+    /// counters. Used when two model identifiers collapse to the same
+    /// family during redaction so no token counts are lost.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::analyzer::ModelUsage;
+    /// let mut a = ModelUsage::new();
+    /// a.input_tokens = 100;
+    /// let mut b = ModelUsage::new();
+    /// b.input_tokens = 200;
+    /// b.output_tokens = 5;
+    /// a.merge(&b);
+    /// assert_eq!(a.input_tokens, 300);
+    /// assert_eq!(a.output_tokens, 5);
+    /// ```
+    pub fn merge(&mut self, other: &Self) {
+        self.input_tokens = self.input_tokens.saturating_add(other.input_tokens);
+        self.output_tokens = self.output_tokens.saturating_add(other.output_tokens);
+        self.cache_read_tokens = self
+            .cache_read_tokens
+            .saturating_add(other.cache_read_tokens);
+        self.cache_write_tokens = self
+            .cache_write_tokens
+            .saturating_add(other.cache_write_tokens);
+    }
 }
 
 /// Bundled analyzer output for a single session.
