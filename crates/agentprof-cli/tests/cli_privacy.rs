@@ -112,3 +112,34 @@ fn analyze_privacy_anonymize_redacts_html_meta() {
         "expected anonymized session id placeholder in html header"
     );
 }
+
+#[test]
+fn aggregate_privacy_redact_models_to_family() {
+    let out = Command::cargo_bin("agentprof")
+        .unwrap()
+        .args(["--no-cache", "aggregate", "--agent", "copilot", "--root"])
+        .arg(fixtures_root())
+        .args([
+            "--by",
+            "model",
+            "--since",
+            "all",
+            "--export",
+            "md",
+            "--privacy",
+            "redact",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let s = String::from_utf8(out).unwrap();
+    // The fixture model `claude-opus-4.7-1m-internal` collapses to its
+    // two-segment family `claude-opus`, so the `-1m-internal` suffix must
+    // not survive into the rendered aggregate.
+    assert!(
+        !s.contains("-1m-internal"),
+        "internal model name leaked:\n{s}"
+    );
+}
