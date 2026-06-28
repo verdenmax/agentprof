@@ -171,9 +171,10 @@ impl crate::analyzer::AnalysisReport {
     /// is empty. [`PrivacyLevel::Anonymize`] additionally strips
     /// `agent_version` / `producer`, zeroes `started_at`, hashes MCP server
     /// names, zeroes each per-turn `turn_summary[i].started_at` (a 🟡 MEDIUM
-    /// wall-clock instant leaking working-hours/timezone), and fills the
-    /// [`RedactionMap`] so a trusted holder can invert. Per-turn `duration`
-    /// is preserved — it is the ROI signal, not PII.
+    /// wall-clock instant leaking working-hours/timezone) — including the
+    /// nested `TurnStatus::Aborted(AbortInfo { at, .. })` instant — and fills
+    /// the [`RedactionMap`] so a trusted holder can invert. Per-turn
+    /// `duration` is preserved — it is the ROI signal, not PII.
     ///
     /// Diagnostic `warnings` / `parse_warnings` are cleared under redaction
     /// because their payloads embed raw event UUIDs and timestamps; they are
@@ -233,6 +234,11 @@ impl crate::analyzer::AnalysisReport {
         if anon {
             for row in &mut out.turn_summary {
                 row.started_at = chrono::DateTime::<chrono::Utc>::UNIX_EPOCH;
+                // C1: TurnStatus::Aborted embeds an `at` wall-clock instant
+                // (🟡 MEDIUM) that escapes into json + analyze-html otherwise.
+                if let crate::episode::TurnStatus::Aborted(info) = &mut row.status {
+                    info.at = chrono::DateTime::<chrono::Utc>::UNIX_EPOCH;
+                }
             }
         }
 
@@ -337,6 +343,37 @@ pub trait RedactBucket {
         models: &mut BTreeMap<String, String>,
         servers: &mut BTreeMap<String, String>,
     );
+
+    /// Fold buckets that collapsed to the same key after [`redact_key`](Self::redact_key).
+    ///
+    /// Default: identity — most bucket keys stay distinct after redaction
+    /// (server/tool hashing is injective, day is never redacted). Only
+    /// [`ModelBucket`] overrides this: `model → family` can map several ids
+    /// onto one family, so same-family buckets are merged (summing counters)
+    /// to avoid duplicate-keyed rows. Order: each merged bucket keeps the
+    /// position of its first-seen member (stable, deterministic).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::analyzer::aggregate::ModelBucket;
+    /// use agentprof_core::analyzer::redact::RedactBucket;
+    /// use chrono::Duration;
+    ///
+    /// // Two ids in the same `claude-sonnet` family, already keyed to family.
+    /// let a = ModelBucket::new("claude-sonnet".into(), 1, 0, 0, Duration::zero());
+    /// let b = ModelBucket::new("claude-sonnet".into(), 2, 0, 0, Duration::zero());
+    /// let merged = ModelBucket::consolidate(vec![a, b]);
+    /// assert_eq!(merged.len(), 1);
+    /// assert_eq!(merged[0].session_count, 3); // counts summed
+    /// ```
+    #[must_use]
+    fn consolidate(buckets: Vec<Self>) -> Vec<Self>
+    where
+        Self: Sized,
+    {
+        buckets
+    }
 }
 
 impl RedactBucket for ModelBucket {
@@ -355,6 +392,29 @@ impl RedactBucket for ModelBucket {
             .entry(fam.clone())
             .or_insert_with(|| self.model.clone());
         self.model = fam;
+    }
+
+    fn consolidate(buckets: Vec<Self>) -> Vec<Self> {
+        // `model → family` can map distinct ids (e.g. claude-sonnet-4.5 +
+        // claude-sonnet-4.6) onto one family key, so fold same-family buckets
+        // into their first-seen member, summing ALL 7 non-key counters.
+        // First-seen order is preserved (linear scan, not BTreeMap) so the
+        // report's existing metric-sorted display order is unchanged.
+        let mut out: Vec<Self> = Vec::with_capacity(buckets.len());
+        for b in buckets {
+            if let Some(existing) = out.iter_mut().find(|e| e.model == b.model) {
+                existing.session_count += b.session_count;
+                existing.turn_count += b.turn_count;
+                existing.total_output_tokens += b.total_output_tokens;
+                existing.total_input_tokens += b.total_input_tokens;
+                existing.total_cache_read += b.total_cache_read;
+                existing.total_cache_creation += b.total_cache_creation;
+                existing.total_duration += b.total_duration;
+            } else {
+                out.push(b);
+            }
+        }
+        out
     }
 }
 
@@ -418,8 +478,11 @@ impl<B: RedactBucket + Clone> AggregateReport<B> {
     /// model → family (both levels), MCP server / tool → hashed
     /// (`Anonymize` only), day → never. Summary fields (`by` / `since` /
     /// counts / `total_wall_duration`) and non-key bucket metrics carry no
-    /// PII and are preserved verbatim. At [`PrivacyLevel::None`] this is the
-    /// identity (clone + empty map).
+    /// PII and are preserved verbatim. Buckets that collapse to the same key
+    /// (e.g. two `claude-sonnet-*` ids → one `claude-sonnet` family) are then
+    /// folded via [`RedactBucket::consolidate`] so the report never emits
+    /// duplicate-keyed rows with split counts. At [`PrivacyLevel::None`] this
+    /// is the identity (clone + empty map).
     ///
     /// # Examples
     ///
@@ -448,6 +511,9 @@ impl<B: RedactBucket + Clone> AggregateReport<B> {
         for b in &mut out.buckets {
             b.redact_key(level, &mut models, &mut servers);
         }
+        // I1: redact_key may map several ids onto one family key; fold the
+        // resulting same-key buckets so they don't render as duplicate rows.
+        out.buckets = B::consolidate(std::mem::take(&mut out.buckets));
         let map = if anon {
             RedactionMap {
                 uuids: BTreeMap::new(),

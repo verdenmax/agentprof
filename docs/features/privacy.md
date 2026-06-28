@@ -65,6 +65,7 @@ information (SII), graded by sensitivity.
 | `tool_rank[i].name` (MCP entries) | 🟡 MEDIUM | `mcp__github__search_issues` | Reveals which MCP servers the user has configured |
 | `meta.agent_version` | 🟡 MEDIUM | `1.0.54` (or unreleased build IDs) | Pinpoints CLI build + can leak preview-channel membership |
 | `meta.started_at` | 🟡 MEDIUM | `2026-05-26T02:43:43Z` | Reveals working hours / timezone via offset patterns |
+| `turn_summary[i].status` when `Aborted` (`AbortInfo.at`) | 🟡 MEDIUM | `2026-05-26T16:00:05Z` | Nested abort wall-clock instant — same working-hours / timezone leak as `started_at` |
 | `meta.producer` | 🟡 MEDIUM | `copilot-cli` (wire `producer`) | Identifies which agent CLI produced the session (the wire `copilot_version` maps to `meta.agent_version`, not a separate field) |
 
 ### Tier 🟢 LOW — generic engineering signal, usually safe
@@ -74,7 +75,7 @@ information (SII), graded by sensitivity.
 | All durations / counts / percentiles | 🟢 LOW | Pure numerics |
 | `tool_rank[i].name` for builtin tools (`bash`, `view`, …) | 🟢 LOW | Public vocabulary |
 | `hook_rank[i].name` (`sessionStart`, `postToolUse`) | 🟢 LOW | Public vocabulary |
-| `*.is_user_blocking`, `*.status`, `*.synthesized_*` | 🟢 LOW | Boolean / enum flags |
+| `*.is_user_blocking`, `*.status`, `*.synthesized_*` | 🟢 LOW | Boolean / enum flags (exception: `status = Aborted` embeds a 🟡 MEDIUM `AbortInfo.at` wall-clock instant — see MEDIUM tier above) |
 | `parse_warnings`, `warnings` counts and `error` text | 🟢 LOW | Error messages may quote line numbers + serde-level "missing field X" strings; no payload values |
 | `analysis_report.model_metrics[<model>].{input_tokens, output_tokens, cache_read_tokens, cache_write_tokens}` (F1.7) | 🟢 LOW | Aggregate per-model counters; not attributable to specific prompts/users. See [§10](#10-per-model-token-metrics-modelmetrics-f17) for full detail |
 
@@ -147,7 +148,7 @@ agentprof aggregate --agent copilot --by model --export md --privacy redact
 | `turn_summary[i].turn_id` | `<uuid-N>` (stable, per-session) | same |
 | `turn_summary[i].model` + `model_metrics` keys | family (`claude-opus`) | family |
 | `meta.agent_version` / `meta.producer` | keep | `<redacted>` |
-| `meta.started_at` + per-turn `started_at` | keep | zeroed (1970 sentinel) |
+| `meta.started_at` + per-turn `started_at` (incl. `status = Aborted`'s `AbortInfo.at`) | keep | zeroed (1970 sentinel) |
 | `tool_rank[i].name` where `mcp__*` | keep | `mcp__<hash8>__<tool>` |
 | `warnings` / `parse_warnings` | cleared | cleared |
 | sidecar `agentprof-redaction-map.json` | — | written |
@@ -159,7 +160,9 @@ and turn cross-references stay internally consistent.
 
 **Always preserved** (🟢 LOW — the ROI signal is the point of redaction): all
 counts / durations / percentiles, builtin tool names (`bash` / `view` / …),
-hook names, status / enum flags, and Skill names.
+hook names, status / enum flags (the `Aborted` variant is kept, but its
+nested `AbortInfo.at` instant is zeroed at `anonymize` — see §4.1 table),
+and Skill names.
 
 ### 4.2 The `anonymize` sidecar
 

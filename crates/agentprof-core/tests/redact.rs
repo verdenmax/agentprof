@@ -4,7 +4,7 @@
 use agentprof_core::adapter::AgentKind;
 use agentprof_core::analyzer::redact::PrivacyLevel;
 use agentprof_core::analyzer::{AnalysisReport, ModelUsage, ToolRankRow, TurnSummaryRow};
-use agentprof_core::episode::TurnStatus;
+use agentprof_core::episode::{AbortInfo, TurnStatus};
 use agentprof_core::model::{SessionMeta, ToolSource};
 use chrono::{Duration, TimeZone, Utc};
 use std::collections::BTreeMap;
@@ -82,6 +82,57 @@ fn redact_keeps_turn_started_at() {
         out.turn_summary[0].started_at,
         before.turn_summary[0].started_at
     );
+}
+
+// C1: TurnStatus::Aborted embeds an `at` wall-clock instant (🟡 MEDIUM). It
+// survives into json + analyze-html, so anonymize must zero it to UNIX_EPOCH
+// alongside `started_at`. Redact (timestamps preserved) must leave it intact.
+fn aborted_sample() -> (AnalysisReport, chrono::DateTime<Utc>) {
+    let abort_at = Utc.with_ymd_and_hms(2026, 5, 26, 16, 0, 5).unwrap();
+    let mut r = sample();
+    r.turn_summary.push(TurnSummaryRow::new(
+        "66666666-6666-6666-6666-666666666666".into(),
+        Utc.with_ymd_and_hms(2026, 5, 26, 2, 43, 0).unwrap(),
+        None,
+        TurnStatus::Aborted(AbortInfo::new("user_cancel".into(), abort_at)),
+        None,
+        None,
+        None,
+        0,
+        0,
+        0,
+    ));
+    (r, abort_at)
+}
+
+#[test]
+fn anonymize_zeros_abort_timestamp() {
+    let (r, _) = aborted_sample();
+    let (out, _) = r.redact(PrivacyLevel::Anonymize);
+    match &out.turn_summary[1].status {
+        TurnStatus::Aborted(info) => {
+            assert_eq!(
+                info.at,
+                chrono::DateTime::<Utc>::UNIX_EPOCH,
+                "abort `at` must be zeroed at anonymize"
+            );
+            assert_eq!(info.reason, "user_cancel", "reason must be preserved");
+        }
+        other => panic!("expected Aborted status, got {other:?}"),
+    }
+}
+
+#[test]
+fn redact_keeps_abort_timestamp() {
+    let (r, abort_at) = aborted_sample();
+    let (out, _) = r.redact(PrivacyLevel::Redact);
+    match &out.turn_summary[1].status {
+        TurnStatus::Aborted(info) => {
+            assert_eq!(info.at, abort_at, "abort `at` must be preserved at redact");
+            assert_eq!(info.reason, "user_cancel");
+        }
+        other => panic!("expected Aborted status, got {other:?}"),
+    }
 }
 
 #[test]
@@ -386,4 +437,34 @@ fn aggregate_day_bucket_never_redacted() {
         out.buckets[0].date,
         NaiveDate::parse_from_str("2026-05-26", "%Y-%m-%d").unwrap()
     );
+}
+
+// I1: two distinct ids sharing a family must merge into ONE bucket after
+// redact (model → family), summing ALL 7 non-key fields — else they render as
+// two identical-keyed rows with split counts.
+#[test]
+fn aggregate_same_family_models_merge_summing_all_fields() {
+    let a = ModelBucket::new("claude-sonnet-4.5".into(), 1, 2, 3, Duration::seconds(4))
+        .with_cache_metrics(5, 6, 7);
+    let b = ModelBucket::new(
+        "claude-sonnet-4.6".into(),
+        10,
+        20,
+        30,
+        Duration::seconds(40),
+    )
+    .with_cache_metrics(50, 60, 70);
+    let report: AggregateReport<ModelBucket> = report(AggregateKey::Model, vec![a, b]);
+
+    let (out, _map) = report.redact(PrivacyLevel::Redact);
+    assert_eq!(out.buckets.len(), 1, "same-family buckets must consolidate");
+    let m = &out.buckets[0];
+    assert_eq!(m.model, "claude-sonnet");
+    assert_eq!(m.session_count, 11);
+    assert_eq!(m.turn_count, 22);
+    assert_eq!(m.total_output_tokens, 33);
+    assert_eq!(m.total_input_tokens, 55);
+    assert_eq!(m.total_cache_read, 66);
+    assert_eq!(m.total_cache_creation, 77);
+    assert_eq!(m.total_duration, Duration::seconds(44));
 }
