@@ -19,6 +19,7 @@
 
 pub mod aggregate;
 pub mod analyze;
+pub mod config;
 pub mod db;
 pub mod exit;
 pub mod format;

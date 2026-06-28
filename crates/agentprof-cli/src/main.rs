@@ -81,6 +81,8 @@ enum SubCmd {
     Watch(cmd::watch::WatchCmd),
     /// Cross-session MCP server waste analysis (M1.6.5).
     McpWaste(cmd::mcp_waste::McpWasteArgs),
+    /// Inspect and manage the user config file (`config path|show|edit|init`).
+    Config(cmd::config::ConfigCmd),
     /// Database lifecycle and inspection: `init` / `stats` / `ingest`
     /// / `prune` / `vacuum` / `export` (M2.1 T6).
     Db(cmd::db::DbArgs),
@@ -130,6 +132,7 @@ fn run(
         SubCmd::McpWaste(c) => {
             cmd::mcp_waste::run(c, cfg, tracing_handle, no_cache, storage_path, quiet)
         }
+        SubCmd::Config(c) => cmd::config::run(c),
         SubCmd::Db(c) => cmd::db::run(c, storage_path),
         #[cfg(feature = "otlp")]
         SubCmd::IngestOtlp(c) => cmd::ingest_otlp::run(c, storage_path),
