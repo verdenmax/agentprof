@@ -396,6 +396,7 @@ analyze [--agent copilot]                     # ✅ M1.4: copilot only; auto/cla
         [--section turn-summary,tool-rank,hook-rank,mcp-waste]   # 只影响 --export md；默认全部（--export tui 时会 warn 并忽略）；`mcp-waste` ✅ M1.6.5
         [--tokens-per-tool 200]               # ✅ M1.6.6 — heuristic token cost per MCP tool when no sidecar covers it; only consulted by --section mcp-waste
         [--tool-descriptions <path>]          # ✅ M1.6.6 — sidecar (file or dir, ~ expanded) of per-tool descriptions for exact tiktoken counts; only consulted by --section mcp-waste
+        [--privacy none|redact|anonymize]     # ✅ L-1 — opt-in report redaction (default none); anonymize writes `agentprof-redaction-map.json` sidecar; md/json/csv fully redacted, html/speedscope flamegraph frames deferred (see ADR-0026)
     分析单个 session（默认 latest），输出 markdown / JSON 报告或进入 TUI。
     Session 选择优先级：显式 path > UUID > latest/previous（按 mtime 排序）。
     --export tui 要求 stdin 和 stdout 都是 TTY；否则提示并退出。
@@ -419,6 +420,7 @@ aggregate [--agent copilot]                  # ✅ M1.6.2: copilot only
           [--low-utilization-threshold 20]   # day bucket warn threshold (0-100)
           [--tokens-per-tool 200]            # ✅ M1.6.6 — heuristic token cost per MCP tool when no sidecar covers it; only consulted by --by mcp-server
           [--tool-descriptions <path>]       # ✅ M1.6.6 — sidecar (file or dir, ~ expanded) of per-tool descriptions for exact tiktoken counts; only consulted by --by mcp-server
+          [--privacy none|redact|anonymize]  # ✅ L-1 — opt-in report redaction (default none); anonymize writes `agentprof-redaction-map.json` sidecar; md/json/csv fully redacted, html flamegraph deferred (see ADR-0026)
     Cross-session aggregation:
       --by tool        — per-tool ranks (sum calls/duration; re-computed p50/p95 from pooled per-call data)
       --by mcp-server  — per-MCP-server stats + unused_tool_count + fully_unused_session_count columns ✅ M1.6.5
@@ -1027,6 +1029,7 @@ pub fn compute_roi(/* ... */) -> Result<Vec<RoiRow>, CoreError> {
 | 0023 | Cache token analytics — centralized compute + naive/honest formulas + dual-render policy (M2.5) | Accepted | 2026-06-11 |
 | 0024 | Web dashboard architecture — axum + vanilla JS poller + chunk-endpoint pattern + store-mode-required (M2.3) | Accepted | 2026-06-11 |
 | 0025 | Visual guide architecture (`docs/visual-guide/` + `cargo xtask visual-guide`, post-M2.3 docs wave) | Accepted | 2026-06-13 |
+| 0026 | Report redaction — core `analyzer::redact` layer + `--privacy <none\|redact\|anonymize>` level semantics (analyze+aggregate; md/json/csv full, html/speedscope flamegraph deferred) (L-1) | Accepted | 2026-06-28 |
 
 ### 14.5 文档同步的 CI 强制
 

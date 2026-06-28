@@ -8,10 +8,13 @@
 > disk; nothing is exfiltrated, sent over the network, or written outside
 > the user's chosen `--output` path.
 >
-> **Status.** Documentation-only for the *report* surface. The planned
-> `--redact` / `--anonymize` CLI flags listed at the bottom are **not yet
-> implemented**; until then, users wishing to share reports must redact
-> manually using the cheat sheet in [§3](#3-manual-redaction-cheat-sheet).
+> **Status.** The *report* surface now ships opt-in redaction via
+> `--privacy <none|redact|anonymize>` on `analyze` + `aggregate`
+> (see [§4](#4---privacy-noneredactanonymize-shipped-l-1)). `md` / `json` /
+> `csv` are fully redacted; `html` / `speedscope` redact the report meta +
+> tables but their flamegraph frames still leak (deferred `Episodes::redact`).
+> The manual cheat sheet in [§3](#3-manual-redaction-cheat-sheet) remains
+> useful for `list` (not yet covered) and for ad-hoc one-off scrubbing.
 >
 > The separate *log output* surface (`tracing` stderr / `--log-file` /
 > TUI-mode `$XDG_STATE_HOME/agentprof/agentprof.log`) **does** carry a
@@ -76,8 +79,10 @@ information (SII), graded by sensitivity.
 
 ## 3. Manual redaction cheat sheet
 
-Until `--redact` lands ([§4](#4-planned-redact--anonymize-flags-not-yet-implemented)),
-the following patterns cover most cases for sharing a report publicly.
+Until `--privacy` covered every format ([§4](#4---privacy-noneredactanonymize-shipped-l-1)),
+manual scrubbing was the only option. It remains useful for `list` (not yet
+covered) and for the `html` / `speedscope` flamegraph residue; the following
+patterns cover most cases for sharing a report publicly.
 
 ### 3.1 `--export md` output
 
@@ -116,30 +121,79 @@ agentprof analyze --agent copilot --session <id> --export json \
   > report-redacted.json
 ```
 
-## 4. Planned `--redact` / `--anonymize` flags (NOT YET IMPLEMENTED)
+## 4. `--privacy <none|redact|anonymize>` (shipped, L-1)
 
-A future release will add two opt-in flags to the `analyze` subcommand
-(and to `aggregate`, which shipped in M1.6.2; both `--export md|json|csv|html|tui`
-report surfaces would inherit the same redaction rules since they all serialize
-the same underlying `meta.*` and `turn_summary[i].*` fields described in §2.
-The M1.6.4 `--export speedscope|html` and M1.6.3 `watch` views are also
-covered — they read the identical analyzer output):
+`analyze` and `aggregate` carry an opt-in `--privacy` flag that redacts the
+report **in the core report layer** before any export format is rendered, so
+every report-derived format inherits the same transform (see
+[ADR-0026](../internals/adr-0026-report-redaction.md)). The default is
+`none` — byte-identical, fully backward-compatible output, zero overhead.
 
-- `--redact` — strip the 🔴 HIGH tier fields by default. Replaces
-  `meta.cwd` / `meta.branch` with `<redacted>`, replaces every UUID with
-  `<uuid-N>` (stable per-session, so percentile rows still reference each
-  other), and replaces model names with their family (`claude-opus`,
-  `gpt-5`). Counts, durations, tool names (non-MCP), hook names remain
-  untouched. Safe-by-default for public sharing.
-- `--anonymize=full` — stronger variant for posting to issue trackers
-  attached to bug reports. In addition to `--redact`, also strips
-  `agent_version` / `copilot_version` / `started_at`, hashes MCP tool
-  names (`mcp__<hash>__<original-tool>`), and emits a separate
-  `agentprof-redaction-map.json` alongside the report (gitignored by
-  default) so the user can locally cross-reference original ↔ anonymized
-  values.
+```bash
+agentprof analyze   --agent copilot --export md   --privacy redact
+agentprof analyze   --agent copilot --export json --privacy anonymize --output report.json
+agentprof aggregate --agent copilot --by model --export md --privacy redact
+```
 
-Tracked in: future post-MVP milestone (likely 0.2.0+; see `docs/plan.md` roadmap).
+### 4.1 Field rules
+
+| Field | `redact` | `anonymize` |
+|---|---|---|
+| `meta.cwd` | `<redacted>` | `<redacted>` |
+| `meta.branch` | `<redacted>` | `<redacted>` |
+| `meta.repository` | `<redacted>` | `<redacted>` |
+| `meta.id` (session UUID) | `<uuid-0>` (stable) | `<uuid-0>` |
+| `turn_summary[i].turn_id` | `<uuid-N>` (stable, per-session) | same |
+| `turn_summary[i].model` + `model_metrics` keys | family (`claude-opus`) | family |
+| `meta.agent_version` / `meta.producer` | keep | `<redacted>` |
+| `meta.started_at` + per-turn `started_at` | keep | zeroed (1970 sentinel) |
+| `tool_rank[i].name` where `mcp__*` | keep | `mcp__<hash8>__<tool>` |
+| `warnings` / `parse_warnings` | cleared | cleared |
+| sidecar `agentprof-redaction-map.json` | — | written |
+
+`model → family` (`split('-').take(2)`) applies at **both** levels because
+internal / preview model identifiers are 🔴 HIGH (§2). UUIDs map to stable
+`<uuid-N>` in first-seen order (`meta.id` → `<uuid-0>`), so percentile rows
+and turn cross-references stay internally consistent.
+
+**Always preserved** (🟢 LOW — the ROI signal is the point of redaction): all
+counts / durations / percentiles, builtin tool names (`bash` / `view` / …),
+hook names, status / enum flags, and Skill names.
+
+### 4.2 The `anonymize` sidecar
+
+`--privacy anonymize` writes a reverse map `agentprof-redaction-map.json`
+(`replacement → original` for `uuids` / `models` / `mcp_servers`) so a holder
+of the shared report can un-redact locally. It is written as a sibling of
+`--output` (or in CWD when streaming to stdout, with a one-line stderr
+notice). A sidecar write failure is **non-fatal**: the report is already
+emitted; the failure surfaces as exit code 3 + a stderr warning. The
+`<redacted>` fields (cwd / branch / repository / version / started_at) are
+one-way and are **not** in the map.
+
+### 4.3 Coverage by export format
+
+| Format | Coverage |
+|---|---|
+| `md` / `json` / `csv` | ✅ **fully redacted** — safe for public sharing |
+| `html` | report meta + tables redacted, **but** the flamegraph SVG still leaks original turn-ids **and** raw MCP server names (built from un-redacted `episodes`) |
+| `speedscope` | report meta redacted; frames use ordinal names (no turn-id leak) **but** raw MCP server names leak in the frame table |
+| `tui` | **not redacted** — local-only surface; `--privacy` + `--export tui` warns |
+
+> **Why html / speedscope flamegraph frames still leak:** the flamegraph is
+> built from `episodes`, which the redaction pass does not yet cover (there is
+> no `Episodes::redact` yet — tracked future work). `analyze` fires a
+> `tracing::warn!` under `--export html|speedscope` + any privacy level.
+> **For fully-redacted sharing, use `--export md` or `--export json`.**
+
+### 4.4 Not yet covered (future work)
+
+- **`Episodes::redact`** — close the html / speedscope flamegraph-frame leak
+  (turn-ids + MCP server names).
+- **`list --privacy`** — `list` has a far smaller per-session-row PII面 and is
+  rarely shared; deferred.
+
+Both are tracked in [`tasks/ROADMAP.md`](../../tasks/ROADMAP.md) §6.2.
 
 ## 5. Defense in depth — workspace conventions
 
@@ -245,8 +299,8 @@ formatting when needed. Coverage today:
   output before sharing.
 
 The analyzer report fields enumerated in §2 are **unaffected** by this
-hashing — they are computed and serialized separately and are still
-governed by the (still-planned) `--redact` flag.
+hashing — they are computed and serialized separately and are governed by
+the `--privacy` flag ([§4](#4---privacy-noneredactanonymize-shipped-l-1)).
 
 ## 8. Tool arguments in `ToolCall.arguments` (F1)
 
