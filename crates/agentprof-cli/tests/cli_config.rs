@@ -36,3 +36,68 @@ fn config_path_reports_missing_file() {
         .success()
         .stdout(predicate::str::contains("[not found]"));
 }
+
+#[test]
+fn show_marks_file_values_and_defaults() {
+    let tmp = TempDir::new().unwrap();
+    let cfg = tmp.path().join("config.toml");
+    // Only `mode` is set in the file; auto_prune_days stays default.
+    std::fs::write(&cfg, "[storage]\nmode = \"store\"\n").unwrap();
+    bin()
+        .env("AGENTPROF_CONFIG", &cfg)
+        .args(["config", "show"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("mode = \"store\"  (from file)"))
+        .stdout(predicate::str::contains("auto_prune_days = 30  (default)"));
+}
+
+#[test]
+fn show_without_file_is_all_defaults() {
+    let tmp = TempDir::new().unwrap();
+    let cfg = tmp.path().join("absent.toml");
+    bin()
+        .env("AGENTPROF_CONFIG", &cfg)
+        .args(["config", "show"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("[not found]"))
+        .stdout(predicate::str::contains("mode = \"cache\"  (default)"));
+}
+
+#[test]
+fn show_rejects_malformed_config() {
+    let tmp = TempDir::new().unwrap();
+    let cfg = tmp.path().join("config.toml");
+    std::fs::write(&cfg, "[storage]\nmode = = broken\n").unwrap();
+    bin()
+        .env("AGENTPROF_CONFIG", &cfg)
+        .args(["config", "show"])
+        .assert()
+        .code(2) // ExitKind::DataError
+        .stderr(predicate::str::contains("failed to parse"));
+}
+
+// Guards the otlp+serve source-flag→line mappings (the highest-risk surface
+// that a swap would compile cleanly past). Requires both features for the
+// `[otlp]`/`[serve]` blocks to parse.
+#[cfg(all(feature = "otlp", feature = "web"))]
+#[test]
+fn show_marks_otlp_and_serve_overrides() {
+    let tmp = TempDir::new().unwrap();
+    let cfg = tmp.path().join("config.toml");
+    std::fs::write(
+        &cfg,
+        "[otlp]\nlisten_token = \"sek\"\n[serve]\nauto_open = false\n",
+    )
+    .unwrap();
+    bin()
+        .env("AGENTPROF_CONFIG", &cfg)
+        .args(["config", "show"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("listen_token = \"sek\"  (from file)"))
+        // Non-overridden neighbor stays (default) — guards against a swap.
+        .stdout(predicate::str::contains("listen_http = \"127.0.0.1:4318\"  (default)"))
+        .stdout(predicate::str::contains("auto_open = false  (from file)"));
+}
