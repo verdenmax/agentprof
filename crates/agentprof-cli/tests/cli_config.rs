@@ -101,3 +101,50 @@ fn show_marks_otlp_and_serve_overrides() {
         .stdout(predicate::str::contains("listen_http = \"127.0.0.1:4318\"  (default)"))
         .stdout(predicate::str::contains("auto_open = false  (from file)"));
 }
+
+#[test]
+fn init_writes_template_and_creates_parent() {
+    let tmp = TempDir::new().unwrap();
+    let cfg = tmp.path().join("nested").join("config.toml"); // parent absent
+    bin()
+        .env("AGENTPROF_CONFIG", &cfg)
+        .args(["config", "init"])
+        .assert()
+        .success();
+    assert!(cfg.exists());
+    // The template must itself parse cleanly via `show`.
+    bin()
+        .env("AGENTPROF_CONFIG", &cfg)
+        .args(["config", "show"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn init_refuses_existing_without_force() {
+    let tmp = TempDir::new().unwrap();
+    let cfg = tmp.path().join("config.toml");
+    std::fs::write(&cfg, "[storage]\n").unwrap();
+    bin()
+        .env("AGENTPROF_CONFIG", &cfg)
+        .args(["config", "init"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("already exists"));
+    // Refusing must NOT touch the file (guards against truncate-then-refuse).
+    assert_eq!(std::fs::read_to_string(&cfg).unwrap(), "[storage]\n");
+}
+
+#[test]
+fn init_force_overwrites() {
+    let tmp = TempDir::new().unwrap();
+    let cfg = tmp.path().join("config.toml");
+    std::fs::write(&cfg, "[storage]\nmode = \"store\"\n").unwrap();
+    bin()
+        .env("AGENTPROF_CONFIG", &cfg)
+        .args(["config", "init", "--force"])
+        .assert()
+        .success();
+    let written = std::fs::read_to_string(&cfg).unwrap();
+    assert!(written.contains("agentprof configuration"));
+}

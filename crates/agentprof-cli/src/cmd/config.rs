@@ -17,8 +17,8 @@ pub struct ConfigCmd {
     action: ConfigAction,
 }
 
-/// The `config` actions (`path` / `show` wired; `init` / `edit` land in
-/// later tasks). `#[non_exhaustive]` documents intent for external readers
+/// The `config` actions (`path` / `show` / `init` wired; `edit` lands in a
+/// later task). `#[non_exhaustive]` documents intent for external readers
 /// but is inert while the enum is private, so `run`'s `match` must still
 /// be updated when variants are added.
 #[derive(Subcommand, Debug)]
@@ -29,6 +29,12 @@ enum ConfigAction {
     /// Show the effective configuration (built-in defaults merged with
     /// file overrides), annotating each value's source.
     Show,
+    /// Write a commented default config template to the resolved path.
+    Init {
+        /// Overwrite an existing file.
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 /// Dispatch a `config` invocation. Bin-only; errors carry an
@@ -38,25 +44,31 @@ enum ConfigAction {
 ///
 /// Returns an [`ExitKind`]-tagged error when the config directory cannot
 /// be determined (`OutputError`).
-// Future actions (`show`/`init`/`edit`) consume owned data out of
-// `ConfigAction`; the dispatcher takes `ConfigCmd` by value to match.
+// `match cmd.action` only borrows / copies out unit + `Copy` variant data,
+// so clippy wants `&ConfigCmd`; we take it by value for dispatch uniformity
+// with the sibling `cmd::*::run` fns.
 #[allow(clippy::needless_pass_by_value)]
 pub fn run(cmd: ConfigCmd) -> anyhow::Result<()> {
     match cmd.action {
         ConfigAction::Path => run_path(),
         ConfigAction::Show => run_show(),
+        ConfigAction::Init { force } => run_init(force),
     }
+}
+
+/// Build the standard "no config directory" error, shared by actions that
+/// must resolve a path. Actionable: names `$AGENTPROF_CONFIG`.
+fn config_dir_err() -> anyhow::Error {
+    ExitKind::OutputError.into_anyhow(
+        "cannot determine config directory: $AGENTPROF_CONFIG is unset \
+         and no platform config directory is available"
+            .to_string(),
+    )
 }
 
 /// Print the resolved config path + `[exists]` / `[not found]` marker.
 fn run_path() -> anyhow::Result<()> {
-    let path = agentprof_cli::config::resolve_config_path().ok_or_else(|| {
-        ExitKind::OutputError.into_anyhow(
-            "cannot determine config directory: $AGENTPROF_CONFIG is unset \
-             and no platform config directory is available"
-                .to_string(),
-        )
-    })?;
+    let path = agentprof_cli::config::resolve_config_path().ok_or_else(config_dir_err)?;
     let marker = if path.exists() {
         "[exists]"
     } else {
@@ -70,6 +82,67 @@ fn run_path() -> anyhow::Result<()> {
         ""
     };
     println!("{} {marker}{source}", path.display());
+    Ok(())
+}
+
+/// Commented default config. Only `[storage]` is active; `[otlp]`/`[serve]`
+/// are commented so the file parses in any feature build.
+const CONFIG_TEMPLATE: &str = r#"# agentprof configuration
+# Location: $AGENTPROF_CONFIG, else ~/.config/agentprof/config.toml (XDG).
+# Only the blocks below are wired; unknown keys are rejected on load.
+
+[storage]
+# "cache" (default, XDG_CACHE_HOME) | "store" (XDG_DATA_HOME, opt-in)
+mode = "cache"
+# Override the XDG-derived DB path for the active mode.
+# path = "~/.cache/agentprof/cache.sqlite"
+# Cache mode only; 0 disables auto-pruning.
+auto_prune_days = 30
+
+# [otlp]  — requires a build with the `otlp` feature.
+# listen_grpc = "127.0.0.1:4317"
+# listen_http = "127.0.0.1:4318"
+# listen_token = "shared-secret"
+# session_idle_timeout = "5m"
+# shutdown_grace = "10s"
+# max_logs_request_bytes = 8388608
+# max_open_sessions = 1024
+
+# [serve]  — requires a build with the `web` feature.
+# bind = "127.0.0.1:4329"
+# interval_default = 5
+# auto_open = true
+"#;
+
+/// Write [`CONFIG_TEMPLATE`] to the resolved path, creating parent dirs.
+///
+/// # Errors
+///
+/// [`ExitKind::UserError`] when the file exists and `force` is false;
+/// [`ExitKind::OutputError`] on a missing config dir or write failure.
+fn run_init(force: bool) -> anyhow::Result<()> {
+    let path = agentprof_cli::config::resolve_config_path().ok_or_else(config_dir_err)?;
+    if path.exists() && !force {
+        return Err(ExitKind::UserError.into_anyhow(format!(
+            "config file already exists at {}; pass --force to overwrite",
+            path.display()
+        )));
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| {
+            ExitKind::OutputError.into_anyhow(format!(
+                "failed to create config directory {}: {e}",
+                parent.display()
+            ))
+        })?;
+    }
+    std::fs::write(&path, CONFIG_TEMPLATE).map_err(|e| {
+        ExitKind::OutputError.into_anyhow(format!(
+            "failed to write config file {}: {e}",
+            path.display()
+        ))
+    })?;
+    println!("wrote default config to {}", path.display());
     Ok(())
 }
 
