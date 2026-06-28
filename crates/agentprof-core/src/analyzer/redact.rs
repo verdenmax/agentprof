@@ -8,6 +8,9 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::analyzer::aggregate::bucket::{DayBucket, McpServerBucket, ModelBucket, ToolBucket};
+use crate::analyzer::aggregate::AggregateReport;
+
 /// Redaction strength selected by the `--privacy` flag.
 ///
 /// # Examples
@@ -280,6 +283,159 @@ fn record_mcp_server(name: &str, out: &mut BTreeMap<String, String>) {
             out.entry(crate::observability::pii::hash_short(server))
                 .or_insert_with(|| server.to_string());
         }
+    }
+}
+
+/// Redact a single [`AggregateReport`] bucket's identifying key in place.
+///
+/// One impl per bucket type encodes the spec §7 per-key policy:
+/// model → family (both levels), MCP server / tool → hashed
+/// (`Anonymize` only), day → never (D-7, it is the aggregation
+/// dimension). The two `BTreeMap` accumulators collect reversible
+/// `replacement → original` entries for the exported [`RedactionMap`].
+pub trait RedactBucket {
+    /// Redact this bucket's key field, recording reversible mappings into
+    /// `models` (family → original) and `servers` (`hash8` → original).
+    ///
+    /// No-op at [`PrivacyLevel::None`]; impls that only act at
+    /// [`PrivacyLevel::Anonymize`] additionally no-op at
+    /// [`PrivacyLevel::Redact`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::BTreeMap;
+    /// use agentprof_core::analyzer::aggregate::ModelBucket;
+    /// use agentprof_core::analyzer::redact::{PrivacyLevel, RedactBucket};
+    /// use chrono::Duration;
+    ///
+    /// let mut b = ModelBucket::new("claude-opus-4.7-1m".into(), 0, 0, 0, Duration::zero());
+    /// let (mut models, mut servers) = (BTreeMap::new(), BTreeMap::new());
+    /// b.redact_key(PrivacyLevel::Redact, &mut models, &mut servers);
+    /// assert_eq!(b.model, "claude-opus");
+    /// ```
+    fn redact_key(
+        &mut self,
+        level: PrivacyLevel,
+        models: &mut BTreeMap<String, String>,
+        servers: &mut BTreeMap<String, String>,
+    );
+}
+
+impl RedactBucket for ModelBucket {
+    fn redact_key(
+        &mut self,
+        level: PrivacyLevel,
+        models: &mut BTreeMap<String, String>,
+        _servers: &mut BTreeMap<String, String>,
+    ) {
+        if level == PrivacyLevel::None {
+            return;
+        }
+        // model → family at BOTH Redact and Anonymize (spec §7)
+        let fam = model_family(&self.model);
+        models
+            .entry(fam.clone())
+            .or_insert_with(|| self.model.clone());
+        self.model = fam;
+    }
+}
+
+impl RedactBucket for McpServerBucket {
+    fn redact_key(
+        &mut self,
+        level: PrivacyLevel,
+        _models: &mut BTreeMap<String, String>,
+        servers: &mut BTreeMap<String, String>,
+    ) {
+        // MCP names are 🟡 MEDIUM: hash only at Anonymize.
+        if level != PrivacyLevel::Anonymize {
+            return;
+        }
+        let h = crate::observability::pii::hash_short(&self.server);
+        servers
+            .entry(h.clone())
+            .or_insert_with(|| self.server.clone());
+        self.server = h;
+    }
+}
+
+impl RedactBucket for ToolBucket {
+    fn redact_key(
+        &mut self,
+        level: PrivacyLevel,
+        _models: &mut BTreeMap<String, String>,
+        servers: &mut BTreeMap<String, String>,
+    ) {
+        // Hash the MCP server segment only at Anonymize; non-MCP names
+        // and the `source` field are left untouched.
+        if level != PrivacyLevel::Anonymize {
+            return;
+        }
+        record_mcp_server(&self.name, servers);
+        self.name = hash_mcp_tool_name(&self.name);
+    }
+}
+
+impl RedactBucket for DayBucket {
+    fn redact_key(
+        &mut self,
+        _level: PrivacyLevel,
+        _models: &mut BTreeMap<String, String>,
+        _servers: &mut BTreeMap<String, String>,
+    ) {
+        // D-7: the day is the aggregation dimension; never redacted.
+    }
+}
+
+impl<B: RedactBucket + Clone> AggregateReport<B> {
+    /// Return a redacted copy of this report plus a [`RedactionMap`]
+    /// (non-empty only for [`PrivacyLevel::Anonymize`]). Pure: never
+    /// fails, never panics.
+    ///
+    /// Only each bucket's identifying key is rewritten, per [`RedactBucket`]:
+    /// model → family (both levels), MCP server / tool → hashed
+    /// (`Anonymize` only), day → never. Summary fields (`by` / `since` /
+    /// counts / `total_wall_duration`) and non-key bucket metrics carry no
+    /// PII and are preserved verbatim. At [`PrivacyLevel::None`] this is the
+    /// identity (clone + empty map).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::analyzer::aggregate::{AggregateReport, ModelBucket};
+    /// use agentprof_core::analyzer::redact::PrivacyLevel;
+    /// use chrono::Duration;
+    ///
+    /// let report: AggregateReport<ModelBucket> = AggregateReport::from_buckets(vec![
+    ///     ModelBucket::new("claude-opus-4.7-1m".into(), 0, 0, 0, Duration::zero()),
+    /// ]);
+    /// let (out, map) = report.redact(PrivacyLevel::Redact);
+    /// assert_eq!(out.buckets[0].model, "claude-opus");
+    /// assert!(map.is_empty()); // map filled only at Anonymize
+    /// ```
+    #[must_use]
+    pub fn redact(&self, level: PrivacyLevel) -> (Self, RedactionMap) {
+        if level == PrivacyLevel::None {
+            return (self.clone(), RedactionMap::default());
+        }
+        let anon = level == PrivacyLevel::Anonymize;
+        let mut out = self.clone();
+        let mut models: BTreeMap<String, String> = BTreeMap::new();
+        let mut servers: BTreeMap<String, String> = BTreeMap::new();
+        for b in &mut out.buckets {
+            b.redact_key(level, &mut models, &mut servers);
+        }
+        let map = if anon {
+            RedactionMap {
+                uuids: BTreeMap::new(),
+                models,
+                mcp_servers: servers,
+            }
+        } else {
+            RedactionMap::default()
+        };
+        (out, map)
     }
 }
 
