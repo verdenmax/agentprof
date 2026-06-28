@@ -24,6 +24,7 @@ pub mod aggregate;
 pub mod cache;
 pub mod hook_rank;
 pub mod pending;
+pub mod redact;
 pub mod stats;
 pub mod tool_rank;
 pub mod turn_summary;
@@ -31,6 +32,7 @@ pub mod waste;
 
 pub use aggregate::{AggregateKey, AggregateReport, AnyAggregateReport};
 pub use hook_rank::{hook_rank, HookRankRow};
+pub use redact::{PrivacyLevel, RedactionMap};
 pub use tool_rank::{tool_rank, ToolRankRow};
 pub use turn_summary::{turn_summary, TurnSummaryRow};
 pub use waste::{aggregate_waste, compute_waste};
