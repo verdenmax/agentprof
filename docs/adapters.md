@@ -151,3 +151,27 @@ canonical free-form `serde_json::Value` walker that's robust
 against wire schema drift.
 
 See ADR-0012 D-4 + D-7 for rationale.
+
+### Optional: `Event::payload_success` + `payload_error_message` (B1)
+
+Adapters whose wire carries a per-call success bit SHOULD implement these
+so tool / hook failures surface in RoiView color, the By-Hook `OK%`
+column, and the `compose_tool_cell_style` failure-wins-over-pending
+precedence. Both default to `None` (treated as success — forward-compatible
+with older logs). `payload_success` returns `Option<bool>` for the event
+variant carrying the result bit; `payload_error_message` returns the
+failure message when present. For Copilot, `payload_success` covers
+`ToolExecComplete` (`ToolResultData.success`) + `HookEnd`
+(`HookEndData.success`); `payload_error_message` covers `ToolExecComplete`
+only (Copilot's `HookEnd` wire has no error field). See ADR-0013.
+
+### Optional: `Event::payload_loaded_mcp_tools` (M2.1)
+
+Adapters that can observe which MCP tools were *loaded into the context
+window* (whether or not they were called) SHOULD implement this to power
+the MCP-waste analysis (`mcp-waste` subcommand + `analyze --section
+mcp-waste` + the TUI `[5]` view). Returns the ever-loaded `mcp__*` tool
+set for the event variant that announces tool availability; default
+`None`. For Copilot it covers `UserMessage` (parsing the
+`<tools_changed_notice>` block). See ADR-0015 D-1/D-2 for the ever-loaded
+semantics.

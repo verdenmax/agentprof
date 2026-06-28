@@ -85,7 +85,7 @@ given session.
 ### One-line installer (recommended)
 
 ```sh
-curl -fsSL https://github.com/agentprof/agentprof/releases/latest/download/agentprof-cli-installer.sh | sh
+curl -fsSL https://github.com/verdenmax/agentprof/releases/latest/download/agentprof-cli-installer.sh | sh
 ```
 
 Downloads the appropriate prebuilt binary for your platform
@@ -93,7 +93,7 @@ Downloads the appropriate prebuilt binary for your platform
 Binaries are built in GitHub Actions and ship with SHA-256 checksums
 in each release. Pin to a specific version by swapping `latest/download`
 for `download/<tag>`, e.g.
-`https://github.com/agentprof/agentprof/releases/download/v0.1.0/agentprof-cli-installer.sh`.
+`https://github.com/verdenmax/agentprof/releases/download/v0.1.0/agentprof-cli-installer.sh`.
 
 **Note**: The installer places `agentprof` in `~/.cargo/bin`. If you
 don't already have Rust installed, add this to your shell init:
@@ -101,18 +101,18 @@ don't already have Rust installed, add this to your shell init:
 export PATH="$HOME/.cargo/bin:$PATH"
 ```
 
-Windows is not supported for v0.1.0 (see [ADR-0014](docs/internals/adr-0014-v0.1.0-release-strategy.md) D-5); planned for v0.2+.
+Windows is not currently supported (see [ADR-0014](docs/internals/adr-0014-v0.1.0-release-strategy.md) D-5).
 
 ### From source (Rust ≥ 1.78 required)
 
 ```sh
-cargo install --git https://github.com/agentprof/agentprof agentprof-cli
+cargo install --git https://github.com/verdenmax/agentprof agentprof-cli
 ```
 
 ### From a local checkout
 
 ```sh
-git clone https://github.com/agentprof/agentprof
+git clone https://github.com/verdenmax/agentprof
 cd agentprof
 cargo install --path crates/agentprof-cli
 ```
@@ -120,7 +120,7 @@ cargo install --path crates/agentprof-cli
 ### Verify
 
 ```sh
-agentprof --version       # → agentprof 0.1.0
+agentprof --version       # → agentprof 0.3.3
 agentprof analyze --agent copilot   # uses the latest Copilot CLI session
 ```
 
@@ -213,7 +213,7 @@ framework. See
 
 - `agentprof analyze` — analyze a single session (`--export md|json|tui|speedscope|html`). See [`docs/architecture.md`](docs/architecture.md) §8.
   - M1.6.4 adds `--export speedscope` (for upload to <https://speedscope.app>) and `--export html` (self-contained static report, no JS).
-- `agentprof list` (M1.6.1) — discover recent sessions in a compact 7-column table. `--since 7d --limit 20` defaults keep the command snappy; per-session parse failures degrade gracefully. See [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) `## agentprof list`.
+- `agentprof list` (M1.6.1) — discover recent sessions in a compact 8-column table (incl. `Cache%` from M2.5). `--since 7d --limit 20` defaults keep the command snappy; per-session parse failures degrade gracefully. See [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) `## agentprof list`.
 - `agentprof aggregate` (M1.6.2 + M1.6.3 tui) — cross-session aggregation reports (`--by tool|mcp-server|day|model`, `--export md|json|csv|html|tui`). See [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) `## agentprof aggregate`.
 - `agentprof watch` (M1.6.3) — live-refresh single-session TUI (kernel-event-driven via `notify-debouncer-mini`; default 250 ms debounce). See [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) `## agentprof watch` and [ADR-0009](docs/internals/adr-0009-watch-runner-and-notify.md).
 - `agentprof watch aggregate --by KEY` (M1.6.3) — live-refresh cross-session aggregate TUI; accepts every `aggregate` flag (except `--export` / `--output`, which are rejected because the output is always TUI).

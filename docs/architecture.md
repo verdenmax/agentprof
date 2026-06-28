@@ -88,12 +88,12 @@ agentprof-cli  ──▶  agentprof-tui
 
 | Crate | 类型 | 关键模块 | 关键外部依赖 |
 |---|---|---|---|
-| `agentprof-core` | lib | `model`, `tokenizer`, `analyzer` (+ `analyzer::aggregate` M1.6.2), `export` (M1.6.4: speedscope JSON + SVG flamegraph), `observability::pii::{hash_path, hash_short}` (M1.6.4 tracing), `error` | `serde`, `serde_json`, `tiktoken-rs`, `chrono`, `thiserror`, **`sha2`** (M1.6.4 tracing), `reqwest`(opt, feature `anthropic-api`) |
+| `agentprof-core` | lib | `model` (+ `model::waste` M1.6.5), `episode`, `analyzer` (+ `analyzer::aggregate` M1.6.2 + `analyzer::cache` M2.5), `datasource` (M2.1 `SessionDataSource` trait), `adapter`, `export` (M1.6.4: speedscope JSON + SVG flamegraph), `observability::pii::{hash_path, hash_short}` (M1.6.4 tracing), `error` | `serde`, `serde_json`, `tiktoken-rs` (analyzer::waste tokenizer), `chrono`, `thiserror`, **`sha2`** (M1.6.4 tracing), `reqwest`(opt, feature `anthropic-api`) |
 | `agentprof-adapters` | lib | `copilot`, `registry`, `datasource` (current); `claude`, `codex` (planned, Phase 3) | `serde_json`, `walkdir`, `globset` |
 | `agentprof-storage` | lib | SQLite persistence layer with hybrid cache/store mode (M2.1 ✅): `config::{StorageConfig, StorageMode, PartialStorageConfig}` (XDG-aware path resolution per [ADR-0019](internals/adr-0019-hybrid-storage-mode.md)), `db::Db` (handle + embedded migrations under `migrations/001_initial.sql`; pragmas `journal_mode=WAL` / `synchronous=NORMAL` / `foreign_keys=ON`), `upsert::upsert_report(db, report, raw_path, ingested_at_secs)` (atomic 3-table write), `query::{query_sessions_since, load_session}` (read API), `datasource::SqliteDataSource` (impl of `agentprof_core::datasource::SessionDataSource`, see [ADR-0018](internals/adr-0018-session-datasource-trait.md)), `admin::{stats, prune_before, vacuum, export_session_json}` (backs the `agentprof db` family), `error::SqliteError` (thiserror); **`otlp` submodule (feature `otlp`, M2.2 ✅)** — OTLP receiver: `config` / `error` / `typed` / `mapper` / `router` (per-session `SessionBuffer` + OOM caps) / `sweeper` / `sink_storage` (`StorageFlushSink` reusing `upsert_report`) / `pipeline` (`IngestPipeline`) / `server_grpc` (tonic 4317) / `server_http` (axum 4318, `/v1/{logs,metrics,traces}`) / `auth` (shared bearer interceptor + middleware) / `tls` (rustls + optional mTLS) / `proto` (generated stubs); see [ADR-0021](internals/adr-0021-otlp-receiver-architecture.md) | `rusqlite`(bundled), `serde_json`, `chrono`, `directories`; (feature `otlp`) `tonic`, `prost`, `axum`, `tokio`, `opentelemetry-proto`, `dashmap`, `rustls`, `rustls-pemfile`, `tower`, `bytes` |
 | `agentprof-tui` | lib | `app` (with `AppRunner`) + `app::{terminal,event,state}`, `views::{flamegraph, roi, aggregate, models, turn_detail, format}`, `theme`, `error` — **shipped M1.5** ([`README`](../crates/agentprof-tui/README.md), [ADR-0006](internals/adr-0006-panic-safe-tui.md)); + `watch::{WatchRunner, WatchData, RefreshKind, ReloadError, AggSortKey}` + cross-session arm in `views::aggregate` + `Event::Refresh` — **shipped M1.6.3** ([ADR-0009](internals/adr-0009-watch-runner-and-notify.md)); + `views::turn_detail` (F1 Enter-to-open) + `views::models` (F1.7 Models view, key `4`, surfaces session-level per-model token totals — see [ADR-0012](internals/adr-0012-session-model-metrics-and-models-view.md)) — post-MVP UX waves F1, F1.5–F1.19 layered on the M1.5 base | `ratatui 0.29`, `crossterm 0.28` |
 | `agentprof-cli` | bin (`agentprof`) | `cmd::analyze` ✅ M1.4 + `--export tui` (M1.5) + `--export speedscope\|html` ✅ M1.6.4，`cmd::list` ✅ M1.6.1，`cmd::aggregate` ✅ M1.6.2 (--by tool\|mcp-server\|day\|model, --export md\|json\|csv\|html) + `--export tui` ✅ M1.6.3（deferred from M1.6.2），`cmd::watch` ✅ M1.6.3 (单 session + `watch aggregate ...` 子模式)，`observability::{config, init, tui_guard}` ✅ M1.6.4 (tracing infra — global `--log-level` / `--log-file` + TUI auto-redirect + reload-Layer)，**`cmd::serve` ✅ M2.3 (feature `web`)** — live localhost dashboard: `mod` (clap `ServeCmd` + `resolve_serve_config` + `run`/`run_async` + SIGINT/SIGTERM graceful shutdown) / `state` (`Arc<Mutex<Db>>` + `interval_default`) / `router` (axum::Router with 12 routes) / `handlers` (5 dashboard views × 2 routes each + `/healthz` + `/static/:name`) / `static_assets` (`include_str!`/`include_bytes!` bundled CSS/JS/favicon); templates under `templates/dashboard/{layout,sessions,session,aggregate,mcp_waste_list,mcp_waste_detail}.html` + `chunks/*` + `static/*`. Also adds `format::html::render_body_only` + `format::aggregate_html::render_body_only` (sliced renderers for chunk embedding), `cmd::aggregate::compute_aggregate_from_store`, `cmd::mcp_waste::compute_aggregate_waste_from_store`. See [ADR-0024](internals/adr-0024-web-dashboard-architecture.md) + [`docs/features/web-dashboard.md`](features/web-dashboard.md). 其它子命令：`cmd::config` 规划中（Phase 2），`export` 已取消（与 `analyze --export` 重复），`config`, `main` | `clap`, `tracing`, `tracing-subscriber`, **`tracing-appender`**（M1.6.4 tracing，rolling-file writer），`anyhow`, `directories`, **`askama`**, **`csv`**, **`notify-debouncer-mini`**（M1.6.3，含 `notify` v6.1.1 transitive）; (feature `web`, M2.3) `axum`, `tower`, `tower-http`, `tokio`, `open` |
-| `xtask` | bin | `anonymize`, `dist-check`, `release-notes` | `xshell` |
+| `xtask` | bin | `schema-audit`, `visual-guide` (M2.3.x, [ADR-0025](internals/adr-0025-visual-guide.md)) | `clap`, `askama`, `base64`, `serde`, `serde_json`, `chrono`, `agentprof-core`, `agentprof-adapters` |
 
 ---
 
@@ -385,7 +385,7 @@ M1.4 引入的纯函数 rollups，消费 `&Episodes` 产出 per-row 分析数据
 
 ## 8. CLI 协议（`agentprof <COMMAND>`）
 
-> **当前实现状态**（2026-06-10）：`analyze` ✅ M1.4 + `--export tui` M1.5 + `--export speedscope|html` M1.6.4 + `--section mcp-waste` M1.6.5 + `--tokens-per-tool` / `--tool-descriptions` M1.6.6 / `list` ✅ M1.6.1 / `aggregate` ✅ M1.6.2 + `--export tui` M1.6.3 + waste cols M1.6.5 + wasted-tokens col M1.6.6 / `watch` ✅ M1.6.3 / `mcp-waste` ✅ M1.6.5 + token-cost flags M1.6.6 / `ingest-otlp` ✅ M2.2（feature `otlp`，gRPC+HTTP receiver，`[otlp]` config block，端到端 transport 测试，drain on SIGINT/SIGTERM；架构见 [ADR-0021](internals/adr-0021-otlp-receiver-architecture.md)）已 ship；`config` 规划中（Phase 2）；`export` 已取消（与 `analyze --export` 100% 重复，CLI surface 已移除）。
+> **当前实现状态**（2026-06-28）：`analyze` ✅ M1.4 + `--export tui` M1.5 + `--export speedscope|html` M1.6.4 + `--section mcp-waste` M1.6.5 + `--tokens-per-tool` / `--tool-descriptions` M1.6.6 / `list` ✅ M1.6.1 / `aggregate` ✅ M1.6.2 + `--export tui` M1.6.3 + waste cols M1.6.5 + wasted-tokens col M1.6.6 / `watch` ✅ M1.6.3 / `mcp-waste` ✅ M1.6.5 + token-cost flags M1.6.6 / `ingest-otlp` ✅ M2.2（feature `otlp`，gRPC+HTTP receiver，`[otlp]` config block，端到端 transport 测试，drain on SIGINT/SIGTERM；架构见 [ADR-0021](internals/adr-0021-otlp-receiver-architecture.md)）已 ship / `db` ✅ M2.1（`db {init,stats,ingest,prune,vacuum,export}` 子命令家族）/ `serve` ✅ M2.3（feature `web`，localhost dashboard，[ADR-0024](internals/adr-0024-web-dashboard-architecture.md)）；`config` 规划中（Phase 2）；`export` 已取消（与 `analyze --export` 100% 重复，CLI surface 已移除）。
 
 ```
 analyze [--agent copilot]                     # ✅ M1.4: copilot only; auto/claude/codex 留给 Phase 3
@@ -405,7 +405,7 @@ list    [--agent copilot]                     # ✅ M1.6.1: copilot only
         [--root <dir>]                        # 覆盖 adapter 默认 session-state 根
         [--since 7d]                          # 按 mtime 过滤；接受 <N>d/h/m/s 或 all；默认 7d
         [--limit 20]                          # 最多展示数；0 = 无上限；默认 20
-    列出最近的 session，7 列紧凑表格：ID / Started (UTC) / Model / Turns / Out-tokens / Duration / Size。
+    列出最近的 session，8 列紧凑表格：ID / Started (UTC) / Model / Turns / Out-tokens / Cache% / Duration / Size。
     单 session 解析失败不会拖垮命令；成功行正常输出，失败汇总到 stderr。
     全部失败时退出 DataError (2)。
 
@@ -828,7 +828,7 @@ spec `docs/superpowers/specs/2026-06-08-m1.6.6-mcp-waste-token-cost-design.md`�
 
 | 层 | 错误类型 | 工具 |
 |---|---|---|
-| lib（core/adapters/storage/tui） | `CoreError`、`AdapterError`、`StorageError`、`TuiError`（强类型） | `thiserror` |
+| lib（core/adapters/storage/tui） | `CoreError`、`AdapterError`、`SqliteError`（+ OTLP 的 `OtlpServerError` 等）、`TuiError`（强类型） | `thiserror` |
 | bin（cli） | `anyhow::Result<()>` | `anyhow` |
 
 **禁止 lib crate 用 `anyhow`**；**禁止 bin 把 anyhow Error 暴露成 pub API**。
@@ -882,7 +882,7 @@ pub enum CoreError {
 ### 13.1 Fixture 规范
 
 - 每个 adapter 至少包含：≥1 个完全未调用的 tool / ≥1 个高频调用的 tool / ≥1 个失败的 tool_result，覆盖 ROI 三档
-- 真实日志通过 `cargo xtask anonymize <real-log> > fixture.jsonl` 匿名化路径、邮箱、token
+- 真实日志的脱敏目前靠**手动 `sed` / `jq`** 替换路径、邮箱、token（`xtask anonymize` 工具尚未实现，见 [ADR-0003](internals/adr-0003-synthetic-fixture-strategy.md) + [`docs/features/privacy.md`](features/privacy.md) §5）；新 fixture 优先用 synthetic 数据
 
 ### 13.2 TDD 默认
 
@@ -1300,7 +1300,8 @@ crates.io publishing (currently disabled by [D-1](internals/adr-0014-v0.1.0-rele
 | **Phase 0** prototype | `agentprof-core` + `agentprof-adapters::copilot` + `agentprof-cli`（只 `analyze --export md\|json`） | events.jsonl → markdown 报告跑通 | ✅ M1.1–M1.4 已交付 |
 | **Phase 1** MVP | + `agentprof-tui`（火焰图 + ROI 表）+ `analyze --export tui` + `list` / `aggregate` 子命令 + 多种 `--export` 格式 + `watch` 子命令 + 全工程结构化 tracing + MCP waste + token cost | TUI 可交互 + 跨 session 聚合 + 可分享报告 + 实时刷新 + 可观测性 + waste 信号 | ✅ **shipped v0.1.0 (2026-06-06)** — M1.5 ([ADR-0006](internals/adr-0006-panic-safe-tui.md)) + M1.6.1/2/3 (`list`/`aggregate`/`watch`, [ADR-0008](internals/adr-0008-aggregate-report-and-utilization.md), [ADR-0009](internals/adr-0009-watch-runner-and-notify.md)) + M1.6.4 (speedscope/html + tracing infra, [ADR-0007](internals/adr-0007-speedscope-export.md), [ADR-0010](internals/adr-0010-tracing-infrastructure.md)) + M1.6.5/6 (MCP waste + token cost) + M1.7 (cargo-dist release, [ADR-0014](internals/adr-0014-v0.1.0-release-strategy.md)) |
 | **Phase 2** 工程化 | + `agentprof-storage`（SQLite + 持久化）+ `ingest-otlp` 子命令（启用 `otlp` feature）+ OTLP receiver hardening + tokenizer + ROI + waste estimation | 跨 session 数据库 + 实时 OTLP + 精确 token 成本 + DoS-safe receiver | ✅ **shipped v0.2.0 / v0.2.1 / v0.3.0 (2026-06-10)** — M2.1 SQLite persistence + M2.1.1 aggregate dual-path (v0.2.0) + M2.2 OTLP receiver gRPC+HTTP, Logs+Metrics+Traces, Bearer+mTLS (v0.2.1, [ADR-0021](internals/adr-0021-otlp-receiver-architecture.md)) + M2.4 hardening: constant-time bearer / per-signal request caps / LRU session eviction / 256-byte session.id cap (v0.3.0, [ADR-0022](internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md)). Tokenizer + ROI 自 M1.4 起已交付（实际归 Phase 1）。 |
-| **Phase 2 (M2.5)** observability | + cache analytics across `analyze` / `list` / `aggregate` / TUI; closes audit finding F-NEW-2 (write-only `total_cache_*` columns now have a read path) + §18 Q4a (observational cache utilization signal) | observational cache utilization signal — `CacheMetrics` (honest + naive hit-rate, net + gross saved tokens) surfaced on 7 render surfaces; ZERO schema change | ✅ **shipped v0.4.0 (2026-06-11)** — see [ADR-0023](internals/adr-0023-cache-metrics.md) |
+| **Phase 2 (M2.5)** observability | + cache analytics across `analyze` / `list` / `aggregate` / TUI; closes audit finding F-NEW-2 (write-only `total_cache_*` columns now have a read path) + §18 Q4a (observational cache utilization signal) | observational cache utilization signal — `CacheMetrics` (honest + naive hit-rate, net + gross saved tokens) surfaced on 7 render surfaces; ZERO schema change | ✅ **shipped v0.3.1** — see [ADR-0023](internals/adr-0023-cache-metrics.md) |
+| **Phase 2 (M2.3)** web dashboard | + `agentprof serve`（feature `web`）+ axum / tower 栈 | localhost HTTP dashboard，5 个轮询视图（sessions / session / aggregate / mcp-waste），复用 M2.1 SQLite + M2.2 axum | ✅ **shipped v0.3.3** — see [ADR-0024](internals/adr-0024-web-dashboard-architecture.md) |
 | **Phase 3** 多 agent | + `agentprof-adapters::claude` + `agentprof-adapters::codex` (+ 可选 Gemini) | 三 agent 全支持 | ❌ 未开始 |
 
 > **Adapter 顺序的 events-first pivot**（ADR-0001）：原 Phase 0 计划用 `agentprof-adapters::claude`（因为 Claude session 最常见）；实际 M1.2 改做 Copilot 因为 Copilot CLI 的 events.jsonl 是事件流，比 Claude 的"最终对话日志 + 重做 tokenize"更适合 MVP 快速验证。Claude / Codex adapter 推迟到 Phase 3。

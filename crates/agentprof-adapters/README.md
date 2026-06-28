@@ -31,7 +31,7 @@ for the M1.2 design.
 
 | Module | Responsibility |
 |---|---|
-| `copilot::event` | `CopilotEvent` enum + all payload structs + `impl Event` (含 5 个 payload-* override) |
+| `copilot::event` | `CopilotEvent` enum + all payload structs + `impl Event` (含 9 个 `payload_*` override + `tool_call_id` = 10 方法) |
 | `copilot::parser` | line-by-line JSONL parser + `MetaBuilder` (`adapter.parse` span — M1.6.4) |
 | `copilot::paths` | filesystem discovery + `inuse.<pid>.lock` detection (`adapter.discover` span — M1.6.4) |
 | `copilot::adapter` | `impl Adapter for CopilotAdapter` |

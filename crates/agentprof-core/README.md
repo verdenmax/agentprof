@@ -102,6 +102,14 @@ for the full discussion.
 
 Direct dep: `sha2 = "0.10"` (added M1.6.4).
 
+## Features
+
+| Feature | 默认 | 作用 | 拉入依赖 |
+|---|---|---|---|
+| *(none)* | ✅ | 纯解析 + 分析，无网络、无 clap | — |
+| `anthropic-api` | ✗ | 启用 Anthropic `count_tokens` HTTP API 做精确 tokenization | `reqwest`, `tokio` |
+| `clap-derive` | ✗ | 给公开枚举（如 `AgentKind`）派生 `clap::ValueEnum`，让 `agentprof-cli` 直接在 clap args 用而不把 clap 泄漏进 core | `clap` |
+
 ## Stability promises
 
 All public extensibility points are `#[non_exhaustive]`:

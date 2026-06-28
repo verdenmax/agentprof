@@ -2,7 +2,7 @@
 
 > 工作代号：`agentprof` / `tool-roi`（待定）
 > 创建时间：2026-05-25
-> 状态：构思阶段，未启动开发
+> 状态：**v0.3.3 已发布**（Phase 1 MVP ✅ 100% + Phase 2 工程化 ✅ 基本完成）；Phase 3 multi-agent（v0.4.0）待启动
 
 ---
 
@@ -122,7 +122,7 @@ playwright.click   |   1240        |   0   |     ∞ (waste)   | ✗ kill
 
 ## 6. 实施路径
 
-> **进度同步（2026-06-03）**：MVP **8/8 shippable surface ≈ 98% (M1.1–M1.6.4 ✅; 剩 M1.7 v0.1.0 release)** — M1.1 ✅ skeleton / M1.2 ✅ Copilot adapter / M1.3 ✅ Episode aggregation / M1.4 ✅ CLI `analyze` 含 4 轮 followups / M1.5 ✅ TUI + ADR-0006 panic-safe / **M1.6.1 ✅ `list` 子命令 + 8 audit polish** / **M1.6.2 ✅ `aggregate` 子命令 + ADR-0008** / **M1.6.3 ✅ `watch` 子命令 + `aggregate --export tui` 激活 + ADR-0009** / **M1.6.4 ✅ `--export speedscope|html` + ADR-0007（2026-05-31）+ tracing 基础设施 + ADR-0010（2026-06-02）** / 2026-06-03 **M1.6.4 follow-up wave** ✅（8 cleanup commits `d87adec` → `766b8f0`：post-merge audit / `hash_path` env-var L1-only gap fix / crate-boundary 澄清 / B-3 EmitCtx + B-4 ExportWarning + B-5 Display impls + B-6 combination fixtures）。MVP feature work 全部完成，剩 M1.7 v0.1.0 release。详见 [`tasks/ROADMAP.md`](../tasks/ROADMAP.md) 和 [`CHANGELOG.md`](../CHANGELOG.md)。
+> **进度同步（2026-06-28）**：Phase 1 MVP ✅ **100%**（v0.1.0 已发）+ Phase 2 工程化 ✅ 基本完成（M2.1 SQLite / M2.2 OTLP / M2.4 加固 / M2.5 cache / M2.3 web，跨 v0.2.0–v0.3.3）。**以下保留原始 Phase 0–3 规划 + events-first pivot 历史** — M1.1 ✅ skeleton / M1.2 ✅ Copilot adapter / M1.3 ✅ Episode aggregation / M1.4 ✅ CLI `analyze` 含 4 轮 followups / M1.5 ✅ TUI + ADR-0006 panic-safe / **M1.6.1 ✅ `list` 子命令 + 8 audit polish** / **M1.6.2 ✅ `aggregate` 子命令 + ADR-0008** / **M1.6.3 ✅ `watch` 子命令 + `aggregate --export tui` 激活 + ADR-0009** / **M1.6.4 ✅ `--export speedscope|html` + ADR-0007（2026-05-31）+ tracing 基础设施 + ADR-0010（2026-06-02）** / 2026-06-03 **M1.6.4 follow-up wave** ✅（8 cleanup commits `d87adec` → `766b8f0`：post-merge audit / `hash_path` env-var L1-only gap fix / crate-boundary 澄清 / B-3 EmitCtx + B-4 ExportWarning + B-5 Display impls + B-6 combination fixtures）。MVP feature work 全部完成（v0.1.0 已发布）；Phase 2 续上 M2.x（SQLite/OTLP/cache/web）。详见 [`tasks/ROADMAP.md`](../tasks/ROADMAP.md) 和 [`CHANGELOG.md`](../CHANGELOG.md)。
 >
 > **events-first pivot（ADR-0001）**：原 Phase 0 / 1 计划见下；实际路径有以下重大调整：
 >
@@ -146,7 +146,7 @@ playwright.click   |   1240        |   0   |     ∞ (waste)   | ✗ kill
 - [x] CLI 工具 `agentprof analyze <session-id>` ✅ M1.4
 - [x] 单 session 火焰图（terminal `ratatui` TUI）✅ M1.5（`analyze --export tui`）
 - [x] Tool ROI 表 ✅ M1.5（TUI Roi 视图，按 calls/output_tokens/duration 排序）
-- [x] CLI 列表子命令 ✅ M1.6.1（`agentprof list` 7 列紧凑表格）
+- [x] CLI 列表子命令 ✅ M1.6.1（`agentprof list` 8 列紧凑表格，含 Cache%）
 - [x] 跨 session 聚合视图 ✅ M1.6.2（`aggregate --by tool|mcp-server|day|model --export md|json|csv|html`，[ADR-0008](internals/adr-0008-aggregate-report-and-utilization.md)）
 - [x] Speedscope JSON + HTML 报告导出 ✅ M1.6.4（`analyze --export speedscope|html`，[ADR-0007](internals/adr-0007-speedscope-export.md)）
 - [x] 实时刷新 TUI ✅ M1.6.3（`agentprof watch` 单 session + `watch aggregate ...` 跨 session；`aggregate --export tui` 也一并激活，[ADR-0009](internals/adr-0009-watch-runner-and-notify.md)）
@@ -155,11 +155,11 @@ playwright.click   |   1240        |   0   |     ∞ (waste)   | ✗ kill
 - [x] MCP waste token-cost view ✅ M1.6.6（`--tokens-per-tool` heuristic + `--tool-descriptions` sidecar 走 tiktoken 精确计数；3 个子命令统一接入；TUI 5th view banner 2 行 + Tokens 列；aggregate `--by mcp-server` 加 Wasted-tokens 列；[ADR-0016](internals/adr-0016-mcp-token-cost-architecture.md)）
 
 ### Phase 2：工程化（再 1 周）
-- [x] **M2.1 SQLite 持久化** — ✅ merged to `main` (HEAD `499e702`): hybrid cache/store mode ([ADR-0019](internals/adr-0019-hybrid-storage-mode.md))，`SessionDataSource` trait + dual-path read ([ADR-0018](internals/adr-0018-session-datasource-trait.md))，id-namespace 统一 hotfix ([ADR-0017](internals/adr-0017-unify-session-id-namespace.md))，`agentprof db {init,stats,ingest,prune,vacuum,export}` 子命令家族，3 个全局 flag（`--no-cache` / `--storage-path` / `--quiet`），audit P1/P2 followup (ingest exit-2-on-full-fail / O(N) hot loop fix / mutex poison recovery / ReUpsertFn 删除)。`analyze` + `list` + `mcp-waste` 三个 surface 已接入；**aggregate dual-path 推迟到 M2.1.1**（需 Episodes hoist 进 AnalysisReport）。Pending **v0.2.0 tag**。
+- [x] **M2.1 SQLite 持久化** — ✅ merged to `main` (HEAD `499e702`): hybrid cache/store mode ([ADR-0019](internals/adr-0019-hybrid-storage-mode.md))，`SessionDataSource` trait + dual-path read ([ADR-0018](internals/adr-0018-session-datasource-trait.md))，id-namespace 统一 hotfix ([ADR-0017](internals/adr-0017-unify-session-id-namespace.md))，`agentprof db {init,stats,ingest,prune,vacuum,export}` 子命令家族，3 个全局 flag（`--no-cache` / `--storage-path` / `--quiet`），audit P1/P2 followup (ingest exit-2-on-full-fail / O(N) hot loop fix / mutex poison recovery / ReUpsertFn 删除)。`analyze` + `list` + `mcp-waste` 三个 surface 已接入；**aggregate dual-path 推迟到 M2.1.1**（需 Episodes hoist 进 AnalysisReport）。Pending 时计划单独发；实际 **Released as v0.2.0**。
 - [x] **M2.1.1 aggregate dual-path** — ✅ shipped (merged on `main`, fill-in commit `68c2ffc`): separate `episodes_json` column (migration 002, additive ALTER, default `'{}'`) + `SessionDataSource::load_episodes(id)` trait method + 3 impls (`AdapterDataSource` / `SqliteDataSource` / `DualPathDataSource`)。`cmd::aggregate` rewires to `build_data_source(...)` matching `list` / `mcp-waste` pattern。`cmd::analyze` write-through 和 `cmd::db::ingest` per-session loop 都扩展为 pair `upsert_report` + `upsert_episodes`。`AdapterDataSource::load_episodes_by_ref` bypass 保持 ingest 在 O(N)。详见 [ADR-0020](internals/adr-0020-aggregate-dualpath.md)。
-- [x] **M2.2 OTLP receiver** — ✅ shipped on `feat/m2.2-otlp-receiver` (commit range `edcdd82..HEAD`, 20 commits including the T10.3 consolidation commit itself; consolidated CHANGELOG entry in T10.3). Embedded gRPC (`:4317`) + HTTP/protobuf (`:4318`) receiver behind feature `otlp`, subscribes to Claude Code / Codex / Copilot CLI OpenTelemetry signals, fans them into per-`session.id` in-memory `SessionBuffer`s (OOM-capped on bytes + event count), flushes on idle / size / explicit shutdown via `StorageFlushSink` → existing `upsert_report` → SQLite (M2.1 schema, no new migration; `raw_path = "otlp://<id>"`). New `agentprof ingest-otlp` subcommand + `[otlp]` config-file block + bearer / TLS / mTLS auth; SIGINT/SIGTERM drains all buffers before exit; end-to-end transport tests via real OTel client. **OTLP deliberately does *not* implement `Adapter`** (push semantics + cross-session routing structurally incompatible with file-pull / per-session iteration — see [ADR-0021 §Decision 3](internals/adr-0021-otlp-receiver-architecture.md)). Full architecture: [ADR-0021](internals/adr-0021-otlp-receiver-architecture.md). Pending **v0.3.0 tag**.
+- [x] **M2.2 OTLP receiver** — ✅ shipped on `feat/m2.2-otlp-receiver` (commit range `edcdd82..HEAD`, 20 commits including the T10.3 consolidation commit itself; consolidated CHANGELOG entry in T10.3). Embedded gRPC (`:4317`) + HTTP/protobuf (`:4318`) receiver behind feature `otlp`, subscribes to Claude Code / Codex / Copilot CLI OpenTelemetry signals, fans them into per-`session.id` in-memory `SessionBuffer`s (OOM-capped on bytes + event count), flushes on idle / size / explicit shutdown via `StorageFlushSink` → existing `upsert_report` → SQLite (M2.1 schema, no new migration; `raw_path = "otlp://<id>"`). New `agentprof ingest-otlp` subcommand + `[otlp]` config-file block + bearer / TLS / mTLS auth; SIGINT/SIGTERM drains all buffers before exit; end-to-end transport tests via real OTel client. **OTLP deliberately does *not* implement `Adapter`** (push semantics + cross-session routing structurally incompatible with file-pull / per-session iteration — see [ADR-0021 §Decision 3](internals/adr-0021-otlp-receiver-architecture.md)). Full architecture: [ADR-0021](internals/adr-0021-otlp-receiver-architecture.md). Released as **v0.2.1**.
 - [x] **M2.4 OTLP receiver hardening** — ✅ shipped (branch `feat/m2.4-otlp-hardening`, [ADR-0022](internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md)). Adds (a) constant-time bearer compare (`subtle` crate); (b) per-signal request size caps (8/2/8 MiB defaults); (c) LRU session eviction (default cap 1024 with `CloseReason::CapacityEvict`); (d) 256-byte `session.id` length cap in mapper. Closes audit findings F1/F2/F3. Released as **v0.3.0**; supersedes v0.2.1 for OTLP users.
-- [x] **M2.5 observational cache analytics** — ✅ shipped v0.4.0 ([ADR-0023](internals/adr-0023-cache-metrics.md)). Closes `docs/architecture.md` §18 Q4a (post-v0.3.1 split: Q4a observational → done; Q4b prompt-prefix recommendation engine → deferred). Adds `agentprof_core::analyzer::cache` module (`CacheMetrics` struct + `CACHE_READ_DISCOUNT=0.9` + `CACHE_WRITE_PREMIUM=0.25` pricing constants — Claude Sonnet 4.x 2026-06 rates), `AnalysisReport::cache_metrics()` + `AggregateReport::cache_metrics_per_bucket()` accessors (`None` on zero cache activity), and surfaces cache hit-rate + saved-token data across 7 render surfaces: `analyze --export md` (`## Cache` section) / `--export html` (`<section id="cache">`) / `--export json` (top-level `cache_metrics` field) + `list` (`Cache%` column) + `aggregate --by model` / `--by day` (4 cols `CacheCr` / `CacheRd` / `Hit%` / `NetSaved` across md / csv / html) + TUI Models view (NetSaved column). `aggregate --by tool` / `--by mcp-server` deliberately omit cache cols (per-tool / per-server cache attribution is undefined — cache tokens are prompt-level; ADR-0023 D-3). Also closes audit finding F-NEW-2 (write-only `total_cache_read` / `total_cache_creation` schema columns now have a read path). **ZERO schema change** — all wiring uses existing M2.1 columns + M1.6.x `model_metrics`.
+- [x] **M2.5 observational cache analytics** — ✅ shipped v0.3.1 ([ADR-0023](internals/adr-0023-cache-metrics.md)). Closes `docs/architecture.md` §18 Q4a (post-v0.3.1 split: Q4a observational → done; Q4b prompt-prefix recommendation engine → deferred). Adds `agentprof_core::analyzer::cache` module (`CacheMetrics` struct + `CACHE_READ_DISCOUNT=0.9` + `CACHE_WRITE_PREMIUM=0.25` pricing constants — Claude Sonnet 4.x 2026-06 rates), `AnalysisReport::cache_metrics()` + `AggregateReport::cache_metrics_per_bucket()` accessors (`None` on zero cache activity), and surfaces cache hit-rate + saved-token data across 7 render surfaces: `analyze --export md` (`## Cache` section) / `--export html` (`<section id="cache">`) / `--export json` (top-level `cache_metrics` field) + `list` (`Cache%` column) + `aggregate --by model` / `--by day` (4 cols `CacheCr` / `CacheRd` / `Hit%` / `NetSaved` across md / csv / html) + TUI Models view (NetSaved column). `aggregate --by tool` / `--by mcp-server` deliberately omit cache cols (per-tool / per-server cache attribution is undefined — cache tokens are prompt-level; ADR-0023 D-3). Also closes audit finding F-NEW-2 (write-only `total_cache_read` / `total_cache_creation` schema columns now have a read path). **ZERO schema change** — all wiring uses existing M2.1 columns + M1.6.x `model_metrics`.
 - [x] **M2.3 web dashboard** — ✅ shipped v0.3.3 ([ADR-0024](internals/adr-0024-web-dashboard-architecture.md)). New `agentprof serve` 子命令：localhost HTTP 服务器（默认 `127.0.0.1:4329`）+ 5 个轮询视图（sessions / single-session / aggregate / mcp-waste list+detail）+ vanilla JS poller（~80 LOC，pause + 1/2/5/10/30s 间隔可调，localStorage 持久化）。复用 M2.2 的 axum + tower + askama 栈，无新增 top-level workspace deps，feature-gated 在 `web` 下（默认 on）。详见 [features/web-dashboard.md](features/web-dashboard.md)。
 
 ### Phase 3：扩展适配（每个 +3 天）
@@ -174,7 +174,7 @@ playwright.click   |   1240        |   0   |     ∞ (waste)   | ✗ kill
 
 ### 7.1 已解答（v0.1.x 实际答案 — 2026-06-09 整理）
 
-- [x] **要不要做产品**？→ **做**。v0.1.0 已 release（M1.7，2026-06-08），cargo-dist 多平台 binary + GitHub Release 流程跑通；v0.1.x 持续迭代（M1.6.5 MCP waste + M1.6.6 token-cost + 性能/正确性 audit followup）。
+- [x] **要不要做产品**？→ **做**。v0.1.0 已 release（M1.7，2026-06-08），cargo-dist 多平台 binary + GitHub Release 流程跑通；v0.1.0 后持续迭代（M1.6.5/.6 mcp-waste 随 v0.2.0 发布、后续 M2.x 工程化随 v0.2.0–v0.3.3）。
 - [x] **包名 / 项目名**？→ **`agentprof`**（v0.1.0 release 时已定，cargo workspace 5 个 crate 全部统一前缀）。
 - [x] **技术栈**？→ **Rust 2021，MSRV 1.78**（详见 [`architecture.md`](architecture.md) §2）。`ccusage` 路线（Node/TS）和 Python 路线均放弃 —— Rust 更适合本地 CLI + binary 分发 + TUI 性能 + tokenizer 接入。
 - [x] **火焰图渲染**？→ **TUI + HTML + Speedscope 三栖**：terminal `ratatui` TUI（M1.5）+ HTML 静态报告（M1.6.4，`askama` 模板）+ Speedscope JSON（M1.6.4，`analyze --export speedscope` 可直接拖 speedscope.app）。Perfetto 暂不做（Speedscope 对 flame 场景更合适）。
@@ -186,32 +186,32 @@ playwright.click   |   1240        |   0   |     ∞ (waste)   | ✗ kill
 - [x] ~~Web dashboard：纯静态 HTML 报告（已有）够用，还是要做 server 模式（实时刷新 + SQLite 后端）？~~ → **server 模式**（已做，M2.3 ship 为 v0.3.3，[ADR-0024](internals/adr-0024-web-dashboard-architecture.md)）。理由：纯静态 HTML 满足"分享一份快照"，但满足不了"跑 agent 时想看到实时聚合"。Server 模式复用 M2.1 SQLite + M2.2 axum 栈，增量成本极低，且关键：5 个视图共享同一 SQLite 读取面，无重复数据层。Out-of-scope：no auth（loopback only + 反向代理建议），no SSE/WebSocket（HTTP 轮询足够），mcp-server aggregate 走专用 `/mcp-waste` 视图而非 `/aggregate?by=mcp-server`（避免 sidecar/MCP config 复杂性）。
 - [ ] 是否要内置定价表，把 token-cost 翻译成 actual $？（M3.3 在 Phase 3 已列出，需先确定 SLA：每月手动 sync 还是 cron 自动）
 - [ ] `crates.io` 公开发布时机：等 v1.0.0 API 冻结，还是 v0.2.0 / v0.3.0 就开始 publish 占坑？
-- [x] **Q4a — 观察性 prompt-cache 分析**（cache hit-rate + saved-tokens 信号）：✅ **closed by M2.5 / v0.4.0**（[ADR-0023](internals/adr-0023-cache-metrics.md)）。post-v0.3.1 把 architecture.md §18 原 "prompt caching 优化建议" 单点拆为 Q4a（观察性） + Q4b（推荐引擎），M2.5 只覆盖 Q4a。
+- [x] **Q4a — 观察性 prompt-cache 分析**（cache hit-rate + saved-tokens 信号）：✅ **closed by M2.5 / v0.3.1**（[ADR-0023](internals/adr-0023-cache-metrics.md)）。post-v0.3.1 把 architecture.md §18 原 "prompt caching 优化建议" 单点拆为 Q4a（观察性） + Q4b（推荐引擎），M2.5 只覆盖 Q4a。
 - [ ] **Q4b — prompt-prefix 推荐引擎**（识别"可缓存"稳定 schema 前缀 + 合成 `cache_control` 放置建议）：deferred — 需要对 prompt 内容跑算法 + opinionated heuristics，M2.5 ADR-0023 明确 scope 不含。
 
 ---
 
 ## 8. 下一步行动
 
-> **2026-06-11 更新**：v0.1.0 已 release，v0.1.x 增量 + **M2.1 SQLite 持久化（含 P0 + audit P1/P2 followup + 12 新回归测试）已全部 merge 到 `main`**（HEAD `499e702`，1067 tests passed）。hybrid mode / `SessionDataSource` trait / `db` 子命令家族 / 3 全局 flag / id-namespace hotfix 全部 ship；详见 [ADR-0017](internals/adr-0017-unify-session-id-namespace.md) / [ADR-0018](internals/adr-0018-session-datasource-trait.md) / [ADR-0019](internals/adr-0019-hybrid-storage-mode.md)。**当前位置**：post-M2.1 doc sweep on `docs/post-audit-sweep`，下一站 **v0.2.0 tag** → **M2.2 OTLP receiver**（Phase 2 第二条腿）。
+> **2026-06-28 更新**：Phase 1 MVP + Phase 2 工程化均已交付，已发 **7 个 tag（v0.1.0–v0.3.3）**。Phase 2 完成项：v0.2.0 M2.1 SQLite 持久化 + M2.1.1 aggregate dual-path、v0.2.1 M2.2 OTLP receiver、v0.3.0 M2.4 OTLP 安全加固、v0.3.1 M2.5 cache analytics、v0.3.3 M2.3 web dashboard（`serve`）。最新 [Unreleased]：M2.3.x visual-guide HTML 教程。**当前位置**：Phase 2 收尾，下一站 **Phase 3 multi-agent（v0.4.0）**。
 
-**当前位置**：
-- ✅ M1.7 v0.1.0 release（2026-06-08，cargo-dist 多平台 binary）
-- ✅ M1.6.5 MCP server waste analysis（[ADR-0015](internals/adr-0015-mcp-waste-architecture.md)）
-- ✅ M1.6.6 MCP waste token-cost view + tiktoken-rs 接入（[ADR-0016](internals/adr-0016-mcp-token-cost-architecture.md)）
-- ✅ Audit followup（A1 `WasteComputeContext::with_bpe` 性能 + B1-B4 正确性 + Windows CI cfg(unix)）
-- ✅ v0.1.x 文档全量同步（2026-06-09 doc sweep wave）
-- ✅ **M2.1 SQLite 持久化** — merged to `main` (HEAD `499e702`): T1–T8 main wave + P0 id-namespace hotfix + audit P1/P2 followup + 7 regression-test commits (12 new tests). Branch `feat/m2.1-sqlite-persistence` archived; pending **v0.2.0 tag**.
+**当前位置**（已交付，按版本）：
+- ✅ **v0.1.0** MVP — M1.1–M1.7（Copilot adapter + analyze + TUI + list/aggregate/watch + speedscope/html + tracing）
+- ✅ **v0.2.0** M2.1 SQLite 持久化（hybrid cache/store + `db` 子命令家族）+ M2.1.1 aggregate dual-path + M1.6.5/.6 mcp-waste（Phase 1 milestone，随此 tag 发布）
+- ✅ **v0.2.1** M2.2 OTLP receiver（gRPC :4317 + HTTP :4318，feature `otlp`）
+- ✅ **v0.3.0** M2.4 OTLP 安全加固（常数时间 bearer + 请求大小 caps + LRU eviction，[ADR-0022](internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md)）
+- ✅ **v0.3.1** M2.5 cache analytics（Cache% / saved-tokens，[ADR-0023](internals/adr-0023-cache-metrics.md)）
+- ✅ **v0.3.3** M2.3 web dashboard `serve`（5 视图，feature `web`，[ADR-0024](internals/adr-0024-web-dashboard-architecture.md)）
+- ✅ **[Unreleased]** M2.3.x visual-guide HTML 教程（[ADR-0025](internals/adr-0025-visual-guide.md)）
 
 **下一步推荐**（按 ROI 排序）：
 
-1. **v0.2.0 tag**（小事，1 tag）：CHANGELOG `[Unreleased]` → `[0.2.0] - 2026-MM-DD`，cargo-dist 自动出 binary，走 [`github-release`](../.github/skills/github-release/SKILL.md) skill
-2. **M2.1.1 follow-up** — aggregate dual-path 接入（hoist `Episodes` into `AnalysisReport`，让 `aggregate` 也走 SQLite 缓存）。是 M2.1 已知的 known limitation：当前 `agentprof aggregate ...` 不 benefit from cache，因为聚合需要 per-call durations / per-event timestamps 等 `Episodes` 数据，而 `AnalysisReport` 不携带。详见 [ADR-0018](internals/adr-0018-session-datasource-trait.md) "Consequences › Neutral"。
-3. **M2.2 OTLP receiver**（中期，~1 周，Phase 2 第二腿）：订阅 Claude Code telemetry endpoint。**已被 M2.1 trait 设计预留** —— `SessionDataSource` trait 在 [ADR-0018](internals/adr-0018-session-datasource-trait.md) 明确为 OTLP impl 留 slot，只需新增一个 trait impl 即可接入 cli。监听拓扑 + 认证策略走 brainstorming。
-4. **Phase 3 扩展适配**（每个 +3 天）：M3.1 ClaudeAdapter（覆盖最大用户群）+ M3.2 CodexAdapter；骨架已在，缺接入
+1. **M3.1 ClaudeAdapter**（Phase 3，v0.4.0）：Claude CLI 日志解析。**最高价值** —— Claude wire 含 tools array，可解锁 MVP 原始卖点 `schema_utilization` / `waste_usd`（Copilot wire 结构性缺 tool schema，见 [`tasks/ROADMAP.md`](../tasks/ROADMAP.md) §6.1 L-13）。骨架已在 `agentprof-adapters`，缺一个 `Adapter` trait impl + fixtures + 集成测试。
+2. **M3.2 CodexAdapter**（Phase 3，v0.4.0）：Codex CLI 日志解析（同 §6.1 L-8）。
+3. **`config` 子命令**（Phase 2 收尾，唯一仍未实现的 CLI surface，见 ROADMAP §6.1 L-4）。
+4. **仍 open 的决策**（见 §7.2）：定价表自动同步（`xtask sync-pricing`）、`crates.io` 公开发布时机、Q4b prompt-prefix 推荐引擎。
 
-**已知限制（M2.1 → M2.1.1 follow-up 待解）**：
-- `aggregate` （全部 4 个 `--by` 子模式）仍走单路径 adapter 读取，不 benefit from SQLite 缓存。原因：跨 session 聚合需要 per-call durations 等 `Episodes` 数据，而 `AnalysisReport` 不携带。Fix 路径：把必要 Episodes 字段 hoist 进 `AnalysisReport`（参考 M2.1 T5.2.5 已经 hoist 的 `loaded_mcp_tools`），再让 `cmd::aggregate` 走 `build_data_source(...)`。落点：**M2.1.1**。
+**已知限制**：见 [`tasks/ROADMAP.md`](../tasks/ROADMAP.md) §6.1 —— report 级 `--redact` / `--anonymize` 与 `config` 子命令仍未实现；Copilot wire 不广播 tool schema 是 schema-ROI 指标的结构性限制（Phase 3 ClaudeAdapter 可解锁）。
 
 **进入下一个 milestone 入口**：走 9 阶段 pipeline 的 Stage 1（brainstorming）。在 `docs/superpowers/specs/` 写 `2026-XX-XX-m2.x-<topic>-design.md` 或 `2026-XX-XX-m3.x-<topic>-design.md`。
 

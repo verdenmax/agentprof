@@ -3,11 +3,11 @@
 > **本文件是项目总入口。** 如果你是第一次进入本仓库（或时隔一段时间回来），**先读这里**，再去任何其他文档。
 >
 > **文件名**：`tasks/ROADMAP.md`
-> **版本**：1.8
-> **最后更新**：2026-06-09
-> **当前 commit**：`main` HEAD `1466c30` (M2.1.1 aggregate dual-path merged)
-> **当前阶段**：**Phase 2 — M2.1.1 aggregate dual-path ✅ shipped on `main`**：separate `episodes_json` column（migration 002，additive ALTER，default `'{}'`）+ `SessionDataSource::load_episodes(id)` trait method + 3 impls（`AdapterDataSource` / `SqliteDataSource` / `DualPathDataSource`）。`cmd::aggregate` rewires to `build_data_source(...)` matching the `list` / `mcp-waste` pattern; `cmd::analyze` write-through 和 `cmd::db::ingest` per-session loop 都扩展为 pair `upsert_report` + `upsert_episodes`。`AdapterDataSource::load_episodes_by_ref` bypass 保持 ingest 在 O(N)。详见 [ADR-0020](../docs/internals/adr-0020-aggregate-dualpath.md)。Prior wave: M2.1 SQLite 持久化 ([ADR-0017](../docs/internals/adr-0017-unify-session-id-namespace.md) / [ADR-0018](../docs/internals/adr-0018-session-datasource-trait.md) / [ADR-0019](../docs/internals/adr-0019-hybrid-storage-mode.md))。
-> **下一步入口**：**v0.2.0 tag**（`github-release` skill）→ **M2.2 OTLP receiver**（详见 [`docs/plan.md`](../docs/plan.md) §8）
+> **版本**：1.9
+> **最后更新**：2026-06-28
+> **当前 commit**：`main` HEAD `9df9573`（origin/main 已推送；v0.3.3 已发布 + [Unreleased] M2.3.x visual-guide）
+> **当前阶段**：**Phase 2 工程化基本完成**。已发 7 个 tag（v0.1.0–v0.3.3）：v0.2.0 = M2.1 SQLite 持久化 + M2.1.1 aggregate dual-path（[ADR-0017](../docs/internals/adr-0017-unify-session-id-namespace.md)–[ADR-0020](../docs/internals/adr-0020-aggregate-dualpath.md)）；v0.2.1 = M2.2 OTLP receiver（[ADR-0021](../docs/internals/adr-0021-otlp-receiver-architecture.md)）；v0.3.0 = M2.4 OTLP 安全加固（[ADR-0022](../docs/internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md)）；v0.3.1 = M2.5 cache analytics（[ADR-0023](../docs/internals/adr-0023-cache-metrics.md)）；v0.3.3 = M2.3 web dashboard `serve`（[ADR-0024](../docs/internals/adr-0024-web-dashboard-architecture.md)）。最新 **[Unreleased]**：M2.3.x visual-guide HTML 教程（[ADR-0025](../docs/internals/adr-0025-visual-guide.md)）。
+> **下一步入口**：**Phase 3 v0.4.0 multi-agent** —— M3.1 ClaudeAdapter（Claude wire 含 tools array，可解锁 schema_utilization）+ M3.2 CodexAdapter（详见 [`docs/plan.md`](../docs/plan.md) §8）
 >
 > **重大 pivot**（ADR-0001 events-first，详见 §4.1 / §4.2）：M1.2 不再做 ClaudeAdapter，改做 **CopilotAdapter**（real wire data 直接可得）；tokenizer / ROI / waste / aggregate 全部从 M1.3 推迟到 M1.5+。Claude / Codex / Gemini 适配器推迟到 Phase 2 / 3。
 
@@ -35,8 +35,8 @@
 |---|---|---|
 | [`tasks/ROADMAP.md`](./ROADMAP.md) | **项目总入口**（本文件） | **任何人，第一次进项目** |
 | [`docs/plan.md`](../docs/plan.md) | 产品愿景 / 市场现状 / 路线图 | 想了解"为什么做" |
-| [`docs/architecture.md`](../docs/architecture.md) | 代码架构权威（18 节，757 行） | 想动代码 / 想了解"怎么做" |
-| [`tasks/001-mvp-agent-token-profiler.md`](./001-mvp-agent-token-profiler.md) | MVP PRD：US / FR / Milestone / Sub-task 三级粒度（**当前 task**） | 推进 M1.5–M1.7 |
+| [`docs/architecture.md`](../docs/architecture.md) | 代码架构权威（18 节，1322 行） | 想动代码 / 想了解"怎么做" |
+| [`tasks/001-mvp-agent-token-profiler.md`](./001-mvp-agent-token-profiler.md) | MVP PRD：US / FR / Milestone / Sub-task 三级粒度（Phase 1 MVP，已发 v0.1.0） | 回顾 MVP 范围；Phase 2/3 进度见 plan.md §6 / §8 |
 | [`.github/copilot-instructions.md`](../.github/copilot-instructions.md) | AI 助手必读规则（9 阶段 pipeline） | AI 助手 / 想了解开发流程 |
 | [`README.md`](../README.md) | 用户向（安装 + Quick Start） | 想使用工具的最终用户 |
 | [`CHANGELOG.md`](../CHANGELOG.md) | Keep-a-Changelog 格式 | 想看历史变更 |
@@ -98,33 +98,33 @@ Phase 2   工程化：SQLite 持久化 + OTLP receiver + watch
                                                                   002-phase2-engineering.md (TBD)
 ─────────────────────────────────────────────────  v0.2.0 ────
 
-Phase 3   扩展适配：Codex CLI / Copilot CLI / Gemini / Cursor
+Phase 3   扩展适配：Claude / Codex / Gemini（Copilot 已在 M1.2 提前交付）
           pricing 自动同步 + 三 agent 全支持
                                                                   003-phase3-multi-agent.md (TBD)
 ─────────────────────────────────────────────────  v1.0.0 ────
 ```
 
-> **说明**：Phase 0 + Phase 1 合并为 MVP，由单个 task 文件 (`001-mvp-agent-token-profiler.md`) 覆盖。Phase 2 / Phase 3 各占一个 task 文件，分别对应 v0.2.0 / v1.0.0 释放。
+> **说明**：上图为**原始规划**时间线。Phase 0 + Phase 1 合并为 MVP（`001-mvp-agent-token-profiler.md` 覆盖，**✅ v0.1.0 已发**）；Phase 2 工程化 **✅ 基本完成**（跨 v0.2.0–v0.3.3）；Phase 3 multi-agent 从 **v0.4.0** 起（未启动）。实际进度以 §2.2 / §2.3 为准。
 
 ### 2.2 当前位置
 
 | 维度 | 当前状态 |
 |---|---|
-| **Git** | `main` 分支 HEAD `766b8f0`（运行 `git log -1 --oneline` 查看最新）；最近 milestone merges：M1.5 → M1.6.1 → M1.6.2 → M1.6.3 → M1.6.4 (`8abc590`, 2026-06-02)；其后 2026-06-03 **M1.6.4 follow-up wave**（8 cleanup commits `d87adec` → `766b8f0`：post-merge 文档审计 / cleanup batch 1 / `hash_path` env-var L1-only gap fix / crate-boundary 规则澄清 / B-3 + B-4 + B-5 + B-6 speedscope+HTML follow-ups） |
-| **Crate** | 5 lib/bin + 1 xtask。`agentprof-core` / `agentprof-adapters` / `agentprof-cli` 已实现到 M1.4；**`agentprof-tui` ✅ M1.5 已交付**（3 视图 + panic-safe lifecycle + 3 insta snapshots，详见 [ADR-0006](../docs/internals/adr-0006-panic-safe-tui.md)）；`agentprof-storage` 仍是 `//!` 骨架（Phase 2） |
-| **Phase** | Phase 0 / Phase 1（MVP），**M1.1 / M1.2 / M1.3 / M1.4 / M1.5 / M1.6.1 / M1.6.2 / M1.6.3 / M1.6.4 ✅ 完成**（M1.6.4 含 Speedscope+HTML shipped 2026-05-31 与 tracing 基础设施 shipped 2026-06-02；2026-06-03 follow-up wave 落地 8 个 cleanup commits），M1.6.5 (MCP waste, 推到 0.2.0) / M1.7 (release) ❌ 未开始；`export` 子命令已取消 |
-| **测试** | **~511 tests pass**（`cargo test --workspace --all-features` 验证），含 **51** 个 insta 快照（episode_derive / analyzer_on_fixtures / CLI 集成 / 单元）+ **20** 个 fixture（12 原始 + 4 from M1.6.x + 3 from 2026-06-03 B-6 follow-up wave 的 combination fixtures + 1 from B-7 `with-ask-user-mid-session` 锁定 `b5c1429` FlamegraphView 用户阻塞修复） |
-| **CI** | 已配（lint + test matrix + deny + docs + docs-sync + nightly-msrv + release skeleton），未在 GitHub 上运行（remote 未配） |
-| **远端** | 未推（本地 `main` only） |
-| **Release** | 未发，下次 release = v0.1.0（M1.7 出口） |
+| **Git** | `main` 分支 HEAD `9df9573`（origin/main 已推送；运行 `git log -1 --oneline` 查看最新）；最近 milestone：v0.2.0 M2.1 SQLite + M2.1.1 dual-path → v0.2.1 M2.2 OTLP receiver → v0.3.0 M2.4 OTLP 加固 → v0.3.1 M2.5 cache analytics → v0.3.3 M2.3 web dashboard → [Unreleased] M2.3.x visual-guide |
+| **Crate** | 5 lib/bin + 1 xtask 全部已实现。`agentprof-core` / `agentprof-adapters` / `agentprof-cli` / **`agentprof-tui`**（M1.5，flamegraph/roi/aggregate/models/turn_detail/mcp_waste 视图 + panic-safe lifecycle，[ADR-0006](../docs/internals/adr-0006-panic-safe-tui.md)）/ **`agentprof-storage` ✅ 已激活**（M2.1 起：SQLite hybrid cache/store + migrations + OTLP receiver，**非骨架**） |
+| **Phase** | Phase 1 MVP **✅ 全部完成**（M1.1–M1.7，v0.1.0 已发；M1.6.5/.6 mcp-waste 虽属 Phase 1 milestone 但随 v0.2.0 发布）；Phase 2 工程化 **✅ 基本完成**（M2.1 SQLite / M2.1.1 dual-path / M2.2 OTLP / M2.4 加固 / M2.5 cache / M2.3 web，跨 v0.2.0–v0.3.3）；Phase 3 multi-agent ❌ 未开始；`export` 子命令已取消 |
+| **测试** | **1328 tests pass**（`cargo test --workspace --all-features` 验证），含 insta 快照（episode_derive / analyzer_on_fixtures / CLI 集成 / 单元）+ Copilot fixtures（持续随发现的 schema 漏洞增补） |
+| **CI** | 已配并在 GitHub 运行（lint + test matrix + deny + docs + docs-sync + nightly-msrv + release）；remote 已配 |
+| **远端** | origin/main 已推送（HEAD `9df9573`） |
+| **Release** | 已发 7 个 tag（v0.1.0–v0.3.3），最新 **v0.3.3**；下次 = **v0.4.0**（Phase 3 multi-agent 起点） |
 
 ### 2.3 Phase 完成度仪表盘
 
 | Phase | 任务文件 | Milestone | 完成度 | Release | 状态 |
 |---|---|---|---|---|---|
-| **0+1 MVP** | 001 | M1.1–M1.7 | 8/8 shippable surface ≈ **~98%** (M1.1–M1.6.4 ✅; 剩 M1.7 v0.1.0 release; MVP feature work 已完成) | v0.1.0 | 🟡 In progress |
-| **2** | 002 (TBD) | M2.1–M2.x | 0% | v0.2.0 | ⚪ Planned |
-| **3** | 003 (TBD) | M3.1–M3.x | 0% | v1.0.0 | ⚪ Planned |
+| **0+1 MVP** | 001 | M1.1–M1.7 | **100%**（全部 ✅；speedscope / html / watch / tracing 随 v0.1.0，mcp-waste M1.6.5/.6 随 v0.2.0） | v0.1.0 | 🟢 Done |
+| **2** | 002 (TBD) | M2.1–M2.5 + M2.3 web | **~90%**（SQLite / OTLP receiver / 安全加固 / cache analytics / web dashboard ✅；pricing sync 仍未做） | v0.2.0–v0.3.3 | 🟢 基本完成 |
+| **3** | 003 (TBD) | M3.1–M3.x | **0%**（multi-agent 未开始） | v0.4.0 → v1.0.0 | ⚪ Planned |
 | **Beyond** | 004+ (TBD) | — | — | post-1.0 | 💭 Vision |
 
 > **注意 events-first pivot 的范围调整**（ADR-0001）：原 PRD 把 tokenizer / ROI 矩阵 / waste 估算 / 跨 session aggregate 全部塞进 M1.3；pivot 后这些**全部推迟到 M1.5+ 或 Phase 2**，M1.3 实际只做 schema-audit + Episode 聚合层。M1.4 实际交付的 `agentprof analyze` 输出是 turn / tool / hook 三表 + 14 类 warnings（parse-stage + derive-stage），不含 ROI / waste。
@@ -139,15 +139,15 @@ Phase 3   扩展适配：Codex CLI / Copilot CLI / Gemini / Cursor
 
 | # | 文件 | 范围 | 状态 | Milestone 完成度 | 计划 release |
 |---|---|---|---|---|---|
-| **001** | [`001-mvp-agent-token-profiler.md`](./001-mvp-agent-token-profiler.md) | **Phase 0 + 1 MVP**：Copilot adapter（pivot from Claude）+ Episode aggregation + CLI `analyze` (md/json) + TUI flamegraph + list/aggregate/watch/export | 🟡 In-Progress | 8/8 shippable surface ≈ **~98%** (M1.1–M1.6.4 ✅; 剩 M1.7 v0.1.0 release) | **v0.1.0** |
+| **001** | [`001-mvp-agent-token-profiler.md`](./001-mvp-agent-token-profiler.md) | **Phase 0 + 1 MVP**：Copilot adapter（pivot from Claude）+ Episode aggregation + CLI `analyze` (md/json) + TUI flamegraph + list/aggregate/watch + speedscope/html 导出 + mcp-waste（M1.6.5/.6，随 v0.2.0 ship） | ✅ Done | **100%**（M1.1–M1.7 全部 ✅，v0.1.0 已发布） | **v0.1.0** |
 
 ### 3.2 计划中的 task 文件（占位）
 
 | # | 文件 | 范围（暂定） | 触发条件 |
 |---|---|---|---|
-| **002** | `002-phase2-engineering.md` (TBD) | Phase 2 工程化：SQLite 持久化、OTLP receiver、watch 实时刷新、pricing 自动同步 | 001 → v0.1.0 释放后启动 |
+| **002** | `002-phase2-engineering.md` (TBD) | Phase 2 工程化：SQLite 持久化、OTLP receiver、cache analytics、web dashboard、pricing 自动同步 | **已实质执行完毕**（M2.1–M2.5 + M2.3 web ship 于 v0.2.0–v0.3.3；task 文件仍 TBD；pricing sync 未做） |
 | **003** | `003-phase3-multi-agent.md` (TBD) | Phase 3 多 agent：Codex / Copilot / Gemini / Cursor 适配器、三 agent 全支持 | 002 完成后启动 |
-| **004+** | 待规划 | post-1.0 feature（如自造 ratatui-snapshot-testing skill、library-mode API、Web dashboard 等） | v1.0.0 后由社区 / 实际需求驱动 |
+| **004+** | 待规划 | post-1.0 feature（如自造 ratatui-snapshot-testing skill、library-mode API 等；Web dashboard 已于 v0.3.3 提前实现） | v1.0.0 后由社区 / 实际需求驱动 |
 
 ### 3.3 每个 task 文件的标准结构
 
@@ -189,7 +189,7 @@ Phase 3   扩展适配：Codex CLI / Copilot CLI / Gemini / Cursor
        │ M1.2 Copilot │ │ M1.3         │ │ M1.5 TUI   │
        │  adapter ✅  │ │ schema-audit │ │  (depends  │
        │ (pivot per   │ │ + Episode    │ │   on M1.3) │
-       │  ADR-0001)   │ │  aggregation │ │  ❌        │
+       │  ADR-0001)   │ │  aggregation │ │  ✅        │
        │              │ │  ✅          │ │            │
        └──────┬───────┘ └─────┬────────┘ └─────┬──────┘
               │               │                │
@@ -216,7 +216,7 @@ Phase 3   扩展适配：Codex CLI / Copilot CLI / Gemini / Cursor
                         ▼
               ┌──────────────────────────────────────┐
               │ M1.7 E2E 集成 + 文档 + v0.1.0 release│
-              │ ❌ [MVP 出口]                        │
+              │ ✅ [MVP 出口]                        │
               └──────────────────────────────────────┘
 ```
 
@@ -225,17 +225,17 @@ Phase 3   扩展适配：Codex CLI / Copilot CLI / Gemini / Cursor
 ```
 task 001 (MVP)                                 task 002 (Phase 2)
 ─────────────────────                          ─────────────────────
-M1.1 ✅ skeleton                               M2.1 ❌ SQLite persistence
-M1.2 ✅ copilot adapter      ┌───────────►    M2.2 ❌ OTLP receiver
-M1.3 ✅ episode aggregation  │                M2.3 ❌ watch 实时刷新
-M1.4 ✅ CLI analyze + md     │                M2.4 ❌ pricing 自动同步
-M1.5 ✅ TUI views            │                M2.5 ❌ tokenizer + ROI + waste (events-first pivot 推迟)
+M1.1 ✅ skeleton                               M2.1 ✅ SQLite persistence (v0.2.0)
+M1.2 ✅ copilot adapter      ┌───────────►    M2.2 ✅ OTLP receiver (v0.2.1)
+M1.3 ✅ episode aggregation  │                M2.3 ✅ web dashboard serve (v0.3.3)
+M1.4 ✅ CLI analyze + md     │                M2.4 ✅ OTLP 安全加固 (v0.3.0)
+M1.5 ✅ TUI views            │                M2.5 ✅ cache analytics (v0.3.1)
 M1.6.1 ✅ list 子命令         │                       │
 M1.6.2 ✅ aggregate 子命令    │
 M1.6.3 ✅ watch 子命令        │
 M1.6.4 ✅ Speedscope + HTML 导出 (2026-05-31) + tracing 基础设施 (2026-06-02, ADR-0010)
-M1.6.5 ❌ MCP waste analysis (new)
-M1.7 ❌ v0.1.0 release ──────┘                       │ release
+M1.6.5 ✅ MCP waste analysis (v0.2.0)
+M1.7 ✅ v0.1.0 release ──────┘                       │ release
                                                      ▼
                                               v0.2.0
                                                      │
@@ -278,11 +278,15 @@ Pre-1.0（即 `0.X.Y`）期间，允许 minor bump 包含 breaking change（但�
 
 | 版本 | 关联 task | 计划 release 内容 | 状态 |
 |---|---|---|---|
-| **v0.1.0** | 001 M1.7 | MVP：Claude adapter + TUI + 5 种导出 + CLI 6 个子命令 | 🟡 Planned |
+| **v0.1.0** | 001 M1.7 | MVP：**Copilot** adapter + TUI + 5 种导出 + CLI **4** 个子命令（analyze/list/aggregate/watch） | ✅ Released (2026-06-06) |
 | **v0.1.x** | 001 M1.7 后 | bug fix 滚动 release | — |
-| **v0.2.0** | 002 (TBD) | SQLite 持久化 + OTLP + watch + pricing sync | ⚪ Planned |
-| **v0.3.x** | 002 / 003 | Phase 2 → 3 过渡 | ⚪ Planned |
-| **v1.0.0** | 003 M3.4 | 三 agent 全支持 + 公开 API 冻结 + crates.io publish | 💭 Vision |
+| **v0.2.0** | M2.1 + M2.1.1 | SQLite 持久化 + aggregate dual-path | ✅ Released |
+| **v0.2.1** | M2.2 | OTLP receiver（Claude Code telemetry） | ✅ Released |
+| **v0.3.0** | M2.4 | OTLP 安全加固（supersedes v0.2.1） | ✅ Released |
+| **v0.3.1** | M2.5 | cache analytics（Cache% / saved-tokens） | ✅ Released |
+| **v0.3.3** | M2.3 | web dashboard `serve` | ✅ Released |
+| **v0.4.0** | 003 M3.1+ | Phase 3 multi-agent（Claude / Codex adapter）起点 | ⚪ Planned |
+| **v1.0.0** | 003 M3.x | 多 agent 全支持 + 公开 API 冻结 + crates.io publish | 💭 Vision |
 
 ### 5.3 Release 流程（Stage 8）
 
@@ -311,10 +315,10 @@ Pre-1.0（即 `0.X.Y`）期间，允许 minor bump 包含 breaking change（但�
 | L-1 | **隐私字段默认裸露**：`agentprof analyze` 输出含 cwd / branch / model 内部名 / session UUID / ~800 turn UUIDs，分享报告前需要手动 `sed`/`jq` 脱敏 | 🔴 HIGH | [`docs/features/privacy.md`](../docs/features/privacy.md) | M1.5+ `--redact` / `--anonymize` flags（同上文档 §4） |
 | L-2 | **Subagent token over-attribution**：subagent message（`parentToolCallId` 携带，无 `turnId`）的 `output_tokens` 被算到父 turn — 总数对、per-turn 数偏高 | 🟡 MEDIUM | [ADR-0005 §6 "Side effect"](../docs/internals/adr-0005-analyzer-and-payload-name.md#update-6-post-output-audit-fixes-parse-warning-visibility-schema-mismatches-user-blocking-split) + `crates/agentprof-adapters/tests/fixtures/copilot/with-post-tool-use-hooks/README.md` | M1.5+ 增加 `Turn.subagent_output_tokens` 字段拆分 |
 | L-3 | **Turn Summary 无分页**：长 session（745+ turns）一次性吐表，终端 / 富文本编辑器 / GitHub 渲染都比较吃力 | 🟡 MEDIUM | [`docs/superpowers/specs/2026-05-29-post-output-audit-design.md`](../docs/superpowers/specs/2026-05-29-post-output-audit-design.md) §3 "Deferred" | M1.5+（与 TUI 一起；TUI 天然分页） |
-| L-4 | **CLI 子命令仍少**：`analyze` (M1.4) + `--export speedscope\|html` (M1.6.4 2026-05-31) + `list` (M1.6.1) + `aggregate` (M1.6.2 + `--export tui` M1.6.3) + `watch` (M1.6.3) + global `--log-level` / `--log-file` (M1.6.4 2026-06-02 tracing infra) ✅；`ingest-otlp` / `config` 未实现；`export` 已取消（与 `analyze --export` 重复） | 🟡 MEDIUM | [`crates/agentprof-cli/README.md`](../crates/agentprof-cli/README.md) + [M1.6.1 spec](../docs/superpowers/specs/2026-05-30-m1.6.1-list-and-polish-design.md) + [M1.6.2 spec](../docs/superpowers/specs/2026-06-01-m1.6.2-aggregate-design.md) + [M1.6.3 spec](../docs/superpowers/specs/2026-06-01-m1.6.3-watch-and-aggregate-tui-design.md) + [M1.6.4 Speedscope spec](../docs/superpowers/specs/2026-05-31-m1.6.4-speedscope-and-html-export-design.md) + [M1.6.4 tracing spec](../docs/superpowers/specs/2026-06-02-tracing-design.md) + [ADR-0007](../docs/internals/adr-0007-speedscope-export.md) + [ADR-0008](../docs/internals/adr-0008-aggregate-report-and-utilization.md) + [ADR-0009](../docs/internals/adr-0009-watch-runner-and-notify.md) + [ADR-0010](../docs/internals/adr-0010-tracing-infrastructure.md) | Phase 2 (`ingest-otlp` / `config`) |
+| L-4 | **CLI 子命令仍少**：`analyze` (M1.4) + `--export speedscope\|html` (M1.6.4 2026-05-31) + `list` (M1.6.1) + `aggregate` (M1.6.2 + `--export tui` M1.6.3) + `watch` (M1.6.3) + global `--log-level` / `--log-file` (M1.6.4 2026-06-02 tracing infra) ✅；`config` 未实现（`ingest-otlp` ✅ v0.2.1 / `db` ✅ v0.2.0 / `serve` ✅ v0.3.3 / `mcp-waste` ✅ 均已加）；`export` 已取消（与 `analyze --export` 重复） | 🟡 MEDIUM | [`crates/agentprof-cli/README.md`](../crates/agentprof-cli/README.md) + [M1.6.1 spec](../docs/superpowers/specs/2026-05-30-m1.6.1-list-and-polish-design.md) + [M1.6.2 spec](../docs/superpowers/specs/2026-06-01-m1.6.2-aggregate-design.md) + [M1.6.3 spec](../docs/superpowers/specs/2026-06-01-m1.6.3-watch-and-aggregate-tui-design.md) + [M1.6.4 Speedscope spec](../docs/superpowers/specs/2026-05-31-m1.6.4-speedscope-and-html-export-design.md) + [M1.6.4 tracing spec](../docs/superpowers/specs/2026-06-02-tracing-design.md) + [ADR-0007](../docs/internals/adr-0007-speedscope-export.md) + [ADR-0008](../docs/internals/adr-0008-aggregate-report-and-utilization.md) + [ADR-0009](../docs/internals/adr-0009-watch-runner-and-notify.md) + [ADR-0010](../docs/internals/adr-0010-tracing-infrastructure.md) | Phase 2 (`config` 仅剩此项，待定) |
 | L-5 | **无 tokenizer → 无法精确算 token cost / waste**：当前 `output_tokens` 直接读 wire 字段；ROI / 浪费金额、schema_utilization 等 PRD 原 §5.2 卖点全部依赖 tokenizer | 🟡 MEDIUM | [`docs/plan.md`](../docs/plan.md) §6 pivot 备注 + [`tasks/001-mvp-agent-token-profiler.md`](./001-mvp-agent-token-profiler.md) FR-2 表 | M1.5+ 或 Phase 2 |
 | L-6 | ~~**TUI 完全未实现**~~ → **✅ 已交付 M1.5**（3 视图：FlamegraphView / RoiView / AggregateView，panic-safe lifecycle，3 insta snapshots + 2 CLI tests） | ✅ FIXED | [`crates/agentprof-tui/README.md`](../crates/agentprof-tui/README.md) + [ADR-0006](../docs/internals/adr-0006-panic-safe-tui.md) + [spec](../docs/superpowers/specs/2026-05-30-m1.5-tui-design.md) + [plan](../docs/superpowers/plans/2026-05-30-m1.5-tui.md) | — |
-| L-7 | **无 SQLite 持久化**：每次 `analyze` 都全量解析；跨 session aggregate 无处可存 | 🟢 EXPECTED | [`crates/agentprof-storage/README.md`](../crates/agentprof-storage/README.md) | Phase 2 (M2.1) |
+| L-7 | ~~**无 SQLite 持久化**~~ → **✅ 已实现 M2.1**（v0.2.0：hybrid cache/store + dual-path read + `db` 子命令家族） | ✅ FIXED | [`crates/agentprof-storage/README.md`](../crates/agentprof-storage/README.md) | — |
 | L-8 | **只支持 Copilot CLI**：Claude / Codex / Gemini adapter 未实现 | 🟢 EXPECTED | [`crates/agentprof-adapters/README.md`](../crates/agentprof-adapters/README.md) "Supported agents" | Phase 3 (M3.1 Claude / M3.2 Codex) |
 | L-9 | **schema 兼容性只在 1 个 frozen session 验证过**：post-output-audit 在 11 806 行 session 上验证了 17 % → 0 % drop rate，但其它 Copilot CLI 版本、其它 session 风格（如纯 sub-agent / 纯交互式 / 长 plan 模式）可能仍有未发现的 schema 漏洞 | 🟡 MEDIUM | [ADR-0005 §6 "Tests"](../docs/internals/adr-0005-analyzer-and-payload-name.md#update-6-post-output-audit-fixes-parse-warning-visibility-schema-mismatches-user-blocking-split) + 现有 20 个 fixture（含 2026-06-03 M1.6.4 follow-up wave B-6 加的 3 个 combination fixtures：`tool-and-skill-same-turn` / `two-skills-one-turn` / `orphan-skill-mix`；以及 B-7 加的 `with-ask-user-mid-session` 锁 `b5c1429` FlamegraphView 修复） | 每发现新 schema 漏洞时增加 fixture（持续工作） |
 | L-10 | **`ParseWarning::OutOfOrder` 不带 line_no**：用户看到 "Parse warnings: 1 / OutOfOrder: 1" 后无法快速定位是哪两行时间戳倒置 | 🟢 LOW | `crates/agentprof-core/src/error.rs` `ParseWarning::OutOfOrder` 变体定义 | 视用户反馈，可能 M1.5+ 加 detail |
@@ -330,10 +334,10 @@ Pre-1.0（即 `0.X.Y`）期间，允许 minor bump 包含 breaking change（但�
 | F-2 | `--redact` / `--anonymize` CLI flag（含 stable per-session UUID mapping）| L-1 后续 | M1.5+ 与 `aggregate` 子命令一起 |
 | F-3 | `Mode` 词汇扩展（更多 Copilot CLI 模式落地后补 variant）| `Mode::Unknown(String)` fallback 设计 | 持续，发现新 mode 就补 |
 | F-4 | 通用 OpenAI-compatible 代理拦截模式（不需要每家 adapter） | [`docs/plan.md`](../docs/plan.md) §6 Phase 3 | Phase 3+ |
-| F-5 | Speedscope / HTML / CSV 导出 | FR-6 原始设计 | M1.6（与 `export` 子命令一起） |
-| F-6 | OTLP receiver（接 Claude Code telemetry endpoint） | [`docs/plan.md`](../docs/plan.md) §6 Phase 2 | Phase 2 (M2.2) |
+| F-5 | ~~Speedscope / HTML / CSV 导出~~ → **✅ 已实现** | FR-6 原始设计 | M1.6.2 / M1.6.4 ✅（`analyze --export speedscope\|html`、`aggregate --export csv`） |
+| F-6 | ~~OTLP receiver（接 Claude Code telemetry endpoint）~~ → **✅ 已实现** | [`docs/plan.md`](../docs/plan.md) §6 Phase 2 | M2.2 ✅ v0.2.1 |
 | F-7 | 价格表自动同步（`xtask sync-pricing`） | [`tasks/001-mvp-agent-token-profiler.md`](./001-mvp-agent-token-profiler.md) §11 Milestone 3.3 | Phase 3+ |
-| F-8 | Web dashboard | [`docs/plan.md`](../docs/plan.md) §6 Phase 2 | Phase 2 后期，可选 |
+| F-8 | ~~Web dashboard~~ → **✅ 已实现** | [`docs/plan.md`](../docs/plan.md) §6 Phase 2 | M2.3 ✅ v0.3.3（`serve`） |
 | F-9 | OpenTelemetry trace 联动（agentprof report → Tempo / Jaeger） | 由 §7 长期愿景导出 | post-1.0 |
 
 ### 6.3 设计决策（user 明确要求保留当前行为，不改）
@@ -442,6 +446,7 @@ Pre-1.0（即 `0.X.Y`）期间，允许 minor bump 包含 breaking change（但�
 | 2026-06-02 | v1.2：M1.6.4 ✅ 完成（追加 tracing 基础设施 ship 2026-06-02 + ADR-0010）— 同步 header / §2.2 / §2.3 / §3.1 / §4.2 / L-4 | 本 commit |
 | 2026-06-02 | v1.3：M1.6.4 ✅ merged（`8abc590`）— Speedscope+HTML (2026-05-31, ADR-0007) + tracing 基础设施 (2026-06-02, ADR-0010)。8 milestone surface 全部 ship。 | `8abc590` |
 | 2026-06-03 | v1.4：**M1.6.4 follow-up wave**（8 cleanup commits：`d87adec` → `766b8f0`）—— post-merge 文档审计（`d87adec`）；cleanup batch 1 8 review nits（`4301125`）；`hash_path` 在 L2/L3 span 也 honor `AGENTPROF_LOG_FULL_PATHS`（Critical L1-only gap 修复，`83d2ed0`）；crate-boundary 规则澄清允许 dev-deps（`95fd059`）；B-3 / B-4 / B-5 / B-6 speedscope+HTML follow-ups（EmitCtx refactor `b376d18`；3 new `ExportWarning` variants `c54a1af`；`Display` impls + defensive html escape `afae0e8`；3 new combination fixtures `766b8f0`）。同步 header / §2.2 / §2.3 / §4.1 graph / §6.1 L-9 fixture count / §10 anchors。**注**：commit `4301125 chore(m1.6.5): cleanup batch 1` 主题用了 `m1.6.5` token 是误用 —— 实际属于本次 follow-up wave，**不是** M1.6.5 milestone（reserved for MCP server waste analysis at §6.1 L-4，deferred to 0.2.0 per `docs/plan.md §8`）。 | `766b8f0` |
+| 2026-06-28 | v1.9：**全量同步至 v0.3.3 现实** —— header / §1.1 / §2.1 时间线 / §2.2 当前位置 / §2.3 仪表盘 / §3 task 索引 / §4 依赖图 / §5.2 版本表 / §6.1 L-4·L-7 / §6.2 F-5·F-6·F-8 全部刷新。Phase 1 MVP ✅ 100%（v0.1.0）+ Phase 2 ✅ 基本完成（M2.1 SQLite / M2.2 OTLP / M2.4 加固 / M2.5 cache / M2.3 web，v0.2.0–v0.3.3）。 | `9df9573` |
 
 ---
 
@@ -456,6 +461,17 @@ git log main --oneline -20
 最近的 milestone merges（不会变；写死作为锚点）：
 
 ```
+# Release tags（v0.1.0 → v0.3.3，真实 commit hash — 由 `git rev-list -n1 <tag>` 得）
+9df9573  HEAD — [Unreleased] M2.3.x visual-guide + list 测试修复
+34aad50  v0.3.3 — M2.3 web dashboard (serve)
+66967b7  v0.3.2 — rustls CryptoProvider fix
+8be7803  v0.3.1 — M2.5 cache analytics
+cf33b91  v0.3.0 — M2.4 OTLP 安全加固
+c28f53e  v0.2.1 — M2.2 OTLP receiver
+ec2a64a  v0.2.0 — M2.1 SQLite + M2.1.1 dual-path
+7e29d97  v0.1.0 — MVP release
+
+# 更早的 M1.6.4 时代锚点（保留作历史参考）:
 766b8f0  test(fixtures): B-6 add tool+skill / multi-skill / orphan+skill (M1.6.4 follow-up wave)
 afae0e8  fix(html,speedscope): B-5 render robustness (M1.6.4 follow-up wave)
 c54a1af  fix(speedscope): B-4 timestamp robustness (M1.6.4 follow-up wave)
