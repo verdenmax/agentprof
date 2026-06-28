@@ -76,8 +76,9 @@ Derive-stage warnings: M
   NonMonotonicTimestamp / PayloadNameMissing
 ```
 
-All other subcommands (`config`) remain **planned** for Phase 2.
-The `ingest-otlp` subcommand is **shipped** (M2.2 T8.1 + T8.2; gated on
+The `config` subcommand (`path` / `show` / `edit` / `init`) is **shipped**
+(L-4; see [§ `agentprof config`](#agentprof-config-l-4) below). The
+`ingest-otlp` subcommand is **shipped** (M2.2 T8.1 + T8.2; gated on
 the `otlp` cargo feature). See [§ `agentprof ingest-otlp`](#agentprof-ingest-otlp-m22) below.
 
 ## Quick start
@@ -565,6 +566,36 @@ Cloudflare Tunnel / etc.) — the startup `tracing::warn!` will remind you.
   [`docs/features/web-dashboard.md`](../../docs/features/web-dashboard.md)
 - L1 CLI protocol entry: [`docs/architecture.md`](../../docs/architecture.md) §8
 
+## `agentprof config` (L-4)
+
+Inspect and manage the user config file — `$AGENTPROF_CONFIG`, else
+`~/.config/agentprof/config.toml` (XDG). All four actions share one path
+resolver, `agentprof_cli::config::resolve_config_path()`, which is also used
+by `ingest-otlp` and `serve` (dedup of two prior copies). Scoped to the wired
+`[storage]` / `[otlp]` / `[serve]` blocks; see
+[ADR-0027](../../docs/internals/adr-0027-config-subcommand.md).
+
+```sh
+agentprof config path                 # print resolved path + [exists]/[not found]
+agentprof config show                 # effective config, each value (default)/(from file)
+agentprof config edit                 # open in $VISUAL / $EDITOR (creates file if absent)
+agentprof config init [--force]       # write a commented default template
+```
+
+| Action | Behaviour |
+|---|---|
+| `path` | Prints the resolved path + `[exists]` / `[not found]`. Appends ` (from $AGENTPROF_CONFIG)` when that env override is set. Exit `0` even when the file is absent. |
+| `show` | Prints the **effective** configuration — built-in defaults merged with file overrides — annotating each value `(default)` or `(from file)`. Reuses the real resolvers (`resolve_storage_config`, `OtlpServerConfig::from_partial`) so the shown defaults can't drift from runtime. When the binary is built without `otlp` / `web`, the `[otlp]` / `[serve]` header reads `(feature not enabled in this build)`. A malformed file → exit `2`. |
+| `edit` | Opens the file in `$VISUAL` (preferred) then `$EDITOR`; an **empty** var is treated as unset and falls through. Neither set → exit `1`. Self-heals: writes the commented template first when the file is absent, then never re-templates an existing file. A non-zero editor status → exit `1`. |
+| `init` | Writes a commented default template (only `[storage]` active; `[otlp]` / `[serve]` commented so it parses in any build). Refuses an existing file without `--force` → exit `1`. |
+
+**`$AGENTPROF_CONFIG`** overrides the XDG path for every action; `config path`
+flags when the resolved path came from it.
+
+**Exit codes:** `0` ok · `1` user error (`init` exists w/o `--force`, no
+editor, editor non-zero) · `2` data error (`show` parse/resolve failure) · `3` I/O /
+env (no config dir, write / read / spawn failure).
+
 ## Public interface
 
 This crate produces a binary, not a library. The user-facing protocol is the CLI itself:
@@ -594,7 +625,7 @@ agentprof ingest-otlp [--grpc 127.0.0.1:4317] [--http 127.0.0.1:4318]
                       [--store PATH]                                          # ✓ shipped (M2.2; M2.4 hardening; feature: otlp)
 agentprof serve       [--storage-path PATH] [--bind 127.0.0.1:4329]
                       [--interval-default 5] [--no-open] [--quiet]            # ✓ shipped (M2.3; feature: web)
-agentprof config     [show | edit | path]                                  # planned (Phase 2)
+agentprof config     <path | show | edit | init [--force]>               # ✓ shipped (L-4, ADR-0027)
 ```
 
 See [`docs/architecture.md`](../../docs/architecture.md) §8 for the canonical specification and exit codes.
@@ -618,9 +649,8 @@ See [`docs/architecture.md`](../../docs/architecture.md) §8 for the canonical s
 | `data_source_factory` | `build_data_source(agent, root, &StorageConfig, no_cache) -> anyhow::Result<(Box<dyn SessionDataSource>, WarningsHandle)>` — single composition seam used by every subcommand. Returns a `DualPathDataSource` when storage is reachable, falls back to a bare `AdapterDataSource` when `--no-cache` is set **or** storage open fails (`tracing::warn!` + graceful degradation, never a hard error). The second tuple element is an `Arc<Mutex<Vec<DualPathWarning>>>` shared with the inner dual-path source (empty for adapter-only returns) — callers drain it and emit one stderr line per warning unless `--quiet`. | ✓ shipped (M2.1 T5.1, warnings handle M2.1 T5.2) |
 | `cmd::ingest_otlp` | The `ingest-otlp` subcommand: reads the `[otlp]` block from `~/.config/agentprof/config.toml` (or `$AGENTPROF_CONFIG`), folds CLI flags + env on top to build an `OtlpServerConfig` (priority: CLI > env > file > defaults), opens the SQLite store, wires `StorageFlushSink → SessionRouter → IngestPipeline → serve_{grpc,http}` + `spawn_idle_sweeper`, and drains gracefully on SIGINT / SIGTERM. Feature-gated under `otlp`; dispatcher in `main.rs` spins a multi-thread tokio runtime via `block_on` so the rest of the CLI stays sync. A hidden `--sweeper-interval-seconds` flag (test-only, omitted from `--help`) overrides the 30 s sweeper tick so end-to-end tests in `tests/cli_ingest_otlp_e2e.rs` can fire idle flushes within a few seconds. | ✓ shipped (M2.2 T8.1 + T8.2; e2e tests M2.2 T9.1) |
 | `cmd::serve` (feature `web`) | The `serve` subcommand: reads the `[serve]` block (`bind` / `interval_default` / `auto_open`), folds CLI flags on top, opens the SQLite store, builds the axum `Router` (12 routes: 5 dashboard pages × 2 chunk endpoints + `/healthz` + `/static/:name` + `/` → `/sessions` redirect), and drives `axum::serve(...).with_graceful_shutdown(...)` until SIGINT / SIGTERM. Submodules: `mod` (clap + entry + signal), `state` (`Arc<Mutex<Db>>` + `interval_default`), `router`, `handlers` (5 views × 2 routes), `static_assets` (`include_str!` / `include_bytes!` bundling). Templates under `templates/dashboard/**`. Adds `format::html::render_body_only` + `format::aggregate_html::render_body_only` for embedding the existing static HTML report markup inside the dashboard chrome, plus `cmd::aggregate::compute_aggregate_from_store` and `cmd::mcp_waste::compute_aggregate_waste_from_store` (store-mode parallels to the existing adapter-mode `compute_*` fns). See [ADR-0024](../../docs/internals/adr-0024-web-dashboard-architecture.md). | ✓ shipped (M2.3; e2e tests `tests/cli_serve_e2e.rs`) |
-| `cmd::config` | One module per planned subcommand | planned (Phase 2) |
-| `config` | TOML loader / writer for `~/.config/agentprof/config.toml` | planned (M1.5+) |
-| `report_html` | `askama` templates for the HTML report | planned (M1.5+) |
+| `cmd::config` | The `config` subcommand: `path` / `show` / `edit` / `init` + `CONFIG_TEMPLATE` / `write_template` / `config_dir_err` helpers | ✓ shipped (L-4, ADR-0027) |
+| `config` | Config loader/writer: `PartialConfig` (`deny_unknown_fields`), `parse_toml`, `resolve_config_path`, `resolve_storage_config` — shared by `config` / `ingest-otlp` / `serve` | ✓ shipped (M2.2 + L-4) |
 | `main` | clap dispatch + tracing init + panic hook | ✓ shipped (M1.4) |
 
 ## Features

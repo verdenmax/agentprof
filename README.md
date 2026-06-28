@@ -221,6 +221,7 @@ framework. See
 - `agentprof db <init|stats|ingest|prune|vacuum|export>` (M2.1) — SQLite cache lifecycle and inspection.
 - `agentprof ingest-otlp` (M2.2, feature `otlp`) — embedded OTLP receiver (gRPC `127.0.0.1:4317` + HTTP/protobuf `127.0.0.1:4318`) that decodes Claude Code / Codex / Copilot CLI OpenTelemetry envelopes, fans them per-`session.id` into in-memory `SessionBuffer`s (OOM-capped on bytes + event count), and persists finalized sessions to the same SQLite store used by `analyze` (reusing M2.1's `upsert_report`; `raw_path = "otlp://<id>"`). Bearer / TLS / mTLS auth + `[otlp]` config-file block; drains gracefully on SIGINT / SIGTERM. **OTLP does not implement the `Adapter` trait** — push semantics and cross-session routing are structurally incompatible with the file-pull model; see [ADR-0021](docs/internals/adr-0021-otlp-receiver-architecture.md) §Decision 3 for the rationale. Subcommand reference: [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) `## agentprof ingest-otlp`.
 - `agentprof serve` (M2.3, feature `web`) — live localhost dashboard backed by the SQLite store. Five polling views (sessions list, single session, aggregate, MCP-waste list + detail) served from a single axum process on `127.0.0.1:4329` by default. Vanilla-JS poller (~80 LOC, no framework) swaps each view's `#main` innerHTML every 5 s via the matching `/api/<view>.html` chunk endpoint; toolbar pauses or changes interval. Store mode required (errors with a `agentprof db ingest` hint if missing). Bundled CSS / JS / favicon via `include_str!` — zero runtime FS reads, no CDN. See [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) `## agentprof serve` and [ADR-0024](docs/internals/adr-0024-web-dashboard-architecture.md).
+- `agentprof config <path|show|edit|init>` (L-4) — manage the user config file (`$AGENTPROF_CONFIG`, else `~/.config/agentprof/config.toml`). `path` prints the resolved path + existence; `show` prints the **effective** config with `(default)` / `(from file)` annotation (reusing the real resolvers); `edit` opens it in `$VISUAL` / `$EDITOR` (self-healing the template first); `init [--force]` writes a commented default. Scoped to the wired `[storage]` / `[otlp]` / `[serve]` blocks. See [`crates/agentprof-cli/README.md`](crates/agentprof-cli/README.md) `## agentprof config` and [ADR-0027](docs/internals/adr-0027-config-subcommand.md).
 
 ### MCP server waste analysis (M1.6.5+)
 
@@ -245,6 +246,7 @@ agentprof aggregate  --by mcp-server --since 30d          # ROI leaderboard (shi
 agentprof aggregate  --by tool --export tui               # static cross-session TUI (shipped M1.6.3)
 agentprof watch                                           # live single-session TUI (shipped M1.6.3)
 agentprof watch aggregate --by tool                       # live cross-session TUI (shipped M1.6.3)
+agentprof config init && agentprof config show            # scaffold + inspect effective config (shipped L-4)
 
 # Global flags (M1.6.4) — work on every subcommand (clap global = true):
 agentprof --log-level debug list                          # raise tracing verbosity (default: warn)
