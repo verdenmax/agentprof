@@ -26,7 +26,7 @@ Subcommand wiring (current):
   redaction (L-1). `redact` strips 🔴 HIGH PII (cwd / branch / repository →
   `<redacted>`, UUIDs → stable `<uuid-N>`, model → family); `anonymize` adds
   version / `started_at` zeroing + MCP-server hashing and writes a
-  `agentprof-redaction-map.json` sidecar. `md` / `json` / `csv` are fully
+  `agentprof-redaction-map.json` sidecar. `md` / `json` are fully
   redacted; `html` / `speedscope` flamegraph frames still leak turn-ids / MCP
   names (deferred — use `md` / `json` for full redaction). See
   [ADR-0026](../../docs/internals/adr-0026-report-redaction.md) +
@@ -220,7 +220,7 @@ agentprof aggregate --by tool --since all --export json | jq '.data.buckets | le
 | `--low-utilization-threshold` | `20.0` | Day bucket warn threshold; rows below are flagged |
 | `--tokens-per-tool` | `200` | M1.6.6 — heuristic token cost per MCP tool when no sidecar covers a tool. Only consulted by `--by mcp-server`. |
 | `--tool-descriptions` | _(none)_ | M1.6.6 — sidecar path (file or dir) with per-tool descriptions for exact token counts. See `analyze --tool-descriptions` for the on-disk schema. Only consulted by `--by mcp-server`. |
-| `--privacy` | `none` | L-1 — opt-in report redaction (`none` / `redact` / `anonymize`). `redact` family-izes model keys + redacts any UUIDs; `anonymize` also hashes MCP server names (`--by mcp-server` / `--by tool`) and writes the `agentprof-redaction-map.json` sidecar. `--by day` bucket keys are never redacted. md/json/csv fully redacted; html flamegraph deferred. See [ADR-0026](../../docs/internals/adr-0026-report-redaction.md). |
+| `--privacy` | `none` | L-1 — opt-in report redaction (`none` / `redact` / `anonymize`). `redact` family-izes model keys + redacts any UUIDs; `anonymize` also hashes MCP server names (`--by mcp-server` / `--by tool`) and writes the `agentprof-redaction-map.json` sidecar. `--by day` bucket keys are never redacted. md/json/csv/html all fully redacted (aggregate html is table-only — no flamegraph). See [ADR-0026](../../docs/internals/adr-0026-report-redaction.md). |
 
 > **M2.5**: `--by model` and `--by day` automatically add 4 cache columns
 > (`CacheCr` / `CacheRd` / `Hit%` / `NetSaved`) across md / csv / html.
