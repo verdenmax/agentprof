@@ -64,6 +64,12 @@ pub struct AnalyzeCmd {
     /// Absent → heuristic-only mode. M1.6.6.
     #[arg(long, value_name = "PATH")]
     pub tool_descriptions: Option<PathBuf>,
+
+    /// Redact PII from the report before rendering. `none` (default) =
+    /// no change. `redact` strips 🔴 HIGH fields; `anonymize` also writes
+    /// an `agentprof-redaction-map.json` sidecar. See docs/features/privacy.md.
+    #[arg(long, value_enum, default_value_t = agentprof_core::analyzer::redact::PrivacyLevel::None)]
+    pub privacy: agentprof_core::analyzer::redact::PrivacyLevel,
 }
 
 /// How the CLI selects which session to analyze.
@@ -309,6 +315,9 @@ pub fn run(
         if cmd.section != AnalysisSection::all_vec() {
             tracing::warn!(flag = "--section", with = "--export tui", "flag ignored");
         }
+        if cmd.privacy != agentprof_core::analyzer::redact::PrivacyLevel::None {
+            tracing::warn!(flag = "--privacy", with = "--export tui", "flag ignored");
+        }
         return run_tui(&report, &episodes, waste.as_ref(), cfg, tracing_handle);
     }
 
@@ -326,9 +335,40 @@ pub fn run(
         );
     }
 
+    // Redact AFTER the cache write-through above so the cache always stores
+    // the original (real) data, never the redacted copy. The shadowed
+    // `report` below is only used for rendering + the sidecar.
+    let (report, redaction_map) = report.redact(cmd.privacy);
     let rendered = render_report(&report, &episodes, &raw.meta, &cmd, waste.as_ref())?;
     write_output(&rendered, cmd.output.as_deref())?;
-    Ok(())
+    emit_redaction_sidecar(cmd.privacy, &redaction_map, cmd.output.as_deref())
+}
+
+/// Emit the `anonymize` redaction-map sidecar after the report is written.
+///
+/// No-op unless `privacy == Anonymize` and the map is non-empty. The write
+/// is non-fatal to the already-emitted report: a failure is warned and
+/// surfaced as [`ExitKind::OutputError`] (exit 3) *after* stdout/file output,
+/// so the user-facing report is never lost.
+fn emit_redaction_sidecar(
+    privacy: agentprof_core::analyzer::redact::PrivacyLevel,
+    map: &agentprof_core::analyzer::redact::RedactionMap,
+    output: Option<&std::path::Path>,
+) -> Result<()> {
+    use agentprof_core::analyzer::redact::PrivacyLevel;
+    if privacy != PrivacyLevel::Anonymize || map.is_empty() {
+        return Ok(());
+    }
+    match crate::cmd::privacy::write_sidecar(map, output) {
+        Ok(p) => {
+            eprintln!("agentprof: redaction map → {}", p.display());
+            Ok(())
+        }
+        Err((p, e)) => {
+            eprintln!("agentprof: warn: failed to write {}: {e}", p.display());
+            Err(ExitKind::OutputError.into_anyhow(format!("sidecar write failed: {}", p.display())))
+        }
+    }
 }
 
 /// Write the freshly-computed `AnalysisReport` and `Episodes` into the
