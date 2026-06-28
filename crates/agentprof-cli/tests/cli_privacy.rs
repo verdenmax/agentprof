@@ -144,3 +144,31 @@ fn aggregate_privacy_redact_models_to_family() {
     );
     assert!(s.contains("claude-sonnet"), "family form missing:\n{s}");
 }
+
+#[test]
+fn aggregate_privacy_anonymize_writes_sidecar() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("agg.json");
+    Command::cargo_bin("agentprof")
+        .unwrap()
+        .args(["--no-cache", "aggregate", "--agent", "copilot", "--root"])
+        .arg(fixtures_root())
+        .args([
+            "--by",
+            "mcp-server",
+            "--since",
+            "all",
+            "--export",
+            "json",
+            "--privacy",
+            "anonymize",
+            "--output",
+        ])
+        .arg(&out)
+        .assert()
+        .success();
+    assert!(
+        dir.path().join("agentprof-redaction-map.json").exists(),
+        "aggregate sidecar not written"
+    );
+}

@@ -267,7 +267,11 @@ pub fn run(
     // `anonymize` reverse-map sidecar — emitted AFTER the report is written
     // so a sidecar I/O failure never masks a successful render. No-op unless
     // the level is `Anonymize` and the map is non-empty.
-    emit_redaction_sidecar(cmd.privacy, &redaction_map, cmd.output.as_deref())?;
+    crate::cmd::privacy::emit_redaction_sidecar(
+        &redaction_map,
+        cmd.privacy,
+        cmd.output.as_deref(),
+    )?;
 
     Ok(())
 }
@@ -313,32 +317,6 @@ fn redact_any_report(
         // pass-through wildcard would emit that variant *un-redacted*. Refuse
         // rather than leak. All current variants are handled above.
         _ => unreachable!("unhandled AnyAggregateReport variant in redact_any_report"),
-    }
-}
-
-/// Emit the `anonymize` redaction-map sidecar after the report is written.
-///
-/// No-op unless `privacy == Anonymize` and the map is non-empty. Mirrors
-/// `cmd::analyze::emit_redaction_sidecar`: a write failure warns to stderr
-/// and maps to `OutputError` (3) *after* the report already emitted.
-fn emit_redaction_sidecar(
-    privacy: agentprof_core::analyzer::redact::PrivacyLevel,
-    map: &agentprof_core::analyzer::redact::RedactionMap,
-    output: Option<&std::path::Path>,
-) -> Result<()> {
-    use agentprof_core::analyzer::redact::PrivacyLevel;
-    if privacy != PrivacyLevel::Anonymize || map.is_empty() {
-        return Ok(());
-    }
-    match crate::cmd::privacy::write_sidecar(map, output) {
-        Ok(p) => {
-            eprintln!("agentprof: redaction map → {}", p.display());
-            Ok(())
-        }
-        Err((p, e)) => {
-            eprintln!("agentprof: warn: failed to write {}: {e}", p.display());
-            Err(ExitKind::OutputError.into_anyhow(format!("sidecar write failed: {}", p.display())))
-        }
     }
 }
 

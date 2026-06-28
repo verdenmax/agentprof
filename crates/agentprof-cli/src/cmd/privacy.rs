@@ -8,7 +8,9 @@
 
 use std::path::{Path, PathBuf};
 
-use agentprof_core::analyzer::redact::RedactionMap;
+use agentprof_core::analyzer::redact::{PrivacyLevel, RedactionMap};
+
+use crate::cmd::exit::ExitKind;
 
 /// Sidecar path: sibling of `--output`, else CWD.
 ///
@@ -60,5 +62,48 @@ pub fn write_sidecar(
     match std::fs::write(&path, json) {
         Ok(()) => Ok(path),
         Err(e) => Err((path, e)),
+    }
+}
+
+/// Emit the `anonymize` redaction-map sidecar after the report is written.
+///
+/// Shared by `cmd::analyze` and `cmd::aggregate`. No-op unless
+/// `privacy == PrivacyLevel::Anonymize` and the map is non-empty. The write is
+/// non-fatal to the already-emitted report: a failure is warned to stderr and
+/// surfaced as [`ExitKind::OutputError`] (exit 3) *after* stdout/file output,
+/// so the user-facing report is never lost.
+///
+/// # Errors
+///
+/// Returns an `anyhow::Error` whose downcast target is
+/// [`ExitKind::OutputError`] when the sidecar write fails.
+///
+/// # Examples
+///
+/// ```ignore
+/// // bin-only crate: shape only, not executed (see `sidecar_path`).
+/// use agentprof_cli::cmd::privacy::emit_redaction_sidecar;
+/// use agentprof_core::analyzer::redact::{PrivacyLevel, RedactionMap};
+/// let map = RedactionMap::default();
+/// emit_redaction_sidecar(&map, PrivacyLevel::Anonymize, None)?;
+/// # Ok::<(), anyhow::Error>(())
+/// ```
+pub fn emit_redaction_sidecar(
+    map: &RedactionMap,
+    privacy: PrivacyLevel,
+    output: Option<&Path>,
+) -> anyhow::Result<()> {
+    if privacy != PrivacyLevel::Anonymize || map.is_empty() {
+        return Ok(());
+    }
+    match write_sidecar(map, output) {
+        Ok(p) => {
+            eprintln!("agentprof: redaction map → {}", p.display());
+            Ok(())
+        }
+        Err((p, e)) => {
+            eprintln!("agentprof: warn: failed to write {}: {e}", p.display());
+            Err(ExitKind::OutputError.into_anyhow(format!("sidecar write failed: {}", p.display())))
+        }
     }
 }
