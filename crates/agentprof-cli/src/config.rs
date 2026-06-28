@@ -211,6 +211,35 @@ pub fn resolve_storage_config(
     Ok(cfg)
 }
 
+/// Resolve the effective `config.toml` path: `$AGENTPROF_CONFIG` (if set)
+/// wins, otherwise the platform XDG config dir
+/// (`config_dir()/agentprof/config.toml`).
+///
+/// Returns `None` only when no override is set **and** no platform base
+/// directory can be determined (rare — e.g. no `$HOME`). The file not
+/// existing is **not** `None`: the path is still returned so callers can
+/// report "not found".
+///
+/// # Examples
+///
+/// ```
+/// use std::path::PathBuf;
+/// std::env::set_var("AGENTPROF_CONFIG", "/tmp/agentprof-x.toml");
+/// assert_eq!(
+///     agentprof_cli::config::resolve_config_path(),
+///     Some(PathBuf::from("/tmp/agentprof-x.toml")),
+/// );
+/// std::env::remove_var("AGENTPROF_CONFIG");
+/// ```
+#[must_use]
+pub fn resolve_config_path() -> Option<PathBuf> {
+    if let Some(custom) = std::env::var_os("AGENTPROF_CONFIG") {
+        return Some(PathBuf::from(custom));
+    }
+    let dirs = directories::BaseDirs::new()?;
+    Some(dirs.config_dir().join("agentprof").join("config.toml"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

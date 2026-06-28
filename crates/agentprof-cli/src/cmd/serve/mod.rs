@@ -17,7 +17,7 @@ mod router;
 mod static_assets;
 
 use std::net::SocketAddr;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
@@ -285,7 +285,7 @@ fn resolve_serve_config(
 /// "no overrides" so the server can still start from CLI args +
 /// defaults.
 fn load_partial_serve_from_disk() -> Option<agentprof_cli::config::PartialServeConfig> {
-    let path = resolve_config_file_path()?;
+    let path = agentprof_cli::config::resolve_config_path()?;
     let src = match std::fs::read_to_string(&path) {
         Ok(s) => s,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
@@ -303,18 +303,6 @@ fn load_partial_serve_from_disk() -> Option<agentprof_cli::config::PartialServeC
             None
         }
     }
-}
-
-fn resolve_config_file_path() -> Option<PathBuf> {
-    if let Some(custom) = std::env::var_os("AGENTPROF_CONFIG") {
-        return Some(PathBuf::from(custom));
-    }
-    let dirs = directories::BaseDirs::new()?;
-    Some(
-        Path::new(dirs.config_dir())
-            .join("agentprof")
-            .join("config.toml"),
-    )
 }
 
 #[cfg(test)]

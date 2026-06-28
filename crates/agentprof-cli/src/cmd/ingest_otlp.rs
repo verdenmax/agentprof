@@ -351,7 +351,7 @@ fn build_otlp_server_config(
 /// `warn` level and likewise treated as "no overrides" so the receiver
 /// can still start from CLI args + defaults.
 fn load_partial_otlp_from_disk() -> Option<PartialOtlpServerConfig> {
-    let path = resolve_config_file_path()?;
+    let path = agentprof_cli::config::resolve_config_path()?;
     let src = match std::fs::read_to_string(&path) {
         Ok(s) => s,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
@@ -369,14 +369,6 @@ fn load_partial_otlp_from_disk() -> Option<PartialOtlpServerConfig> {
             None
         }
     }
-}
-
-fn resolve_config_file_path() -> Option<PathBuf> {
-    if let Some(custom) = std::env::var_os("AGENTPROF_CONFIG") {
-        return Some(PathBuf::from(custom));
-    }
-    let dirs = directories::BaseDirs::new()?;
-    Some(dirs.config_dir().join("agentprof").join("config.toml"))
 }
 
 #[cfg(unix)]

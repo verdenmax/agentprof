@@ -92,7 +92,7 @@ agentprof-cli  ──▶  agentprof-tui
 | `agentprof-adapters` | lib | `copilot`, `registry`, `datasource` (current); `claude`, `codex` (planned, Phase 3) | `serde_json`, `walkdir`, `globset` |
 | `agentprof-storage` | lib | SQLite persistence layer with hybrid cache/store mode (M2.1 ✅): `config::{StorageConfig, StorageMode, PartialStorageConfig}` (XDG-aware path resolution per [ADR-0019](internals/adr-0019-hybrid-storage-mode.md)), `db::Db` (handle + embedded migrations under `migrations/001_initial.sql`; pragmas `journal_mode=WAL` / `synchronous=NORMAL` / `foreign_keys=ON`), `upsert::upsert_report(db, report, raw_path, ingested_at_secs)` (atomic 3-table write), `query::{query_sessions_since, load_session}` (read API), `datasource::SqliteDataSource` (impl of `agentprof_core::datasource::SessionDataSource`, see [ADR-0018](internals/adr-0018-session-datasource-trait.md)), `admin::{stats, prune_before, vacuum, export_session_json}` (backs the `agentprof db` family), `error::SqliteError` (thiserror); **`otlp` submodule (feature `otlp`, M2.2 ✅)** — OTLP receiver: `config` / `error` / `typed` / `mapper` / `router` (per-session `SessionBuffer` + OOM caps) / `sweeper` / `sink_storage` (`StorageFlushSink` reusing `upsert_report`) / `pipeline` (`IngestPipeline`) / `server_grpc` (tonic 4317) / `server_http` (axum 4318, `/v1/{logs,metrics,traces}`) / `auth` (shared bearer interceptor + middleware) / `tls` (rustls + optional mTLS) / `proto` (generated stubs); see [ADR-0021](internals/adr-0021-otlp-receiver-architecture.md) | `rusqlite`(bundled), `serde_json`, `chrono`, `directories`; (feature `otlp`) `tonic`, `prost`, `axum`, `tokio`, `opentelemetry-proto`, `dashmap`, `rustls`, `rustls-pemfile`, `tower`, `bytes` |
 | `agentprof-tui` | lib | `app` (with `AppRunner`) + `app::{terminal,event,state}`, `views::{flamegraph, roi, aggregate, models, turn_detail, format}`, `theme`, `error` — **shipped M1.5** ([`README`](../crates/agentprof-tui/README.md), [ADR-0006](internals/adr-0006-panic-safe-tui.md)); + `watch::{WatchRunner, WatchData, RefreshKind, ReloadError, AggSortKey}` + cross-session arm in `views::aggregate` + `Event::Refresh` — **shipped M1.6.3** ([ADR-0009](internals/adr-0009-watch-runner-and-notify.md)); + `views::turn_detail` (F1 Enter-to-open) + `views::models` (F1.7 Models view, key `4`, surfaces session-level per-model token totals — see [ADR-0012](internals/adr-0012-session-model-metrics-and-models-view.md)) — post-MVP UX waves F1, F1.5–F1.19 layered on the M1.5 base | `ratatui 0.29`, `crossterm 0.28` |
-| `agentprof-cli` | bin (`agentprof`) | `cmd::analyze` ✅ M1.4 + `--export tui` (M1.5) + `--export speedscope\|html` ✅ M1.6.4，`cmd::list` ✅ M1.6.1，`cmd::aggregate` ✅ M1.6.2 (--by tool\|mcp-server\|day\|model, --export md\|json\|csv\|html) + `--export tui` ✅ M1.6.3（deferred from M1.6.2），`cmd::watch` ✅ M1.6.3 (单 session + `watch aggregate ...` 子模式)，`observability::{config, init, tui_guard}` ✅ M1.6.4 (tracing infra — global `--log-level` / `--log-file` + TUI auto-redirect + reload-Layer)，**`cmd::serve` ✅ M2.3 (feature `web`)** — live localhost dashboard: `mod` (clap `ServeCmd` + `resolve_serve_config` + `run`/`run_async` + SIGINT/SIGTERM graceful shutdown) / `state` (`Arc<Mutex<Db>>` + `interval_default`) / `router` (axum::Router with 12 routes) / `handlers` (5 dashboard views × 2 routes each + `/healthz` + `/static/:name`) / `static_assets` (`include_str!`/`include_bytes!` bundled CSS/JS/favicon); templates under `templates/dashboard/{layout,sessions,session,aggregate,mcp_waste_list,mcp_waste_detail}.html` + `chunks/*` + `static/*`. Also adds `format::html::render_body_only` + `format::aggregate_html::render_body_only` (sliced renderers for chunk embedding), `cmd::aggregate::compute_aggregate_from_store`, `cmd::mcp_waste::compute_aggregate_waste_from_store`. See [ADR-0024](internals/adr-0024-web-dashboard-architecture.md) + [`docs/features/web-dashboard.md`](features/web-dashboard.md). 其它子命令：`cmd::config` 规划中（Phase 2），`export` 已取消（与 `analyze --export` 重复），`config`, `main` | `clap`, `tracing`, `tracing-subscriber`, **`tracing-appender`**（M1.6.4 tracing，rolling-file writer），`anyhow`, `directories`, **`askama`**, **`csv`**, **`notify-debouncer-mini`**（M1.6.3，含 `notify` v6.1.1 transitive）; (feature `web`, M2.3) `axum`, `tower`, `tower-http`, `tokio`, `open` |
+| `agentprof-cli` | bin (`agentprof`) | `cmd::analyze` ✅ M1.4 + `--export tui` (M1.5) + `--export speedscope\|html` ✅ M1.6.4，`cmd::list` ✅ M1.6.1，`cmd::aggregate` ✅ M1.6.2 (--by tool\|mcp-server\|day\|model, --export md\|json\|csv\|html) + `--export tui` ✅ M1.6.3（deferred from M1.6.2），`cmd::watch` ✅ M1.6.3 (单 session + `watch aggregate ...` 子模式)，`observability::{config, init, tui_guard}` ✅ M1.6.4 (tracing infra — global `--log-level` / `--log-file` + TUI auto-redirect + reload-Layer)，**`cmd::serve` ✅ M2.3 (feature `web`)** — live localhost dashboard: `mod` (clap `ServeCmd` + `resolve_serve_config` + `run`/`run_async` + SIGINT/SIGTERM graceful shutdown) / `state` (`Arc<Mutex<Db>>` + `interval_default`) / `router` (axum::Router with 12 routes) / `handlers` (5 dashboard views × 2 routes each + `/healthz` + `/static/:name`) / `static_assets` (`include_str!`/`include_bytes!` bundled CSS/JS/favicon); templates under `templates/dashboard/{layout,sessions,session,aggregate,mcp_waste_list,mcp_waste_detail}.html` + `chunks/*` + `static/*`. Also adds `format::html::render_body_only` + `format::aggregate_html::render_body_only` (sliced renderers for chunk embedding), `cmd::aggregate::compute_aggregate_from_store`, `cmd::mcp_waste::compute_aggregate_waste_from_store`. See [ADR-0024](internals/adr-0024-web-dashboard-architecture.md) + [`docs/features/web-dashboard.md`](features/web-dashboard.md). 其它子命令：`cmd::config` ✅ L-4（`path` / `show` / `edit` / `init`，[ADR-0027](internals/adr-0027-config-subcommand.md)），`export` 已取消（与 `analyze --export` 重复），`main` | `clap`, `tracing`, `tracing-subscriber`, **`tracing-appender`**（M1.6.4 tracing，rolling-file writer），`anyhow`, `directories`, **`askama`**, **`csv`**, **`notify-debouncer-mini`**（M1.6.3，含 `notify` v6.1.1 transitive）; (feature `web`, M2.3) `axum`, `tower`, `tower-http`, `tokio`, `open` |
 | `xtask` | bin | `schema-audit`, `visual-guide` (M2.3.x, [ADR-0025](internals/adr-0025-visual-guide.md)) | `clap`, `askama`, `base64`, `serde`, `serde_json`, `chrono`, `agentprof-core`, `agentprof-adapters` |
 
 ---
@@ -385,7 +385,7 @@ M1.4 引入的纯函数 rollups，消费 `&Episodes` 产出 per-row 分析数据
 
 ## 8. CLI 协议（`agentprof <COMMAND>`）
 
-> **当前实现状态**（2026-06-28）：`analyze` ✅ M1.4 + `--export tui` M1.5 + `--export speedscope|html` M1.6.4 + `--section mcp-waste` M1.6.5 + `--tokens-per-tool` / `--tool-descriptions` M1.6.6 / `list` ✅ M1.6.1 / `aggregate` ✅ M1.6.2 + `--export tui` M1.6.3 + waste cols M1.6.5 + wasted-tokens col M1.6.6 / `watch` ✅ M1.6.3 / `mcp-waste` ✅ M1.6.5 + token-cost flags M1.6.6 / `ingest-otlp` ✅ M2.2（feature `otlp`，gRPC+HTTP receiver，`[otlp]` config block，端到端 transport 测试，drain on SIGINT/SIGTERM；架构见 [ADR-0021](internals/adr-0021-otlp-receiver-architecture.md)）已 ship / `db` ✅ M2.1（`db {init,stats,ingest,prune,vacuum,export}` 子命令家族）/ `serve` ✅ M2.3（feature `web`，localhost dashboard，[ADR-0024](internals/adr-0024-web-dashboard-architecture.md)）；`config` 规划中（Phase 2）；`export` 已取消（与 `analyze --export` 100% 重复，CLI surface 已移除）。
+> **当前实现状态**（2026-06-28）：`analyze` ✅ M1.4 + `--export tui` M1.5 + `--export speedscope|html` M1.6.4 + `--section mcp-waste` M1.6.5 + `--tokens-per-tool` / `--tool-descriptions` M1.6.6 / `list` ✅ M1.6.1 / `aggregate` ✅ M1.6.2 + `--export tui` M1.6.3 + waste cols M1.6.5 + wasted-tokens col M1.6.6 / `watch` ✅ M1.6.3 / `mcp-waste` ✅ M1.6.5 + token-cost flags M1.6.6 / `ingest-otlp` ✅ M2.2（feature `otlp`，gRPC+HTTP receiver，`[otlp]` config block，端到端 transport 测试，drain on SIGINT/SIGTERM；架构见 [ADR-0021](internals/adr-0021-otlp-receiver-architecture.md)）已 ship / `db` ✅ M2.1（`db {init,stats,ingest,prune,vacuum,export}` 子命令家族）/ `serve` ✅ M2.3（feature `web`，localhost dashboard，[ADR-0024](internals/adr-0024-web-dashboard-architecture.md)）/ `config` ✅ L-4（`config path|show|edit|init`，统一 `resolve_config_path`，[ADR-0027](internals/adr-0027-config-subcommand.md)）；`export` 已取消（与 `analyze --export` 100% 重复，CLI surface 已移除）。
 
 ```
 analyze [--agent copilot]                     # ✅ M1.4: copilot only; auto/claude/codex 留给 Phase 3
@@ -500,8 +500,18 @@ ingest-otlp [OPTIONS]                          # ✅ M2.2 (v0.3.0, feature: otlp
     `raw_path` 形如 `otlp://<session.id>`，下游 `analyze` / `list` /
     `aggregate` 与文件采集来源的 session 无差别对待。
 
-config  [show | edit | path]                   # 🚧 规划中 — Phase 2
-    XDG 配置：~/.config/agentprof/config.toml。
+config  <path | show | edit | init>            # ✅ L-4 (ADR-0027) — manage ~/.config/agentprof/config.toml
+    path                                       # 打印解析出的配置路径 + [exists]/[not found]；
+                                               #   设了 $AGENTPROF_CONFIG 时附 (from $AGENTPROF_CONFIG)
+    show                                        # 打印 effective 配置（built-in defaults 合并 file overrides），
+                                               #   每行标注 (default) / (from file)；复用真实 resolver 避免 drift；
+                                               #   未编进本 build 的 [otlp]/[serve] 显示 (feature not enabled in this build)
+    edit                                        # 在 $VISUAL（优先）/$EDITOR 打开（空值视为未设）；文件缺失时先写模板再打开
+    init [--force]                              # 写带注释的默认模板（仅 [storage] 生效）；已存在且无 --force → 退出 1
+    XDG 配置：$AGENTPROF_CONFIG，否则 ~/.config/agentprof/config.toml。
+    路径解析统一走 `resolve_config_path()`（`config` / `ingest-otlp` / `serve` 共享）。
+    退出码：0 成功 / 1 用户错误（init 已存在 / 无 editor / editor 非零）/
+    2 数据错误（show 解析失败）/ 3 I/O（无配置目录、写入 / spawn 失败）。
 
 serve   [OPTIONS]                              # ✅ M2.3 (v0.3.3, feature: web)
     启动本地 HTTP 仪表盘 (`agentprof serve`)：5 个 polling view
@@ -732,15 +742,14 @@ Schema is owned by `agentprof-storage/migrations/`; each migration file
 
 ## 10. 配置文件
 
-`~/.config/agentprof/config.toml`（XDG）：
+`$AGENTPROF_CONFIG`，否则 `~/.config/agentprof/config.toml`（XDG）。用
+`agentprof config` 管理此文件（`path` / `show` / `edit` / `init`，见 §8 +
+[ADR-0027](internals/adr-0027-config-subcommand.md)）。
+
+`PartialConfig` 用 `#[serde(deny_unknown_fields)]`，**只接受**下面三个已接线
+的块——`[storage]` / `[otlp]` / `[serve]`。未列出的 key 在加载时直接报错。
 
 ```toml
-[paths]
-claude  = "~/.claude/projects"
-codex   = "~/.codex/sessions"
-copilot = "~/.copilot/session-state"
-db      = "~/.local/share/agentprof/agentprof.sqlite"   # legacy alias; see [storage].path below
-
 [storage]                                  # ✅ M2.1 (v0.2.0)
 # "cache" (default; XDG_CACHE_HOME) | "store" (XDG_DATA_HOME, opt-in)
 mode = "cache"
@@ -748,14 +757,6 @@ mode = "cache"
 # path = "~/.cache/agentprof/cache.sqlite"
 # Cache mode only — ignored in store mode. 0 disables auto-pruning.
 auto_prune_days = 30
-
-[tokenizer]
-anthropic_estimator   = "cl100k"          # cl100k | api
-anthropic_api_key_env = "ANTHROPIC_API_KEY"
-
-[pricing]                                  # USD per 1M tokens
-"claude-sonnet-4.5" = { input = 3.0,  output = 15.0 }
-"gpt-5.2"           = { input = 1.25, output = 10.0 }
 
 [otlp]                                     # ✅ M2.2 T8.2 (feature: otlp)
 # Listener addresses ("" disables, omit → 127.0.0.1:4317 / :4318 defaults).
@@ -780,7 +781,29 @@ max_open_sessions         = 1024       # ADR-0022 D-3 (LRU evict above this)
 
 # Priority for [otlp] fields: CLI flag > env (AGENTPROF_OTLP_TOKEN) > this
 # config-file block > built-in defaults documented above.
+
+[serve]                                    # ✅ M2.3 (v0.3.3, feature: web)
+# Dashboard bind address (non-loopback warns at startup; ADR-0024 D-6).
+bind = "127.0.0.1:4329"
+# Browser-side default poll interval (seconds).
+interval_default = 5
+# Whether `serve` calls xdg-open on startup.
+auto_open = true
+# Priority: CLI flag > env > this config-file block > built-in defaults.
 ```
+
+> 🚧 **Planned, not yet wired.** `[paths]`、`[tokenizer]`、`[pricing]` 曾被
+> 文档化为 schema 的一部分，但 `PartialConfig` 用 `deny_unknown_fields` 且
+> 只 model `storage` / `otlp` / `serve`——**当前写这三个块会触发解析错误**
+> （`config show` 退出码 2）。它们保留给未来的里程碑（adapter 路径 /
+> pricing / tokenizer 接线），现在并不被消费。语义占位（接线后再纳入上面的
+> canonical 示例）：
+>
+> ```toml
+> # [paths]        # 各 adapter 的 session 根 + legacy db 别名
+> # [tokenizer]    # cl100k 近似 vs Anthropic API 估算
+> # [pricing]      # 每 1M token 的 USD 定价表
+> ```
 
 ---
 
@@ -1030,6 +1053,7 @@ pub fn compute_roi(/* ... */) -> Result<Vec<RoiRow>, CoreError> {
 | 0024 | Web dashboard architecture — axum + vanilla JS poller + chunk-endpoint pattern + store-mode-required (M2.3) | Accepted | 2026-06-11 |
 | 0025 | Visual guide architecture (`docs/visual-guide/` + `cargo xtask visual-guide`, post-M2.3 docs wave) | Accepted | 2026-06-13 |
 | 0026 | Report redaction — core `analyzer::redact` layer + `--privacy <none\|redact\|anonymize>` level semantics (analyze+aggregate; md/json/csv + aggregate html full, analyze html/speedscope flamegraph deferred) (L-1) | Accepted | 2026-06-28 |
+| 0027 | `agentprof config` subcommand (`path` / `show` / `edit` / `init`) — effective-value `show` + source annotation (reuses real resolvers, no drift) + unified `resolve_config_path` + §10 schema scoped to wired blocks (L-4) | Accepted | 2026-06-29 |
 
 ### 14.5 文档同步的 CI 强制
 

@@ -118,6 +118,7 @@ crate(s) it primarily binds.
 | [0024](./adr-0024-web-dashboard-architecture.md) | Web dashboard (`agentprof serve`) — axum + vanilla-JS poller + chunk-endpoint pattern + store-mode-required datasource | Accepted (M2.3) | `cli::cmd::serve` + `storage` + askama template |
 | [0025](./adr-0025-visual-guide.md) | Visual guide architecture — `docs/visual-guide/` + `cargo xtask visual-guide`, GH-Pages docs wave outside the cargo-dist release pipeline | Accepted | `xtask` + repo-level docs |
 | [0026](./adr-0026-report-redaction.md) | Report redaction — core `analyzer::redact` layer + `--privacy <none\|redact\|anonymize>` level semantics (analyze + aggregate; md/json/csv + aggregate html full, analyze html/speedscope flamegraph deferred) | Accepted (L-1) | `core::analyzer::redact` + `cli::cmd::{analyze, aggregate}` |
+| [0027](./adr-0027-config-subcommand.md) | `agentprof config` subcommand (`path` / `show` / `edit` / `init`) — effective-value `show` with `(default)`/`(from file)` annotation (reuses `resolve_storage_config` / `OtlpServerConfig::from_partial` to avoid drift), unified `resolve_config_path`, §10 schema scoped to wired blocks | Accepted (L-4) | `cli::cmd::config` + `cli::config` |
 
 No ADR is currently superseded. ADR-0011 extends ADR-0004 (the
 `derive_episodes` algorithm gains a PASS 0 args-map collection) and

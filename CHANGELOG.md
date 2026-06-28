@@ -18,6 +18,7 @@ prefix used in commit messages).
 
 ### Added
 
+- **cli:** `config` subcommand (`path` / `show` / `edit` / `init`) to manage the user config file (`$AGENTPROF_CONFIG`, else `~/.config/agentprof/config.toml`). `show` prints the **effective** configuration (built-in defaults merged with file overrides) with `(default)` / `(from file)` source annotation, reusing the real resolvers (`resolve_storage_config` / `OtlpServerConfig::from_partial`) so shown defaults can't drift; `edit` self-heals an absent file from a template; `init [--force]` writes a commented default. Unifies config-path resolution into `resolve_config_path()`, shared by `config` / `ingest-otlp` / `serve` (dedup of two prior copies). Scoped to the wired `[storage]` / `[otlp]` / `[serve]` blocks — fixes the architecture §10 schema that advertised parse-failing `[paths]` / `[tokenizer]` / `[pricing]`. (L-4, ADR-0027)
 - **cli:** `--privacy <none|redact|anonymize>` on `analyze` + `aggregate` — opt-in report redaction (L-1). New core `analyzer::redact` (PrivacyLevel/RedactionMap/AnalysisReport+AggregateReport::redact), `agentprof-redaction-map.json` sidecar at anonymize. md/json/csv fully redacted; html/speedscope flamegraph frames + episodes deferred to a future `Episodes::redact`. See ADR-0026.
 
 ### Added (docs — visual guide, M2.3.x)
