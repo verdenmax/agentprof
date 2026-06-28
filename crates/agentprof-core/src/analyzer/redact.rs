@@ -157,6 +157,117 @@ impl RedactionMap {
     }
 }
 
+impl crate::analyzer::AnalysisReport {
+    /// Return a redacted copy plus a [`RedactionMap`] (non-empty only for
+    /// [`PrivacyLevel::Anonymize`]). Pure: never fails, never panics.
+    ///
+    /// At [`PrivacyLevel::None`] this is the identity (clone + empty map).
+    /// At [`PrivacyLevel::Redact`] 🔴 HIGH fields (`cwd` / `branch` /
+    /// `repository`) become `<redacted>`, UUIDs become stable `<uuid-N>`
+    /// placeholders and models collapse to their family; the returned map
+    /// is empty. [`PrivacyLevel::Anonymize`] additionally strips
+    /// `agent_version` / `producer`, zeroes `started_at`, hashes MCP server
+    /// names, and fills the [`RedactionMap`] so a trusted holder can invert.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::adapter::AgentKind;
+    /// use agentprof_core::analyzer::AnalysisReport;
+    /// use agentprof_core::analyzer::redact::PrivacyLevel;
+    /// use agentprof_core::model::SessionMeta;
+    /// use chrono::Utc;
+    ///
+    /// let r = AnalysisReport::new(SessionMeta::new("id".into(), AgentKind::Copilot, Utc::now(), false));
+    /// let (red, map) = r.redact(PrivacyLevel::Redact);
+    /// assert!(map.is_empty());
+    /// ```
+    #[must_use]
+    pub fn redact(&self, level: PrivacyLevel) -> (Self, RedactionMap) {
+        if level == PrivacyLevel::None {
+            return (self.clone(), RedactionMap::default());
+        }
+        let anon = level == PrivacyLevel::Anonymize;
+        let mut out = self.clone();
+        let mut uuids = UuidRedactor::default();
+        let mut models: BTreeMap<String, String> = BTreeMap::new();
+        let mut servers: BTreeMap<String, String> = BTreeMap::new();
+
+        redact_opt(&mut out.meta.cwd);
+        redact_opt(&mut out.meta.branch);
+        redact_opt(&mut out.meta.repository);
+        out.meta.id = uuids.redact(&out.meta.id);
+
+        if anon {
+            redact_opt(&mut out.meta.agent_version);
+            redact_opt(&mut out.meta.producer);
+            out.meta.started_at = chrono::DateTime::<chrono::Utc>::UNIX_EPOCH;
+        }
+
+        for row in &mut out.turn_summary {
+            row.turn_id = uuids.redact(&row.turn_id);
+            if let Some(m) = row.model.take() {
+                let fam = model_family(&m);
+                models.entry(fam.clone()).or_insert(m);
+                row.model = Some(fam);
+            }
+        }
+
+        if let Some(mm) = out.model_metrics.take() {
+            let mut new_mm = BTreeMap::new();
+            for (model, usage) in mm {
+                let fam = model_family(&model);
+                models.entry(fam.clone()).or_insert(model);
+                new_mm.insert(fam, usage);
+            }
+            out.model_metrics = Some(new_mm);
+        }
+
+        if anon {
+            for row in &mut out.tool_rank {
+                record_mcp_server(&row.name, &mut servers);
+                row.name = hash_mcp_tool_name(&row.name);
+            }
+            out.loaded_mcp_tools = out
+                .loaded_mcp_tools
+                .iter()
+                .map(|t| {
+                    record_mcp_server(t, &mut servers);
+                    hash_mcp_tool_name(t)
+                })
+                .collect();
+        }
+
+        let map = if anon {
+            RedactionMap {
+                uuids: uuids.into_inverse(),
+                models,
+                mcp_servers: servers,
+            }
+        } else {
+            RedactionMap::default()
+        };
+        (out, map)
+    }
+}
+
+/// Replace a present `Option<String>` with `<redacted>` (keeps `None`).
+fn redact_opt(field: &mut Option<String>) {
+    if field.is_some() {
+        *field = Some("<redacted>".to_string());
+    }
+}
+
+/// If `name` is `mcp__server__tool`, record `hash8 → server` for the map.
+fn record_mcp_server(name: &str, out: &mut BTreeMap<String, String>) {
+    if let Some(rest) = name.strip_prefix("mcp__") {
+        if let Some((server, _tool)) = rest.split_once("__") {
+            out.entry(crate::observability::pii::hash_short(server))
+                .or_insert_with(|| server.to_string());
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
