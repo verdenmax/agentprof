@@ -241,6 +241,11 @@ impl crate::analyzer::AnalysisReport {
             for row in &mut out.tool_rank {
                 record_mcp_server(&row.name, &mut servers);
                 row.name = hash_mcp_tool_name(&row.name);
+                // I-1: scrub the parallel raw server in `source` with the
+                // SAME hash already embedded in `name` (no double-record).
+                if let crate::model::ToolSource::Mcp { server } = &mut row.source {
+                    *server = crate::observability::pii::hash_short(server);
+                }
             }
             out.loaded_mcp_tools = out
                 .loaded_mcp_tools
@@ -368,12 +373,16 @@ impl RedactBucket for ToolBucket {
         servers: &mut BTreeMap<String, String>,
     ) {
         // Hash the MCP server segment only at Anonymize; non-MCP names
-        // and the `source` field are left untouched.
+        // are left untouched. The parallel `source.server` (raw server
+        // name) is scrubbed with the SAME hash so it can't leak (I-1).
         if level != PrivacyLevel::Anonymize {
             return;
         }
         record_mcp_server(&self.name, servers);
         self.name = hash_mcp_tool_name(&self.name);
+        if let crate::model::ToolSource::Mcp { server } = &mut self.source {
+            *server = crate::observability::pii::hash_short(server);
+        }
     }
 }
 

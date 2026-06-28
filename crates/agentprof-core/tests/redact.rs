@@ -106,6 +106,51 @@ fn anonymize_hashes_mcp_tool_and_records_server() {
     );
 }
 
+// I-1: the parallel `source.server` must be scrubbed too, else the raw
+// MCP server name leaks in the serialized report despite the hashed name.
+#[test]
+fn anonymize_scrubs_raw_server_from_tool_source() {
+    let mut r = sample();
+    r.tool_rank.push(ToolRankRow::new(
+        "mcp__github__search_issues".into(),
+        ToolSource::Mcp {
+            server: "github".into(),
+        },
+        1,
+        1,
+        0,
+        0,
+        0,
+        Duration::zero(),
+        Duration::zero(),
+        Duration::zero(),
+        Duration::zero(),
+    ));
+
+    let (out, _map) = r.redact(PrivacyLevel::Anonymize);
+
+    // source.server is hashed, not the raw "github".
+    match &out.tool_rank[0].source {
+        ToolSource::Mcp { server } => {
+            assert_ne!(server, "github", "source.server must be hashed");
+            // same hash already embedded in the name segment.
+            assert!(
+                out.tool_rank[0].name.contains(server),
+                "name {} should embed hashed server {server}",
+                out.tool_rank[0].name
+            );
+        }
+        other => panic!("expected Mcp source, got {other:?}"),
+    }
+
+    // The serialized report must NOT leak the raw server name anywhere.
+    let json = serde_json::to_string(&out).unwrap();
+    assert!(
+        !json.contains("github"),
+        "serialized anonymized report still leaks raw server: {json}"
+    );
+}
+
 #[test]
 fn cross_site_uuid_stability() {
     let shared = "33333333-3333-3333-3333-333333333333";
@@ -194,7 +239,9 @@ fn redaction_clears_diagnostics() {
 
 // --- L-1 T3: AggregateReport::redact ---------------------------------------
 
-use agentprof_core::analyzer::aggregate::bucket::{DayBucket, McpServerBucket, ModelBucket};
+use agentprof_core::analyzer::aggregate::bucket::{
+    DayBucket, McpServerBucket, ModelBucket, ToolBucket,
+};
 use agentprof_core::analyzer::aggregate::{AggregateKey, AggregateReport};
 use chrono::NaiveDate;
 
@@ -207,6 +254,20 @@ fn model_bucket(model: &str) -> ModelBucket {
 
 fn mcp_bucket(server: &str) -> McpServerBucket {
     McpServerBucket::new(server.into(), 0, 0, 0, Duration::zero(), 0)
+}
+
+fn tool_bucket(name: &str, source: ToolSource) -> ToolBucket {
+    ToolBucket::new(
+        name.into(),
+        source,
+        0,
+        0,
+        0,
+        Duration::zero(),
+        Duration::zero(),
+        Duration::zero(),
+        0,
+    )
 }
 
 fn day_bucket(date: &str) -> DayBucket {
@@ -240,7 +301,61 @@ fn aggregate_mcp_server_hashed_only_at_anonymize() {
     assert!(m1.is_empty());
     let (anon, m2) = report.redact(PrivacyLevel::Anonymize);
     assert_ne!(anon.buckets[0].server, "github");
-    assert!(m2.mcp_servers.values().any(|v| v == "github"));
+    assert_eq!(
+        m2.mcp_servers.get(&anon.buckets[0].server),
+        Some(&"github".to_string())
+    );
+}
+
+// M-1: ToolBucket is the only aggregate bucket carrying a `source` field,
+// so its `redact_key` must scrub the raw MCP server from both `name` and
+// `source.server` at Anonymize (and leave everything alone at Redact).
+#[test]
+fn aggregate_tool_bucket_scrubs_source_at_anonymize() {
+    let report: AggregateReport<ToolBucket> = report(
+        AggregateKey::Tool,
+        vec![tool_bucket(
+            "mcp__github__search_issues",
+            ToolSource::Mcp {
+                server: "github".into(),
+            },
+        )],
+    );
+
+    // Redact: untouched (MCP names are 🟡 MEDIUM).
+    let (redacted, m1) = report.redact(PrivacyLevel::Redact);
+    assert_eq!(redacted.buckets[0].name, "mcp__github__search_issues");
+    assert_eq!(
+        redacted.buckets[0].source,
+        ToolSource::Mcp {
+            server: "github".into()
+        }
+    );
+    assert!(m1.is_empty());
+
+    // Anonymize: name hashed, source.server hashed, map inverts the hash.
+    let (anon, m2) = report.redact(PrivacyLevel::Anonymize);
+    let name = &anon.buckets[0].name;
+    assert!(name.starts_with("mcp__"), "got {name}");
+    assert!(name.ends_with("__search_issues"), "got {name}");
+    assert_ne!(name, "mcp__github__search_issues"); // server segment changed
+
+    let server = match &anon.buckets[0].source {
+        ToolSource::Mcp { server } => server.clone(),
+        other => panic!("expected Mcp source, got {other:?}"),
+    };
+    assert_ne!(server, "github", "source.server must be hashed");
+    assert!(
+        name.contains(&server),
+        "name {name} should embed hashed server {server}"
+    );
+
+    let json = serde_json::to_string(&anon).unwrap();
+    assert!(
+        !json.contains("github"),
+        "serialized anonymized aggregate still leaks raw server: {json}"
+    );
+    assert_eq!(m2.mcp_servers.get(&server), Some(&"github".to_string()));
 }
 
 #[test]
