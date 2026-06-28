@@ -170,7 +170,10 @@ impl crate::analyzer::AnalysisReport {
     /// placeholders and models collapse to their family; the returned map
     /// is empty. [`PrivacyLevel::Anonymize`] additionally strips
     /// `agent_version` / `producer`, zeroes `started_at`, hashes MCP server
-    /// names, and fills the [`RedactionMap`] so a trusted holder can invert.
+    /// names, zeroes each per-turn `turn_summary[i].started_at` (a 🟡 MEDIUM
+    /// wall-clock instant leaking working-hours/timezone), and fills the
+    /// [`RedactionMap`] so a trusted holder can invert. Per-turn `duration`
+    /// is preserved — it is the ROI signal, not PII.
     ///
     /// Diagnostic `warnings` / `parse_warnings` are cleared under redaction
     /// because their payloads embed raw event UUIDs and timestamps; they are
@@ -221,6 +224,15 @@ impl crate::analyzer::AnalysisReport {
                 let fam = model_family(&m);
                 models.entry(fam.clone()).or_insert(m);
                 row.model = Some(fam);
+            }
+        }
+
+        // turn rows — anonymize-only: per-turn wall-clock instant is 🟡 MEDIUM
+        // (working hours/timezone). Consistent with `meta.started_at` (kept at
+        // Redact, zeroed at Anonymize). `duration` is preserved (ROI signal).
+        if anon {
+            for row in &mut out.turn_summary {
+                row.started_at = chrono::DateTime::<chrono::Utc>::UNIX_EPOCH;
             }
         }
 

@@ -66,6 +66,25 @@ fn anonymize_strips_version_and_fills_map() {
 }
 
 #[test]
+fn anonymize_zeros_turn_started_at() {
+    let (out, _) = sample().redact(PrivacyLevel::Anonymize);
+    for row in &out.turn_summary {
+        assert_eq!(row.started_at, chrono::DateTime::<Utc>::UNIX_EPOCH);
+    }
+}
+
+#[test]
+fn redact_keeps_turn_started_at() {
+    let before = sample();
+    let (out, _) = before.redact(PrivacyLevel::Redact);
+    // Redact (not anonymize) must NOT zero turn timestamps (consistent w/ meta.started_at)
+    assert_eq!(
+        out.turn_summary[0].started_at,
+        before.turn_summary[0].started_at
+    );
+}
+
+#[test]
 fn none_is_identity() {
     let (out, map) = sample().redact(PrivacyLevel::None);
     assert_eq!(out, sample());
