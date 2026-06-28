@@ -78,6 +78,16 @@ pub struct AggregateCmd {
     /// Only consulted by `--by mcp-server`; ignored otherwise.
     #[arg(long, value_name = "PATH")]
     pub tool_descriptions: Option<PathBuf>,
+
+    /// Redact PII before rendering (see `analyze --privacy`).
+    ///
+    /// `none` (default) is a no-op. `redact` collapses each model id to
+    /// its two-segment family and strips MCP server/tool identifiers.
+    /// `anonymize` additionally writes an `agentprof-redaction-map.json`
+    /// sidecar mapping markers back to originals. Ignored for
+    /// `--export tui` (the interactive view renders unredacted data).
+    #[arg(long, value_enum, default_value_t = agentprof_core::analyzer::redact::PrivacyLevel::None)]
+    pub privacy: agentprof_core::analyzer::redact::PrivacyLevel,
 }
 
 /// Output format for `aggregate`.
@@ -204,9 +214,23 @@ pub fn run(
     }
 
     // Dispatch TUI before the renderers (it needs the raw report).
+    // The interactive cross-session view renders the *unredacted* report,
+    // so `--privacy` is meaningless here; warn (don't fail) and proceed.
     if matches!(cmd.export, AggExportFormat::Tui) {
+        if cmd.privacy != agentprof_core::analyzer::redact::PrivacyLevel::None {
+            tracing::warn!(flag = "--privacy", with = "--export tui", "flag ignored");
+        }
         return run_tui_for_aggregate(any_report, cfg, tracing_handle);
     }
+
+    // Redact AFTER the data source's cache write-through (raw sessions are
+    // cached inside `compute_aggregate_via_ds`, never the redacted report)
+    // and BEFORE rendering. At `PrivacyLevel::None` this is the identity, so
+    // non-privacy behavior is byte-for-byte unchanged. Both the filesystem
+    // and dual-path/store build sites converge into this single `any_report`,
+    // so one call covers every path. The shadowed binding guarantees every
+    // renderer below sees only the redacted copy.
+    let (any_report, redaction_map) = redact_any_report(any_report, cmd.privacy);
 
     // Render.
     let output = match cmd.export {
@@ -240,7 +264,60 @@ pub fn run(
         }
     }
 
+    // `anonymize` reverse-map sidecar — emitted AFTER the report is written
+    // so a sidecar I/O failure never masks a successful render. No-op unless
+    // the level is `Anonymize` and the map is non-empty.
+    crate::cmd::privacy::emit_redaction_sidecar(
+        &redaction_map,
+        cmd.privacy,
+        cmd.output.as_deref(),
+    )?;
+
     Ok(())
+}
+
+/// Redact the [`AnyAggregateReport`] by delegating to each variant's inner
+/// [`AggregateReport::redact`] (core T3), returning the redacted report plus
+/// a [`RedactionMap`] (non-empty only at `PrivacyLevel::Anonymize`).
+///
+/// Defined as a free function rather than an inherent method because
+/// [`AnyAggregateReport`] is owned by `agentprof-core`; the orphan rule
+/// forbids `agentprof-cli` adding inherent impls to it. At
+/// `PrivacyLevel::None` this is the identity (clone + empty map).
+///
+/// [`RedactionMap`]: agentprof_core::analyzer::redact::RedactionMap
+/// [`AggregateReport::redact`]: agentprof_core::analyzer::aggregate::AggregateReport::redact
+fn redact_any_report(
+    report: AnyAggregateReport,
+    level: agentprof_core::analyzer::redact::PrivacyLevel,
+) -> (
+    AnyAggregateReport,
+    agentprof_core::analyzer::redact::RedactionMap,
+) {
+    use AnyAggregateReport as A;
+    match report {
+        A::Tool(r) => {
+            let (r, m) = r.redact(level);
+            (A::Tool(r), m)
+        }
+        A::McpServer(r) => {
+            let (r, m) = r.redact(level);
+            (A::McpServer(r), m)
+        }
+        A::Day(r) => {
+            let (r, m) = r.redact(level);
+            (A::Day(r), m)
+        }
+        A::Model(r) => {
+            let (r, m) = r.redact(level);
+            (A::Model(r), m)
+        }
+        // `AnyAggregateReport` is `#[non_exhaustive]`; a future bucket variant
+        // would land here. Failing loudly is the privacy-safe choice — a
+        // pass-through wildcard would emit that variant *un-redacted*. Refuse
+        // rather than leak. All current variants are handled above.
+        _ => unreachable!("unhandled AnyAggregateReport variant in redact_any_report"),
+    }
 }
 
 /// Run the load-and-compute half of `agentprof aggregate`, returning
@@ -849,6 +926,7 @@ mod tests {
             low_utilization_threshold: 20.0,
             tokens_per_tool: agentprof_core::analyzer::waste::DEFAULT_HEURISTIC_TOKENS,
             tool_descriptions: None,
+            privacy: agentprof_core::analyzer::redact::PrivacyLevel::None,
         };
         let adapter = CopilotAdapter;
         let (any, refs_total) = compute_aggregate(&adapter, &cmd)

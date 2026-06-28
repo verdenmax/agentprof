@@ -16,6 +16,10 @@ prefix used in commit messages).
 > Next milestone TBD. v0.4.0 reserved for Phase 3 multi-agent
 > (M3.1 ClaudeAdapter + M3.2 CodexAdapter).
 
+### Added
+
+- **cli:** `--privacy <none|redact|anonymize>` on `analyze` + `aggregate` — opt-in report redaction (L-1). New core `analyzer::redact` (PrivacyLevel/RedactionMap/AnalysisReport+AggregateReport::redact), `agentprof-redaction-map.json` sidecar at anonymize. md/json/csv fully redacted; html/speedscope flamegraph frames + episodes deferred to a future `Episodes::redact`. See ADR-0026.
+
 ### Added (docs — visual guide, M2.3.x)
 
 - **`docs/visual-guide/`**: 中文 HTML 可视化教程（14 课分两章 — 用法 6 课 + Wiki 8 课）。源码 + 14 个内容模块在 `xtask/src/visual_guide/`，模板在 `xtask/templates/visual_guide/`，资产在 `docs/visual-guide/assets/`。生成的 `*.html` 不入 git（[ADR-0025](docs/internals/adr-0025-visual-guide.md) D-2）。

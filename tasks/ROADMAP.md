@@ -312,7 +312,7 @@ Pre-1.0（即 `0.X.Y`）期间，允许 minor bump 包含 breaking change（但�
 
 | # | 限制 | 严重度 | 详细文档 | 计划修复 |
 |---|---|---|---|---|
-| L-1 | **隐私字段默认裸露**：`agentprof analyze` 输出含 cwd / branch / model 内部名 / session UUID / ~800 turn UUIDs，分享报告前需要手动 `sed`/`jq` 脱敏 | 🔴 HIGH | [`docs/features/privacy.md`](../docs/features/privacy.md) | M1.5+ `--redact` / `--anonymize` flags（同上文档 §4） |
+| L-1 | ~~隐私字段默认裸露~~ → **✅ `--privacy redact\|anonymize`** (analyze+aggregate; md/json/csv full, html/speedscope flamegraph deferred) | ✅ FIXED | [ADR-0026](../docs/internals/adr-0026-report-redaction.md) + [privacy.md §4](../docs/features/privacy.md) | — |
 | L-2 | **Subagent token over-attribution**：subagent message（`parentToolCallId` 携带，无 `turnId`）的 `output_tokens` 被算到父 turn — 总数对、per-turn 数偏高 | 🟡 MEDIUM | [ADR-0005 §6 "Side effect"](../docs/internals/adr-0005-analyzer-and-payload-name.md#update-6-post-output-audit-fixes-parse-warning-visibility-schema-mismatches-user-blocking-split) + `crates/agentprof-adapters/tests/fixtures/copilot/with-post-tool-use-hooks/README.md` | M1.5+ 增加 `Turn.subagent_output_tokens` 字段拆分 |
 | L-3 | **Turn Summary 无分页**：长 session（745+ turns）一次性吐表，终端 / 富文本编辑器 / GitHub 渲染都比较吃力 | 🟡 MEDIUM | [`docs/superpowers/specs/2026-05-29-post-output-audit-design.md`](../docs/superpowers/specs/2026-05-29-post-output-audit-design.md) §3 "Deferred" | M1.5+（与 TUI 一起；TUI 天然分页） |
 | L-4 | **CLI 子命令仍少**：`analyze` (M1.4) + `--export speedscope\|html` (M1.6.4 2026-05-31) + `list` (M1.6.1) + `aggregate` (M1.6.2 + `--export tui` M1.6.3) + `watch` (M1.6.3) + global `--log-level` / `--log-file` (M1.6.4 2026-06-02 tracing infra) ✅；`config` 未实现（`ingest-otlp` ✅ v0.2.1 / `db` ✅ v0.2.0 / `serve` ✅ v0.3.3 / `mcp-waste` ✅ 均已加）；`export` 已取消（与 `analyze --export` 重复） | 🟡 MEDIUM | [`crates/agentprof-cli/README.md`](../crates/agentprof-cli/README.md) + [M1.6.1 spec](../docs/superpowers/specs/2026-05-30-m1.6.1-list-and-polish-design.md) + [M1.6.2 spec](../docs/superpowers/specs/2026-06-01-m1.6.2-aggregate-design.md) + [M1.6.3 spec](../docs/superpowers/specs/2026-06-01-m1.6.3-watch-and-aggregate-tui-design.md) + [M1.6.4 Speedscope spec](../docs/superpowers/specs/2026-05-31-m1.6.4-speedscope-and-html-export-design.md) + [M1.6.4 tracing spec](../docs/superpowers/specs/2026-06-02-tracing-design.md) + [ADR-0007](../docs/internals/adr-0007-speedscope-export.md) + [ADR-0008](../docs/internals/adr-0008-aggregate-report-and-utilization.md) + [ADR-0009](../docs/internals/adr-0009-watch-runner-and-notify.md) + [ADR-0010](../docs/internals/adr-0010-tracing-infrastructure.md) | Phase 2 (`config` 仅剩此项，待定) |
@@ -331,7 +331,8 @@ Pre-1.0（即 `0.X.Y`）期间，允许 minor bump 包含 breaking change（但�
 | # | 想法 | 触发来源 | 何时考虑 |
 |---|---|---|---|
 | F-1 | `Turn.subagent_output_tokens` 字段拆分主 / sub-agent 贡献 | L-2 后续 | M1.5+ 与 ROI 一起 |
-| F-2 | `--redact` / `--anonymize` CLI flag（含 stable per-session UUID mapping）| L-1 后续 | M1.5+ 与 `aggregate` 子命令一起 |
+| F-2 | ~~`--redact` / `--anonymize` CLI flag~~ → **✅ 已实现** as `--privacy <none\|redact\|anonymize>` (含 stable per-session UUID mapping) | L-1 后续 | ✅ L-1 ([ADR-0026](../docs/internals/adr-0026-report-redaction.md)) |
+| F-10 | `Episodes::redact`（修 html/speedscope flamegraph 仍漏 turn-ids / MCP server names）+ `list --privacy`（per-session 行的小 PII 面） | L-1 deferred scope | L-1 后续 / 视用户分享 html 的需求 |
 | F-3 | `Mode` 词汇扩展（更多 Copilot CLI 模式落地后补 variant）| `Mode::Unknown(String)` fallback 设计 | 持续，发现新 mode 就补 |
 | F-4 | 通用 OpenAI-compatible 代理拦截模式（不需要每家 adapter） | [`docs/plan.md`](../docs/plan.md) §6 Phase 3 | Phase 3+ |
 | F-5 | ~~Speedscope / HTML / CSV 导出~~ → **✅ 已实现** | FR-6 原始设计 | M1.6.2 / M1.6.4 ✅（`analyze --export speedscope\|html`、`aggregate --export csv`） |
