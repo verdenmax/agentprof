@@ -1,0 +1,7 @@
+# Force LF so askama templates / snapshots / SVGs don't become CRLF on Windows
+# checkouts — serve/render snapshot tests compare LF-normalized HTML.
+* text=auto eol=lf
+*.html text eol=lf
+*.snap text eol=lf
+*.svg text eol=lf
+*.jsonl text eol=lf

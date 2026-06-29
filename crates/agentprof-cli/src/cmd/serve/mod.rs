@@ -621,7 +621,7 @@ mod router_tests {
                 .to_vec(),
         )
         .expect("utf8");
-        let normalized = body.replace(
+        let normalized = body.replace("\r\n", "\n").replace(
             concat!("agentprof v", env!("CARGO_PKG_VERSION")),
             "agentprof v<VERSION>",
         );
