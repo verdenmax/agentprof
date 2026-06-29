@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="270" viewBox="0 0 860 270" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">
+  <rect width="860" height="270" fill="#0d1117"/>
+  <text x="20" y="30" fill="#e6edf3" font-size="15" font-weight="700" font-family="ui-sans-serif,sans-serif">MCP server waste — loaded vs called (illustrative)</text>
+  <!-- header -->
+  <text x="24" y="64" fill="#8b949e" font-size="12">server</text>
+  <text x="300" y="64" fill="#8b949e" font-size="12">loaded</text>
+  <text x="410" y="64" fill="#8b949e" font-size="12">called</text>
+  <text x="520" y="64" fill="#8b949e" font-size="12">unused tok</text>
+  <text x="680" y="64" fill="#8b949e" font-size="12">verdict</text>
+  <line x1="20" y1="72" x2="840" y2="72" stroke="#30363d"/>
+  <!-- rows -->
+  <text x="24" y="100" fill="#e6edf3" font-size="13">filesystem</text><text x="300" y="100" fill="#e6edf3" font-size="13">12</text><text x="410" y="100" fill="#3fb950" font-size="13">9</text><text x="520" y="100" fill="#8b949e" font-size="13">~0.4k</text><text x="680" y="100" fill="#3fb950" font-size="13">★ keep</text>
+  <text x="24" y="130" fill="#e6edf3" font-size="13">github</text><text x="300" y="130" fill="#e6edf3" font-size="13">18</text><text x="410" y="130" fill="#d29922" font-size="13">2</text><text x="520" y="130" fill="#d29922" font-size="13">~2.6k</text><text x="680" y="130" fill="#d29922" font-size="13">▼ trim</text>
+  <text x="24" y="160" fill="#e6edf3" font-size="13">playwright</text><text x="300" y="160" fill="#e6edf3" font-size="13">22</text><text x="410" y="160" fill="#f85149" font-size="13">0</text><text x="520" y="160" fill="#f85149" font-size="13">~3.2k</text><text x="680" y="160" fill="#f85149" font-size="13">✗ kill</text>
+  <line x1="20" y1="178" x2="840" y2="178" stroke="#30363d"/>
+  <rect x="20" y="196" width="820" height="40" rx="6" fill="#161b22" stroke="#30363d"/>
+  <text x="34" y="221" fill="#8b949e" font-size="12" font-family="ui-sans-serif,sans-serif">52 tools loaded, 11 called — drop playwright to reclaim ~3.2k tokens/session</text>
+</svg>
