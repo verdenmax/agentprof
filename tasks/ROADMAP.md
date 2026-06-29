@@ -332,7 +332,7 @@ Pre-1.0（即 `0.X.Y`）期间，允许 minor bump 包含 breaking change（但�
 |---|---|---|---|
 | F-1 | `Turn.subagent_output_tokens` 字段拆分主 / sub-agent 贡献 | L-2 后续 | M1.5+ 与 ROI 一起 |
 | F-2 | ~~`--redact` / `--anonymize` CLI flag~~ → **✅ 已实现** as `--privacy <none\|redact\|anonymize>` (含 stable per-session UUID mapping) | L-1 后续 | ✅ L-1 ([ADR-0026](../docs/internals/adr-0026-report-redaction.md)) |
-| F-10 | `Episodes::redact`（修 html/speedscope flamegraph 仍漏 turn-ids / MCP server names）+ `list --privacy`（per-session 行的小 PII 面） | L-1 deferred scope | L-1 后续 / 视用户分享 html 的需求 |
+| F-10 | ~~`Episodes::redact`（修 html/speedscope flamegraph 仍漏 turn-ids / MCP server names）+ `list --privacy`（per-session 行的小 PII 面）~~ → **✅ 已实现**（shared `RedactionContext` + `Episodes::redact_with`，analyze html/speedscope 全脱敏，`list --privacy`） | L-1 deferred scope | ✅ F-10 ([ADR-0028](../docs/internals/adr-0028-episodes-redaction.md))，关闭 ADR-0026 deferred |
 | F-3 | `Mode` 词汇扩展（更多 Copilot CLI 模式落地后补 variant）| `Mode::Unknown(String)` fallback 设计 | 持续，发现新 mode 就补 |
 | F-4 | 通用 OpenAI-compatible 代理拦截模式（不需要每家 adapter） | [`docs/plan.md`](../docs/plan.md) §6 Phase 3 | Phase 3+ |
 | F-5 | ~~Speedscope / HTML / CSV 导出~~ → **✅ 已实现** | FR-6 原始设计 | M1.6.2 / M1.6.4 ✅（`analyze --export speedscope\|html`、`aggregate --export csv`） |

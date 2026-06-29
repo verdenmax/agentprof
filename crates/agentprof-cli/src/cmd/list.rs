@@ -3,7 +3,7 @@
 //! Discovers Copilot sessions in the default session-state root (or
 //! `--root` override), filters by `--since DURATION` (mtime), truncates
 //! to `--limit N`, runs the full `analyze` pipeline per session, and
-//! prints a 7-column plain-text table to stdout. Per-session failures
+//! prints an 8-column plain-text table to stdout. Per-session failures
 //! degrade gracefully (skipped row, summary line to stderr at end).
 //!
 //! Defaults `--since 7d --limit 20` keep typical invocations bounded
@@ -65,6 +65,14 @@ pub struct ListCmd {
     /// Maximum sessions to show. `0` means unlimited.
     #[arg(long, default_value_t = 20)]
     pub limit: usize,
+
+    /// Redact 🔴 HIGH identifiers in the table before printing. `none`
+    /// (default) is unchanged; `redact`/`anonymize` replace each session
+    /// id with `<uuid-N>` and collapse model→family (cwd/branch are not
+    /// table columns). `list` writes no sidecar map, so `redact` and
+    /// `anonymize` produce identical output here.
+    #[arg(long, value_enum, default_value_t = agentprof_core::analyzer::redact::PrivacyLevel::None)]
+    pub privacy: agentprof_core::analyzer::redact::PrivacyLevel,
 }
 
 /// Successfully-analyzed row destined for the output table.
@@ -195,6 +203,9 @@ pub fn run(
     }
 
     let use_bold = std::io::stdout().is_terminal();
+    if cmd.privacy != agentprof_core::analyzer::redact::PrivacyLevel::None {
+        redact_rows(&mut rows);
+    }
     let table = format_table(&rows, use_bold);
     print!("{table}");
     println!(
@@ -285,6 +296,26 @@ fn analyze_one(ds: &dyn SessionDataSource, sref: &SessionRef) -> anyhow::Result<
         duration,
         size_bytes,
     })
+}
+
+/// Redact the displayed 🔴 HIGH identifiers in-place across all rows.
+///
+/// Threads ONE [`RedactionContext`](agentprof_core::analyzer::redact::RedactionContext)
+/// so identical session ids collapse to the same `<uuid-N>` within a single
+/// list invocation. The only displayed HIGH fields are the session id
+/// (→ stable `<uuid-N>`) and the model (→ family via
+/// [`model_family`](agentprof_core::analyzer::redact::model_family)); cwd and
+/// branch never reach the table. `list` is map-less, so `Redact` and
+/// `Anonymize` behave identically here. Pure: never fails, never panics.
+fn redact_rows(rows: &mut [ListRow]) {
+    use agentprof_core::analyzer::redact::{model_family, RedactionContext};
+    let mut ctx = RedactionContext::default();
+    for row in rows.iter_mut() {
+        row.id = ctx.redact_uuid(&row.id);
+        if let Some(model) = &row.model {
+            row.model = Some(model_family(model));
+        }
+    }
 }
 
 // `parse_since` moved to `crate::cmd::since` per full-review CLI #1

@@ -336,13 +336,9 @@ pub fn run(
     }
 
     // Redact AFTER the cache write-through above so the cache always stores
-    // the original (real) data, never the redacted copy. The shadowed
-    // `report` below is only used for rendering + the sidecar.
-    let (report, redaction_map) = report.redact(cmd.privacy);
-
-    // Part B (deferred-with-guard): warn that flamegraph frames still leak
-    // original turn-ids even after the meta is redacted above. See the helper.
-    warn_unredacted_flamegraph(&cmd);
+    // the original (real) data. Thread ONE context through both reports so the
+    // table + flamegraph share turn-ids and the flamegraph is fully redacted.
+    let (report, episodes, redaction_map) = redact_pair(&report, &episodes, cmd.privacy);
 
     // Pass the REDACTED report's meta (not `raw.meta`) so html/speedscope render
     // the redacted session id + started_at. At `PrivacyLevel::None` it is
@@ -352,23 +348,40 @@ pub fn run(
     crate::cmd::privacy::emit_redaction_sidecar(&redaction_map, cmd.privacy, cmd.output.as_deref())
 }
 
-/// Warn that html/speedscope flamegraph frames keep original turn-ids.
+/// Redact a report and its episodes through a single shared context.
 ///
-/// Part A redacts [`AnalysisReport::meta`], but the html/speedscope flamegraph
-/// frames are built from `episodes` (un-redacted) — there is no
-/// `Episodes::redact` yet — so original turn-ids and MCP server names still leak
-/// into the SVG/frames. This warns (without blocking) when a privacy level is
-/// active and the export is `Html` or `Speedscope`, steering fully-redacted
-/// sharing to `md`/`json`.
-fn warn_unredacted_flamegraph(cmd: &AnalyzeCmd) {
-    if cmd.privacy != agentprof_core::analyzer::redact::PrivacyLevel::None
-        && matches!(cmd.export, ExportFormat::Html | ExportFormat::Speedscope)
-    {
-        tracing::warn!(
-            export = ?cmd.export,
-            "flamegraph frames retain original turn-ids and MCP server names; episodes are not yet redacted — use --export md|json for fully-redacted sharing"
-        );
-    }
+/// Threading one [`RedactionContext`](agentprof_core::analyzer::redact::RedactionContext)
+/// through both the [`AnalysisReport`] and its [`Episodes`] keeps turn-ids
+/// consistent, so the table and the flamegraph share identifiers and the
+/// flamegraph carries no original turn-id or raw MCP server name. At
+/// [`PrivacyLevel::None`](agentprof_core::analyzer::redact::PrivacyLevel) this
+/// is the identity (clone) and the map is empty. The non-empty map is returned
+/// only for `Anonymize`.
+///
+/// # Examples
+///
+/// ```text
+/// let (report, episodes, map) = redact_pair(report, episodes, PrivacyLevel::Anonymize);
+/// ```
+fn redact_pair(
+    report: &AnalysisReport,
+    episodes: &Episodes,
+    level: agentprof_core::analyzer::redact::PrivacyLevel,
+) -> (
+    AnalysisReport,
+    Episodes,
+    agentprof_core::analyzer::redact::RedactionMap,
+) {
+    use agentprof_core::analyzer::redact::{PrivacyLevel, RedactionContext, RedactionMap};
+    let mut ctx = RedactionContext::default();
+    let report = report.redact_with(level, &mut ctx);
+    let episodes = episodes.redact_with(level, &mut ctx);
+    let map = if level == PrivacyLevel::Anonymize {
+        ctx.into_map()
+    } else {
+        RedactionMap::default()
+    };
+    (report, episodes, map)
 }
 
 /// Write the freshly-computed `AnalysisReport` and `Episodes` into the

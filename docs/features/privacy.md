@@ -11,9 +11,10 @@
 > **Status.** The *report* surface now ships opt-in redaction via
 > `--privacy <none|redact|anonymize>` on `analyze` + `aggregate`
 > (see [§4](#4---privacy-noneredactanonymize-shipped-l-1)). `md` / `json` /
-> `csv` — and **aggregate**'s table-only `html` — are fully redacted; only
-> **analyze**'s `html` / `speedscope` flamegraph frames still leak
-> (deferred `Episodes::redact`).
+> `csv` — **aggregate**'s table-only `html` — and now **analyze**'s `html` /
+> `speedscope` flamegraph frames are all fully redacted (F-10): episodes are
+> redacted through the same context as the report, so turn-ids stay consistent
+> and no original turn-id or raw MCP server name survives.
 > The manual cheat sheet in [§3](#3-manual-redaction-cheat-sheet) remains
 > useful for `list` (not yet covered) and for ad-hoc one-off scrubbing.
 >
@@ -83,7 +84,7 @@ information (SII), graded by sensitivity.
 
 Until `--privacy` covered every format ([§4](#4---privacy-noneredactanonymize-shipped-l-1)),
 manual scrubbing was the only option. It remains useful for `list` (not yet
-covered) and for the `html` / `speedscope` flamegraph residue; the following
+covered) and for ad-hoc one-off scrubbing; the following
 patterns cover most cases for sharing a report publicly.
 
 ### 3.1 `--export md` output
@@ -188,26 +189,31 @@ one-way and are **not** in the map.
 | `md` / `json` | ✅ **fully redacted** — safe for public sharing |
 | **aggregate** `csv` | ✅ **fully redacted** — aggregate-only export; safe for public sharing |
 | **aggregate** `html` (table-only) | ✅ **fully redacted** — `aggregate_html::render` takes **no** `episodes`, so there is no flamegraph anywhere and nothing to leak |
-| **analyze** `html` (flamegraph) | report meta + tables redacted, **but** the flamegraph SVG still leaks original turn-ids **and** raw MCP server names (built from un-redacted `episodes`) |
-| **analyze** `speedscope` | report meta redacted; frames use ordinal names (no turn-id leak) **but** raw MCP server names leak in the frame table |
+| **analyze** `html` (flamegraph) | ✅ **fully redacted** — episodes are redacted through the same context as the report (F-10), so frames carry no original turn-id or raw MCP server name |
+| **analyze** `speedscope` | ✅ **fully redacted** — report meta + frame table redacted; episodes share the report's redaction context (F-10) |
 | `tui` | **not redacted** — local-only surface; `--privacy` + `--export tui` warns |
 
-> **Why analyze's html / speedscope flamegraph frames still leak:** the
-> flamegraph is built from `episodes`, which the redaction pass does not yet
-> cover (there is no `Episodes::redact` yet — tracked future work). `analyze`
-> fires a `tracing::warn!` under `--export html|speedscope` + any privacy
-> level. **`aggregate`'s html is table-only (no flamegraph) and is fully
-> redacted, as are aggregate `csv` / `md` / `json`.** For fully-redacted
-> `analyze` sharing, use `--export md` or `--export json`.
+> **analyze html / speedscope are now fully redacted (F-10):** the flamegraph
+> is built from `episodes`, which are redacted through the **same**
+> `RedactionContext` as the report — table and flamegraph share turn-ids and no
+> original turn-id or raw MCP server name leaks. `aggregate`'s html is
+> table-only (no flamegraph) and likewise fully redacted, as are aggregate
+> `csv` / `md` / `json`.
 
-### 4.4 Not yet covered (future work)
+### 4.4 `list --privacy` (shipped, F-10)
 
-- **`Episodes::redact`** — close the html / speedscope flamegraph-frame leak
-  (turn-ids + MCP server names).
-- **`list --privacy`** — `list` has a far smaller per-session-row PII面 and is
-  rarely shared; deferred.
+- **`list --privacy <none|redact|anonymize>`** redacts per-session rows:
+  session id → stable `<uuid-N>`, model → family. `cwd` / `branch` never
+  reach the table, so `list` writes no sidecar and `redact` / `anonymize`
+  behave identically. (ADR-0028)
 
-Both are tracked in [`tasks/ROADMAP.md`](../../tasks/ROADMAP.md) §6.2.
+### 4.5 Not yet covered (future work)
+
+- **Tool arguments** are kept verbatim at every level — `ToolCall.arguments`
+  carry path/secret PII (§8). Tool-arg scrubbing is a separate RFC, so JSON
+  export of anonymized episodes may still leak args.
+
+Tracked in [`tasks/ROADMAP.md`](../../tasks/ROADMAP.md) §6.2.
 
 ## 5. Defense in depth — workspace conventions
 

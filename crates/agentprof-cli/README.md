@@ -26,10 +26,12 @@ Subcommand wiring (current):
   redaction (L-1). `redact` strips 🔴 HIGH PII (cwd / branch / repository →
   `<redacted>`, UUIDs → stable `<uuid-N>`, model → family); `anonymize` adds
   version / `started_at` zeroing + MCP-server hashing and writes a
-  `agentprof-redaction-map.json` sidecar. `md` / `json` are fully
-  redacted; `html` / `speedscope` flamegraph frames still leak turn-ids / MCP
-  names (deferred — use `md` / `json` for full redaction). See
+  `agentprof-redaction-map.json` sidecar. All `analyze` formats — `md` /
+  `json` / `html` / `speedscope` — are fully redacted: episodes are redacted
+  through the same context as the report, so the flamegraph leaks no original
+  turn-id or MCP server name (F-10). See
   [ADR-0026](../../docs/internals/adr-0026-report-redaction.md) +
+  [ADR-0028](../../docs/internals/adr-0028-episodes-redaction.md) +
   [`docs/features/privacy.md`](../../docs/features/privacy.md) §4.
 - `--section turn-summary,tool-rank,hook-rank[,mcp-waste]` (md / json / html;
   Session header + Warnings always included. `mcp-waste` is **opt-in only**
@@ -182,6 +184,7 @@ agentprof list --since 24h --limit 5
 | `--root` | adapter default | Override default session-state root |
 | `--since` | `7d` | Filter by mtime; accepts `<N>d/h/m/s` or `all` |
 | `--limit` | `20` | Max sessions shown; `0` = unlimited |
+| `--privacy` | `none` | F-10 — redact displayed identifiers before printing. `redact`/`anonymize` replace each session id with `<uuid-N>` (stable within one invocation) and collapse model→family. No sidecar map is written for `list`, so `redact` and `anonymize` are identical here. |
 
 **Error handling:** per-session parse failures degrade gracefully — successful rows still printed; failures summarized to stderr at end. All-failure case exits `DataError` (2).
 

@@ -396,7 +396,7 @@ analyze [--agent copilot]                     # ✅ M1.4: copilot only; auto/cla
         [--section turn-summary,tool-rank,hook-rank,mcp-waste]   # 只影响 --export md；默认全部（--export tui 时会 warn 并忽略）；`mcp-waste` ✅ M1.6.5
         [--tokens-per-tool 200]               # ✅ M1.6.6 — heuristic token cost per MCP tool when no sidecar covers it; only consulted by --section mcp-waste
         [--tool-descriptions <path>]          # ✅ M1.6.6 — sidecar (file or dir, ~ expanded) of per-tool descriptions for exact tiktoken counts; only consulted by --section mcp-waste
-        [--privacy none|redact|anonymize]     # ✅ L-1 — opt-in report redaction (default none); anonymize writes `agentprof-redaction-map.json` sidecar; md/json fully redacted, analyze html/speedscope flamegraph frames retain original turn-ids + MCP server names (deferred, see ADR-0026)
+        [--privacy none|redact|anonymize]     # ✅ L-1 — opt-in report redaction (default none); anonymize writes `agentprof-redaction-map.json` sidecar; all formats (md/json/html/speedscope) fully redacted — episodes share the report's `RedactionContext` (F-10, see ADR-0026/ADR-0028)
     分析单个 session（默认 latest），输出 markdown / JSON 报告或进入 TUI。
     Session 选择优先级：显式 path > UUID > latest/previous（按 mtime 排序）。
     --export tui 要求 stdin 和 stdout 都是 TTY；否则提示并退出。
@@ -406,6 +406,7 @@ list    [--agent copilot]                     # ✅ M1.6.1: copilot only
         [--root <dir>]                        # 覆盖 adapter 默认 session-state 根
         [--since 7d]                          # 按 mtime 过滤；接受 <N>d/h/m/s 或 all；默认 7d
         [--limit 20]                          # 最多展示数；0 = 无上限；默认 20
+        [--privacy none|redact|anonymize]     # ✅ F-10 — opt-in row redaction (default none); per-session id→<uuid-N>, cwd/branch→<redacted>, model→family; no sidecar (see ADR-0028)
     列出最近的 session，8 列紧凑表格：ID / Started (UTC) / Model / Turns / Out-tokens / Cache% / Duration / Size。
     单 session 解析失败不会拖垮命令；成功行正常输出，失败汇总到 stderr。
     全部失败时退出 DataError (2)。
@@ -1052,8 +1053,9 @@ pub fn compute_roi(/* ... */) -> Result<Vec<RoiRow>, CoreError> {
 | 0023 | Cache token analytics — centralized compute + naive/honest formulas + dual-render policy (M2.5) | Accepted | 2026-06-11 |
 | 0024 | Web dashboard architecture — axum + vanilla JS poller + chunk-endpoint pattern + store-mode-required (M2.3) | Accepted | 2026-06-11 |
 | 0025 | Visual guide architecture (`docs/visual-guide/` + `cargo xtask visual-guide`, post-M2.3 docs wave) | Accepted | 2026-06-13 |
-| 0026 | Report redaction — core `analyzer::redact` layer + `--privacy <none\|redact\|anonymize>` level semantics (analyze+aggregate; md/json/csv + aggregate html full, analyze html/speedscope flamegraph deferred) (L-1) | Accepted | 2026-06-28 |
+| 0026 | Report redaction — core `analyzer::redact` layer + `--privacy <none\|redact\|anonymize>` level semantics (analyze+aggregate; md/json/csv + html full; analyze html/speedscope flamegraph closed by F-10/ADR-0028) (L-1) | Accepted | 2026-06-28 |
 | 0027 | `agentprof config` subcommand (`path` / `show` / `edit` / `init`) — effective-value `show` + source annotation (reuses real resolvers, no drift) + unified `resolve_config_path` + §10 schema scoped to wired blocks (L-4) | Accepted | 2026-06-29 |
+| 0028 | Episodes redaction — shared `RedactionContext` (`redact_with`) + `Episodes::redact_with` makes analyze html/speedscope fully redacted; `list --privacy` (F-10, closes ADR-0026 deferred) | Accepted | 2026-06-29 |
 
 ### 14.5 文档同步的 CI 强制
 

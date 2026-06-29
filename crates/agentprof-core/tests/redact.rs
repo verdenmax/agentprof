@@ -468,3 +468,163 @@ fn aggregate_same_family_models_merge_summing_all_fields() {
     assert_eq!(m.total_cache_creation, 77);
     assert_eq!(m.total_duration, Duration::seconds(44));
 }
+
+#[test]
+fn shared_ctx_gives_stable_uuids_across_reports() {
+    use agentprof_core::analyzer::redact::RedactionContext;
+    let mut ctx = RedactionContext::default();
+    let r1 = ctx.redact_uuid("sess-1");
+    let r2 = ctx.redact_uuid("sess-1");
+    let r3 = ctx.redact_uuid("turn-9");
+    assert_eq!(r1, "<uuid-0>");
+    assert_eq!(r2, "<uuid-0>");
+    assert_eq!(r3, "<uuid-1>");
+    assert!(!ctx.into_map().uuids.is_empty());
+}
+
+#[test]
+fn episodes_redact_with_anonymize_rekeys_and_syncs_callrefs() {
+    use agentprof_core::analyzer::redact::RedactionContext;
+    use agentprof_core::episode::{CallRef, DeriveWarning, Episodes, ToolEpisode, Turn};
+    use agentprof_core::model::ToolSource;
+
+    use agentprof_core::episode::ToolCall;
+
+    let t0 = Utc.with_ymd_and_hms(2026, 5, 26, 2, 43, 0).unwrap();
+    let mut e = Episodes::new();
+    let mut turn = Turn::new("t-1".into(), t0);
+    turn.model = Some("claude-sonnet-4.6".into());
+    turn.tool_calls
+        .push(CallRef::new("mcp__github__search".into(), 0));
+    e.turns.push(turn);
+    let mut ep = ToolEpisode::new(
+        "mcp__github__search".into(),
+        ToolSource::Mcp {
+            server: "github".into(),
+        },
+    );
+    let mut call = ToolCall::new(agentprof_core::episode::Span::new(t0, t0));
+    call.turn_id = Some("t-1".into());
+    ep.calls.push(call);
+    e.tools.insert("mcp__github__search".into(), ep);
+    e.warnings.push(DeriveWarning::AbortWithoutOpenElement {
+        reason: "user_cancel".into(),
+        at: t0,
+    });
+
+    let mut ctx = RedactionContext::default();
+    let out = e.redact_with(PrivacyLevel::Anonymize, &mut ctx);
+
+    assert_eq!(out.turns[0].id, "<uuid-0>");
+    assert_eq!(out.turns[0].model.as_deref(), Some("claude-sonnet"));
+    assert_eq!(out.turns[0].started_at, chrono::DateTime::<Utc>::UNIX_EPOCH);
+    assert!(out.warnings.is_empty(), "warnings cleared");
+
+    let key = out.tools.keys().next().unwrap();
+    assert!(key.starts_with("mcp__") && key.ends_with("__search"));
+    assert_ne!(key, "mcp__github__search", "server segment hashed");
+    assert_eq!(
+        &out.turns[0].tool_calls[0].name, key,
+        "CallRef.name must equal rekeyed map key"
+    );
+
+    // Fix 1: ToolEpisode.source's Mcp{server} must be hashed, not raw.
+    match &out.tools[key].source {
+        ToolSource::Mcp { server } => {
+            assert_ne!(server, "github", "tool.source.server must be hashed");
+        }
+        other => panic!("expected Mcp source, got {other:?}"),
+    }
+    let json = serde_json::to_string(&out).unwrap();
+    assert!(
+        !json.contains("\"github\""),
+        "serialized episodes still leak raw server: {json}"
+    );
+
+    // Fix 2: call-level turn_id rewritten to match the redacted turn id.
+    assert_eq!(
+        out.tools[key].calls[0].turn_id.as_deref(),
+        Some("<uuid-0>"),
+        "ToolCall.turn_id must match redacted turn id"
+    );
+    assert_eq!(out.tools[key].calls[0].turn_id.as_deref(), Some("<uuid-0>"));
+}
+
+// Fix 2: turn_id rewrite happens at Redact too (no anonymize required).
+#[test]
+fn episodes_redact_rewrites_call_turn_id() {
+    use agentprof_core::analyzer::redact::RedactionContext;
+    use agentprof_core::episode::{Episodes, Span, ToolCall, ToolEpisode, Turn};
+    use agentprof_core::model::ToolSource;
+
+    let t0 = Utc.with_ymd_and_hms(2026, 5, 26, 2, 43, 0).unwrap();
+    let mut e = Episodes::new();
+    e.turns.push(Turn::new("t-1".into(), t0));
+    let mut ep = ToolEpisode::new("bash".into(), ToolSource::Builtin);
+    let mut call = ToolCall::new(Span::new(t0, t0));
+    call.turn_id = Some("t-1".into());
+    ep.calls.push(call);
+    e.tools.insert("bash".into(), ep);
+
+    let mut ctx = RedactionContext::default();
+    let out = e.redact_with(PrivacyLevel::Redact, &mut ctx);
+
+    assert_eq!(out.turns[0].id, "<uuid-0>");
+    assert_eq!(
+        out.tools["bash"].calls[0].turn_id.as_deref(),
+        Some("<uuid-0>"),
+        "ToolCall.turn_id must match redacted turn even at Redact"
+    );
+}
+
+// #2: absolute call timestamps leak working hours + break flamegraph offsets if
+// kept while turn.started_at is zeroed. Anonymize must zero ToolCall/HookCall
+// spans + SkillInvocation.at to epoch, mirroring turn.started_at. Redact keeps.
+fn span_sample() -> agentprof_core::episode::Episodes {
+    use agentprof_core::episode::{
+        Episodes, HookCall, HookEpisode, SkillEpisode, SkillInvocation, Span, ToolCall,
+        ToolEpisode, Turn,
+    };
+    use agentprof_core::model::ToolSource;
+    let t0 = Utc.with_ymd_and_hms(2026, 5, 26, 2, 43, 0).unwrap();
+    let t1 = Utc.with_ymd_and_hms(2026, 5, 26, 2, 43, 5).unwrap();
+    let mut e = Episodes::new();
+    e.turns.push(Turn::new("t-1".into(), t0));
+    let mut tool = ToolEpisode::new("bash".into(), ToolSource::Builtin);
+    tool.calls.push(ToolCall::new(Span::new(t0, t1)));
+    e.tools.insert("bash".into(), tool);
+    let mut hook = HookEpisode::new("pre".into());
+    hook.calls.push(HookCall::new(Span::new(t0, t1)));
+    e.hooks.insert("pre".into(), hook);
+    let mut skill = SkillEpisode::new("plan".into());
+    skill.invocations.push(SkillInvocation::new(t0));
+    e.skills.insert("plan".into(), skill);
+    e
+}
+
+#[test]
+fn anonymize_zeros_call_spans_and_skill_at() {
+    use agentprof_core::analyzer::redact::RedactionContext;
+    let epoch = chrono::DateTime::<Utc>::UNIX_EPOCH;
+    let mut ctx = RedactionContext::default();
+    let out = span_sample().redact_with(PrivacyLevel::Anonymize, &mut ctx);
+    let tk = out.tools.keys().next().unwrap().clone();
+    assert_eq!(out.tools[&tk].calls[0].span.started_at, epoch);
+    assert_eq!(out.tools[&tk].calls[0].span.ended_at, epoch);
+    let hk = out.hooks.keys().next().unwrap().clone();
+    assert_eq!(out.hooks[&hk].calls[0].span.started_at, epoch);
+    assert_eq!(out.hooks[&hk].calls[0].span.ended_at, epoch);
+    let sk = out.skills.keys().next().unwrap().clone();
+    assert_eq!(out.skills[&sk].invocations[0].at, epoch);
+}
+
+#[test]
+fn redact_keeps_call_spans_and_skill_at() {
+    use agentprof_core::analyzer::redact::RedactionContext;
+    let t0 = Utc.with_ymd_and_hms(2026, 5, 26, 2, 43, 0).unwrap();
+    let mut ctx = RedactionContext::default();
+    let out = span_sample().redact_with(PrivacyLevel::Redact, &mut ctx);
+    assert_eq!(out.tools["bash"].calls[0].span.started_at, t0);
+    assert_eq!(out.hooks["pre"].calls[0].span.started_at, t0);
+    assert_eq!(out.skills["plan"].invocations[0].at, t0);
+}
