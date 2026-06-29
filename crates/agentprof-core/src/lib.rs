@@ -10,7 +10,8 @@
 //! - [`adapter`] — the [`adapter::Adapter`] trait, [`adapter::Event`] trait,
 //!   and supporting types.
 //! - [`analyzer`] — rollup functions ([`analyzer::analyze`],
-//!   [`analyzer::AnalysisReport`]) consuming `Episodes`.
+//!   [`analyzer::AnalysisReport`]) consuming `Episodes`; [`analyzer::redact`]
+//!   report-level privacy layer (`--privacy`).
 //! - [`datasource`] — the [`datasource::SessionDataSource`] trait,
 //!   [`datasource::SessionRef`], and [`datasource::DataSourceError`]
 //!   (M2.1 abstraction over file adapters, `SQLite` store, and the

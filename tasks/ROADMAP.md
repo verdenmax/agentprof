@@ -6,7 +6,7 @@
 > **版本**：1.9
 > **最后更新**：2026-06-28
 > **当前 commit**：`main` HEAD `9df9573`（origin/main 已推送；v0.3.3 已发布 + [Unreleased] M2.3.x visual-guide）
-> **当前阶段**：**Phase 2 工程化基本完成**。已发 7 个 tag（v0.1.0–v0.3.3）：v0.2.0 = M2.1 SQLite 持久化 + M2.1.1 aggregate dual-path（[ADR-0017](../docs/internals/adr-0017-unify-session-id-namespace.md)–[ADR-0020](../docs/internals/adr-0020-aggregate-dualpath.md)）；v0.2.1 = M2.2 OTLP receiver（[ADR-0021](../docs/internals/adr-0021-otlp-receiver-architecture.md)）；v0.3.0 = M2.4 OTLP 安全加固（[ADR-0022](../docs/internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md)）；v0.3.1 = M2.5 cache analytics（[ADR-0023](../docs/internals/adr-0023-cache-metrics.md)）；v0.3.3 = M2.3 web dashboard `serve`（[ADR-0024](../docs/internals/adr-0024-web-dashboard-architecture.md)）。最新 **[Unreleased]**：M2.3.x visual-guide HTML 教程（[ADR-0025](../docs/internals/adr-0025-visual-guide.md)）。
+> **当前阶段**：**Phase 2 工程化基本完成**。已发 7 个 tag（v0.1.0–v0.3.3）：v0.2.0 = M2.1 SQLite 持久化 + M2.1.1 aggregate dual-path（[ADR-0017](../docs/internals/adr-0017-unify-session-id-namespace.md)–[ADR-0020](../docs/internals/adr-0020-aggregate-dualpath.md)）；v0.2.1 = M2.2 OTLP receiver（[ADR-0021](../docs/internals/adr-0021-otlp-receiver-architecture.md)）；v0.3.0 = M2.4 OTLP 安全加固（[ADR-0022](../docs/internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md)）；v0.3.1 = M2.5 cache analytics（[ADR-0023](../docs/internals/adr-0023-cache-metrics.md)）；v0.3.3 = M2.3 web dashboard `serve`（[ADR-0024](../docs/internals/adr-0024-web-dashboard-architecture.md)）。最新 **[Unreleased]**：visual-guide（[ADR-0025](../docs/internals/adr-0025-visual-guide.md)）+ L-1 报告脱敏 `--privacy`（[ADR-0026](../docs/internals/adr-0026-report-redaction.md)）+ config 子命令（[ADR-0027](../docs/internals/adr-0027-config-subcommand.md)）+ F-10 episodes 脱敏 + `list --privacy`（[ADR-0028](../docs/internals/adr-0028-episodes-redaction.md)）+ L-11/L-12 audit-pii + CI pii-guard。28 ADR（0001–0028）。
 > **下一步入口**：**Phase 3 v0.4.0 multi-agent** —— M3.1 ClaudeAdapter（Claude wire 含 tools array，可解锁 schema_utilization）+ M3.2 CodexAdapter（详见 [`docs/plan.md`](../docs/plan.md) §8）
 >
 > **重大 pivot**（ADR-0001 events-first，详见 §4.1 / §4.2）：M1.2 不再做 ClaudeAdapter，改做 **CopilotAdapter**（real wire data 直接可得）；tokenizer / ROI / waste / aggregate 全部从 M1.3 推迟到 M1.5+。Claude / Codex / Gemini 适配器推迟到 Phase 2 / 3。
@@ -113,7 +113,7 @@ Phase 3   扩展适配：Claude / Codex / Gemini（Copilot 已在 M1.2 提前交
 | **Git** | `main` 分支 HEAD `9df9573`（origin/main 已推送；运行 `git log -1 --oneline` 查看最新）；最近 milestone：v0.2.0 M2.1 SQLite + M2.1.1 dual-path → v0.2.1 M2.2 OTLP receiver → v0.3.0 M2.4 OTLP 加固 → v0.3.1 M2.5 cache analytics → v0.3.3 M2.3 web dashboard → [Unreleased] M2.3.x visual-guide |
 | **Crate** | 5 lib/bin + 1 xtask 全部已实现。`agentprof-core` / `agentprof-adapters` / `agentprof-cli` / **`agentprof-tui`**（M1.5，flamegraph/roi/aggregate/models/turn_detail/mcp_waste 视图 + panic-safe lifecycle，[ADR-0006](../docs/internals/adr-0006-panic-safe-tui.md)）/ **`agentprof-storage` ✅ 已激活**（M2.1 起：SQLite hybrid cache/store + migrations + OTLP receiver，**非骨架**） |
 | **Phase** | Phase 1 MVP **✅ 全部完成**（M1.1–M1.7，v0.1.0 已发；M1.6.5/.6 mcp-waste 虽属 Phase 1 milestone 但随 v0.2.0 发布）；Phase 2 工程化 **✅ 基本完成**（M2.1 SQLite / M2.1.1 dual-path / M2.2 OTLP / M2.4 加固 / M2.5 cache / M2.3 web，跨 v0.2.0–v0.3.3）；Phase 3 multi-agent ❌ 未开始；`export` 子命令已取消 |
-| **测试** | **1328 tests pass**（`cargo test --workspace --all-features` 验证），含 insta 快照（episode_derive / analyzer_on_fixtures / CLI 集成 / 单元）+ Copilot fixtures（持续随发现的 schema 漏洞增补） |
+| **测试** | **995 tests pass**（`cargo test --workspace --all-features` 验证），含 insta 快照（episode_derive / analyzer_on_fixtures / CLI 集成 / 单元）+ Copilot fixtures（持续随发现的 schema 漏洞增补）+ L-1/F-10 redaction + L-11 pii-audit 测试 |
 | **CI** | 已配并在 GitHub 运行（lint + test matrix + deny + docs + docs-sync + nightly-msrv + release）；remote 已配 |
 | **远端** | origin/main 已推送（HEAD `9df9573`） |
 | **Release** | 已发 7 个 tag（v0.1.0–v0.3.3），最新 **v0.3.3**；下次 = **v0.4.0**（Phase 3 multi-agent 起点） |
@@ -123,7 +123,7 @@ Phase 3   扩展适配：Claude / Codex / Gemini（Copilot 已在 M1.2 提前交
 | Phase | 任务文件 | Milestone | 完成度 | Release | 状态 |
 |---|---|---|---|---|---|
 | **0+1 MVP** | 001 | M1.1–M1.7 | **100%**（全部 ✅；speedscope / html / watch / tracing 随 v0.1.0，mcp-waste M1.6.5/.6 随 v0.2.0） | v0.1.0 | 🟢 Done |
-| **2** | 002 (TBD) | M2.1–M2.5 + M2.3 web | **~90%**（SQLite / OTLP receiver / 安全加固 / cache analytics / web dashboard ✅；pricing sync 仍未做） | v0.2.0–v0.3.3 | 🟢 基本完成 |
+| **2** | 002 (TBD) | M2.1–M2.5 + M2.3 web + L-1/F-10 隐私 + config + L-11/L-12 pii-audit | **~95%**（SQLite / OTLP / 加固 / cache / web + 隐私脱敏全套 + config + audit-pii ✅；pricing sync 仍未做） | v0.2.0–[Unreleased] | 🟢 基本完成 |
 | **3** | 003 (TBD) | M3.1–M3.x | **0%**（multi-agent 未开始） | v0.4.0 → v1.0.0 | ⚪ Planned |
 | **Beyond** | 004+ (TBD) | — | — | post-1.0 | 💭 Vision |
 
@@ -463,7 +463,7 @@ git log main --oneline -20
 
 ```
 # Release tags（v0.1.0 → v0.3.3，真实 commit hash — 由 `git rev-list -n1 <tag>` 得）
-9df9573  HEAD — [Unreleased] M2.3.x visual-guide + list 测试修复
+e01b951  HEAD — [Unreleased] L-1 --privacy + config + F-10 episodes redaction + list --privacy + audit fixes + L-11/L-12 audit-pii/pii-guard (28 ADRs)
 34aad50  v0.3.3 — M2.3 web dashboard (serve)
 66967b7  v0.3.2 — rustls CryptoProvider fix
 8be7803  v0.3.1 — M2.5 cache analytics

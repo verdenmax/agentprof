@@ -5,7 +5,8 @@
 
 **Status: v0.3.3 shipped 2026-06-11** (M2.3 web dashboard — new `agentprof serve` subcommand spins up a localhost HTTP server with 5 polling views [sessions / single session / aggregate / mcp-waste list+detail], browser auto-refresh via vanilla JS, reuses the M2.2 axum stack — no new top-level workspace deps. Feature-gated under `web` (in `full` default). See [ADR-0024](docs/internals/adr-0024-web-dashboard-architecture.md).) Previous: v0.3.2 shipped 2026-06-11 (CI fix: explicit rustls `CryptoProvider` install in `otlp::tls`). v0.3.1 shipped 2026-06-11 (post-v0.3.0 consolidated wave — audit fixes + M2.5 observational cache analytics; closes audit F-NEW-1/3/4 + F-NEW-2 + §18 Q1/Q2/Q3/Q4a. v0.4.0 number is reserved for the future Phase 3 multi-agent milestone (Claude + Codex adapters). See [ADR-0023](docs/internals/adr-0023-cache-metrics.md) + [ADR-0022](docs/internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md) §post-v0.3.1 addendum).
 MVP feature work complete (8/8 shippable surface ≈ 98%; M1.1–M1.6.4
-✅ + M1.7 v0.1.0); `analyze` / `list` / `aggregate` / `watch` all
+✅ + M1.7 v0.1.0); `analyze` / `list` / `aggregate` / `watch` / `mcp-waste` /
+`config` / `db` / `ingest-otlp` / `serve` all
 functional end-to-end against real Copilot CLI sessions, with five
 export formats (`md` / `json` / `csv` / `html` / `tui`) plus
 `speedscope` for single-session flamegraphs. M1.6.4 (Speedscope + HTML
@@ -128,7 +129,9 @@ agentprof analyze --agent copilot   # uses the latest Copilot CLI session
 
 ## Quick start
 
-`agentprof analyze` / `list` / `aggregate` / `watch` all ship today. The
+`agentprof analyze` / `list` / `aggregate` / `watch` / `mcp-waste` / `config`
+/ `db` / `ingest-otlp` / `serve` all ship today, with `--privacy
+none|redact|anonymize` on `analyze` / `aggregate` / `list`. The
 quickest path on a fresh checkout:
 
 ```sh

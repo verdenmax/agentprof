@@ -103,6 +103,8 @@ github.create_pr   |    680        |   2   |   340           | ★★
 playwright.click   |   1240        |   0   |     ∞ (waste)   | ✗ kill
 ```
 
+> ⚠️ **Copilot 限制（L-13）**：`schema_tokens` / `tokens_per_call` / `ROI` 列依赖 wire 广播 tool schema，Copilot CLI 不提供，故此矩阵在 Copilot 上结构性不可行——**待 Phase 3 ClaudeAdapter**（Claude wire 含 tools array）。当前 Copilot 仅能做 mcp-waste（加载 vs 调用差集）+ token 估算。
+
 ### 5.3 MCP server 维度聚合
 - 哪个 MCP 是"贵且没用"的
 - 输出建议：`从 settings 移除 mcp.playwright 可节省 ~3.2k tokens/session`
