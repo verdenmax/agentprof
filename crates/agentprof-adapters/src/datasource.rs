@@ -149,7 +149,7 @@ impl<A: Adapter> AdapterDataSource<A> {
     ///
     /// let ds = AdapterDataSource::new(
     ///     Arc::new(CopilotAdapter),
-    ///     PathBuf::from("/home/me/.copilot/session-state"),
+    ///     PathBuf::from("/home/USER/.copilot/session-state"),
     /// );
     /// let refs = CopilotAdapter
     ///     .discover_sessions(ds.root())
@@ -192,7 +192,7 @@ impl<A: Adapter> AdapterDataSource<A> {
     ///
     /// let ds = AdapterDataSource::new(
     ///     Arc::new(CopilotAdapter),
-    ///     PathBuf::from("/home/me/.copilot/session-state"),
+    ///     PathBuf::from("/home/USER/.copilot/session-state"),
     /// );
     /// let refs = CopilotAdapter.discover_sessions(ds.root()).expect("discover");
     /// for sref in &refs {

@@ -51,8 +51,8 @@ use std::path::Path;
 /// use agentprof_core::observability::pii::hash_path;
 /// use std::path::PathBuf;
 ///
-/// let h1 = hash_path(&PathBuf::from("/home/alice/.cache/x"));
-/// let h2 = hash_path(&PathBuf::from("/home/alice/.cache/x"));
+/// let h1 = hash_path(&PathBuf::from("/home/USER/.cache/x"));
+/// let h2 = hash_path(&PathBuf::from("/home/USER/.cache/x"));
 /// assert_eq!(h1, h2);
 /// assert_eq!(h1.len(), 8);
 /// ```
@@ -109,16 +109,16 @@ mod tests {
     #[test]
     fn hash_path_is_deterministic() {
         let _guard = EnvGuard::unset("AGENTPROF_LOG_FULL_PATHS");
-        let a = hash_path(&PathBuf::from("/home/alice/.cache/copilot/abc"));
-        let b = hash_path(&PathBuf::from("/home/alice/.cache/copilot/abc"));
+        let a = hash_path(&PathBuf::from("/home/USER/.cache/copilot/abc"));
+        let b = hash_path(&PathBuf::from("/home/USER/.cache/copilot/abc"));
         assert_eq!(a, b, "same input must hash to same output");
     }
 
     #[test]
     fn hash_path_distinguishes_inputs() {
         let _guard = EnvGuard::unset("AGENTPROF_LOG_FULL_PATHS");
-        let a = hash_path(&PathBuf::from("/home/alice/.cache/copilot/abc"));
-        let b = hash_path(&PathBuf::from("/home/alice/.cache/copilot/xyz"));
+        let a = hash_path(&PathBuf::from("/home/USER/.cache/copilot/abc"));
+        let b = hash_path(&PathBuf::from("/home/USER/.cache/copilot/xyz"));
         assert_ne!(a, b, "different inputs must hash to different outputs");
     }
 
@@ -162,14 +162,14 @@ mod tests {
     #[test]
     fn hash_path_returns_raw_when_full_paths_set() {
         let _guard = EnvGuard::set("AGENTPROF_LOG_FULL_PATHS", "1");
-        let p = PathBuf::from("/home/alice/.cache/x");
-        assert_eq!(hash_path(&p), "/home/alice/.cache/x");
+        let p = PathBuf::from("/home/USER/.cache/x");
+        assert_eq!(hash_path(&p), "/home/USER/.cache/x");
     }
 
     #[test]
     fn hash_path_returns_hash_when_full_paths_unset() {
         let _guard = EnvGuard::unset("AGENTPROF_LOG_FULL_PATHS");
-        let p = PathBuf::from("/home/alice/.cache/x");
+        let p = PathBuf::from("/home/USER/.cache/x");
         let h = hash_path(&p);
         assert_eq!(h.len(), 8);
         assert!(h.chars().all(|c| c.is_ascii_hexdigit()));

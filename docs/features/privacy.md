@@ -217,10 +217,12 @@ Tracked in [`tasks/ROADMAP.md`](../../tasks/ROADMAP.md) §6.2.
 
 ## 5. Defense in depth — workspace conventions
 
-For repository contributors. **Note: enforcement is currently by-convention
-only.** The items below describe what reviewers and committers should check
-manually; there is no automated CI guard nor an `xtask anonymize` helper
-(both are planned for future milestones — see issue tracker).
+For repository contributors. The most common accidental leak — a real
+`/home/<user>/` or `/Users/<user>/` path committed under `crates/` — is now
+caught automatically: `cargo run -p xtask -- audit-pii crates` exits non-zero
+on any non-placeholder home path, and the CI `pii-guard` job runs it on every
+PR (L-11/L-12). The remaining items below are still enforced by convention and
+require manual reviewer attention.
 
 1. **Never** commit a real `events.jsonl` file. The fixtures in
    `crates/agentprof-adapters/tests/fixtures/copilot/` are
@@ -244,12 +246,15 @@ manually; there is no automated CI guard nor an `xtask anonymize` helper
    counts, status enums, and tool/hook/skill names from the public
    vocabulary.
 
-Future automation tracked in roadmap:
-- An `xtask audit-pii <report.json>` command that flags 🔴 HIGH fields
-  in any report.
-- A CI step that grep-fails any committed file containing a `/home/<word>/`
-  path (the most common accidental PII leak).
-- A pre-commit hook that scans new fixture files for non-reserved UUIDs.
+Automation status:
+- ✅ **Shipped (L-11):** `cargo run -p xtask -- audit-pii <path>` flags any
+  file containing a non-placeholder `/home/<user>/`, `/Users/<user>/`, or
+  `C:\Users\<user>\` path and exits 2. Allowlisted placeholders: `USER`,
+  `<user>`, `<username>`. The CI `pii-guard` job runs it over `crates/` on
+  every PR, grep-failing the most common accidental PII leak (L-12).
+- Still tracked in roadmap:
+  - Extend `audit-pii` to flag 🔴 HIGH fields inside an `analyze` report JSON.
+  - A pre-commit hook that scans new fixture files for non-reserved UUIDs.
 
 ## 6. Reporting a leak
 

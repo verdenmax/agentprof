@@ -72,6 +72,17 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
       - uses: EmbarkStudios/cargo-deny-action@bb137d7af7e4fb67e5f82a49c4fce4fad40782fe  # v2.0.20
 
+  pii-guard:
+    name: pii-guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      # Rolling ref intentionally NOT SHA-pinned (ADR-0014 D-6): we want each
+      # CI run to pick up the current stable Rust toolchain.
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1
+      - run: cargo run -p xtask -- audit-pii crates
+
   docs-sync:
     name: docs-sync (L1/L2/L3 enforcement)
     runs-on: ubuntu-latest
