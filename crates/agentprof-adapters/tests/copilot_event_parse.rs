@@ -509,7 +509,7 @@ fn session_warning_round_trips() {
 
 #[test]
 fn session_resume_round_trips() {
-    let line = r#"{"type":"session.resume","data":{"alreadyInUse":false,"context":{"cwd":"/home/me/proj"},"eventCount":281,"reasoningEffort":"high","resumeTime":"2026-05-04T06:55:09.418Z","selectedModel":"claude-opus-4.6"},"id":"e-sr-1","timestamp":"2026-05-04T06:55:09.418Z","parentId":"p1"}"#;
+    let line = r#"{"type":"session.resume","data":{"alreadyInUse":false,"context":{"cwd":"/home/USER/proj"},"eventCount":281,"reasoningEffort":"high","resumeTime":"2026-05-04T06:55:09.418Z","selectedModel":"claude-opus-4.6"},"id":"e-sr-1","timestamp":"2026-05-04T06:55:09.418Z","parentId":"p1"}"#;
     assert_round_trips(line, |e| matches!(e, CopilotEvent::SessionResume(_)));
     let evt: CopilotEvent = serde_json::from_str(line).unwrap();
     if let CopilotEvent::SessionResume(env) = evt {
@@ -517,7 +517,7 @@ fn session_resume_round_trips() {
         assert_eq!(env.data.selected_model.as_deref(), Some("claude-opus-4.6"));
         assert_eq!(
             env.data.context.as_ref().map(|c| c.cwd.as_str()),
-            Some("/home/me/proj"),
+            Some("/home/USER/proj"),
         );
     } else {
         panic!("expected SessionResume");

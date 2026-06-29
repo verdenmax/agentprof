@@ -183,7 +183,7 @@ pub fn default_session_root() -> Option<PathBuf> {
 /// use agentprof_adapters::copilot::paths::discover_sessions;
 /// use std::path::Path;
 ///
-/// let sessions = discover_sessions(Path::new("/home/me/.copilot/session-state")).unwrap();
+/// let sessions = discover_sessions(Path::new("/home/USER/.copilot/session-state")).unwrap();
 /// for s in sessions {
 ///     println!("{} ({} bytes, live={})", s.id, s.size_bytes, s.is_live);
 /// }

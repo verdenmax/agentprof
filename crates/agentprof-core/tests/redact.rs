@@ -16,7 +16,7 @@ fn sample() -> AnalysisReport {
         Utc.with_ymd_and_hms(2026, 5, 26, 2, 43, 0).unwrap(),
         false,
     );
-    meta.cwd = Some("/home/alice/projects/secret".into());
+    meta.cwd = Some("/home/USER/projects/secret".into());
     meta.branch = Some("feat/secret".into());
     meta.repository = Some("alice/secret-repo".into());
     meta.agent_version = Some("1.0.54".into());
@@ -230,7 +230,7 @@ fn cross_site_uuid_stability() {
         Utc.with_ymd_and_hms(2026, 5, 26, 2, 43, 0).unwrap(),
         false,
     );
-    meta.cwd = Some("/home/alice/x".into());
+    meta.cwd = Some("/home/USER/x".into());
     let mut r = AnalysisReport::new(meta);
     r.turn_summary.push(TurnSummaryRow::new(
         shared.into(),
