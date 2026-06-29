@@ -42,6 +42,11 @@ prefix used in commit messages).
 - **+27 tests**（workspace 整体 1301 → 1328）：xtask 新增 5 integration tests (`tests/visual_guide.rs`) + 22 unit tests（shell smoke + css smoke + components ×3 + highlight ×4 + pages ×2 + 14 lesson render tests + 1 surface）。
 - **cli:** 修复 `cli_list_cache_column::list_header_includes_cache_pct_column`：原测试对空 `--root` 目录断言表头，但 `list` 对空目录走 `(no sessions …)` 早返回分支、从不渲染表头，故该测试自 `be592a1`（M2.5 T8）引入起一直失败。改为针对 committed Copilot fixtures + `--since all` 校验 8 列表头含 `Cache%`。
 
+### Fixed
+
+- **cli:** `analyze --section mcp-waste --privacy anonymize` no longer leaks raw MCP server + tool names — the `WasteReport` is now redacted (`WasteReport::redact_with`) through the *same* `RedactionContext` as the report/episodes, so server hashes match `tool-rank`/flamegraph and md/json/html show only `hash_short` server + `mcp__<hash8>__` tool names (audit leak A).
+- **cli:** `list --privacy anonymize` now zeroes the `Started` column to the Unix epoch (mirroring report anonymize); `redact` keeps the real timestamp (audit leak B).
+
 ## [0.3.3] - 2026-06-11
 
 > M2.3 web dashboard wave. New `agentprof serve` subcommand (feature
