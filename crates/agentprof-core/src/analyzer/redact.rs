@@ -376,6 +376,188 @@ impl crate::analyzer::AnalysisReport {
     }
 }
 
+impl crate::episode::Episodes {
+    /// Return a redacted copy of these episodes sharing `ctx` with the report
+    /// it was derived from, so the flamegraph and ROI table agree on `<uuid-N>`
+    /// placeholders, model families and MCP-server hashes. Symmetric with
+    /// [`AnalysisReport::redact_with`](crate::analyzer::AnalysisReport::redact_with).
+    ///
+    /// Identity at [`PrivacyLevel::None`]. At [`PrivacyLevel::Redact`] each turn
+    /// id becomes a stable `<uuid-N>` (including every `tools`/`hooks` call and
+    /// `skills` invocation `turn_id`), models collapse to their family (recorded
+    /// in `ctx.models`) and `warnings` are cleared. [`PrivacyLevel::Anonymize`]
+    /// additionally zeroes every wall-clock instant (turn `started_at`/`ended_at`,
+    /// `TurnStatus::Aborted.at`, `aborts[].at`, each `ToolCall`/`HookCall`
+    /// `span.{started_at,ended_at}` and `SkillInvocation.at`) to the UNIX epoch
+    /// and rekeys the
+    /// `tools` / `hooks` / `skills` maps plus `loaded_mcp_tools` via
+    /// [`hash_mcp_tool_name`] — rewriting every `Turn.*_calls[].name`,
+    /// `SkillInvocation.triggered_tools[].name` and each `ToolEpisode.source`'s
+    /// `Mcp { server }` with the **same** function so the `CallRef.name ↔ map-key`
+    /// and `mcp:{server}` frame cross-references stay valid. Durations are kept
+    /// (the ROI signal). Pure: never fails, never panics.
+    ///
+    /// # Caveat
+    ///
+    /// `ToolCall.arguments` are retained verbatim at every level — tool-arg
+    /// scrubbing is a separate RFC (privacy.md §8), so JSON export of anonymized
+    /// episodes may still carry path/secret PII in args.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::analyzer::redact::{PrivacyLevel, RedactionContext};
+    /// use agentprof_core::episode::{CallRef, Episodes, ToolEpisode, Turn};
+    /// use agentprof_core::model::ToolSource;
+    /// use chrono::Utc;
+    ///
+    /// let mut e = Episodes::new();
+    /// let mut t = Turn::new("t-1".into(), Utc::now());
+    /// t.tool_calls.push(CallRef::new("mcp__github__search".into(), 0));
+    /// e.turns.push(t);
+    /// e.tools.insert(
+    ///     "mcp__github__search".into(),
+    ///     ToolEpisode::new("mcp__github__search".into(), ToolSource::Mcp { server: "github".into() }),
+    /// );
+    /// let mut ctx = RedactionContext::default();
+    /// let red = e.redact_with(PrivacyLevel::Anonymize, &mut ctx);
+    /// assert_eq!(red.turns[0].id, "<uuid-0>");
+    /// assert_eq!(&red.turns[0].tool_calls[0].name, red.tools.keys().next().unwrap());
+    /// ```
+    #[must_use]
+    pub fn redact_with(&self, level: PrivacyLevel, ctx: &mut RedactionContext) -> Self {
+        let mut out = self.clone();
+        if level == PrivacyLevel::None {
+            return out;
+        }
+        let anon = level == PrivacyLevel::Anonymize;
+        let epoch = chrono::DateTime::<chrono::Utc>::UNIX_EPOCH;
+
+        for turn in &mut out.turns {
+            turn.id = ctx.uuids.redact(&turn.id);
+            if let Some(m) = turn.model.take() {
+                let fam = model_family(&m);
+                ctx.models.entry(fam.clone()).or_insert(m);
+                turn.model = Some(fam);
+            }
+            if anon {
+                turn.started_at = epoch;
+                turn.ended_at = turn.ended_at.map(|_| epoch);
+                if let crate::episode::TurnStatus::Aborted(info) = &mut turn.status {
+                    info.at = epoch;
+                }
+                for c in turn
+                    .tool_calls
+                    .iter_mut()
+                    .chain(&mut turn.hook_calls)
+                    .chain(&mut turn.skill_calls)
+                {
+                    record_mcp_server(&c.name, &mut ctx.servers);
+                    c.name = hash_mcp_tool_name(&c.name);
+                }
+            }
+        }
+
+        // call-level turn_id (tool/hook/skill) → same `<uuid-N>` as turns[].id,
+        // at BOTH Redact and Anonymize, so speedscope/html frames stay joinable.
+        // At Anonymize also zero each call's absolute timestamp (ToolCall/HookCall
+        // span + SkillInvocation.at) to mirror turn.started_at: keeping wall-clock
+        // here would leak working hours and break flamegraph zero offsets.
+        for tool in out.tools.values_mut() {
+            for call in &mut tool.calls {
+                if let Some(id) = &call.turn_id {
+                    call.turn_id = Some(ctx.uuids.redact(id));
+                }
+                if anon {
+                    call.span = crate::episode::Span::new(epoch, epoch);
+                }
+            }
+        }
+        for hook in out.hooks.values_mut() {
+            for call in &mut hook.calls {
+                if let Some(id) = &call.turn_id {
+                    call.turn_id = Some(ctx.uuids.redact(id));
+                }
+                if anon {
+                    call.span = crate::episode::Span::new(epoch, epoch);
+                }
+            }
+        }
+        for skill in out.skills.values_mut() {
+            for inv in &mut skill.invocations {
+                if let Some(id) = &inv.turn_id {
+                    inv.turn_id = Some(ctx.uuids.redact(id));
+                }
+                if anon {
+                    inv.at = epoch;
+                }
+            }
+        }
+
+        if anon {
+            out.tools = rekey_named(out.tools, &mut ctx.servers, |t| &mut t.name);
+            out.hooks = rekey_named(out.hooks, &mut ctx.servers, |h| &mut h.name);
+            out.skills = rekey_named(out.skills, &mut ctx.servers, |s| &mut s.name);
+            // scrub the parallel raw server in `tool.source` with the SAME hash
+            // already embedded in the rekeyed name (speedscope:722 reads this).
+            for t in out.tools.values_mut() {
+                if let crate::model::ToolSource::Mcp { server } = &mut t.source {
+                    *server = crate::observability::pii::hash_short(server);
+                }
+            }
+            for s in out.skills.values_mut() {
+                for inv in &mut s.invocations {
+                    for c in &mut inv.triggered_tools {
+                        record_mcp_server(&c.name, &mut ctx.servers);
+                        c.name = hash_mcp_tool_name(&c.name);
+                    }
+                }
+            }
+            for a in &mut out.aborts {
+                a.at = epoch;
+            }
+            out.loaded_mcp_tools = out
+                .loaded_mcp_tools
+                .iter()
+                .map(|t| {
+                    record_mcp_server(t, &mut ctx.servers);
+                    hash_mcp_tool_name(t)
+                })
+                .collect();
+        }
+
+        if let Some(mm) = out.model_metrics.take() {
+            let mut new_mm: BTreeMap<String, crate::analyzer::ModelUsage> = BTreeMap::new();
+            for (model, usage) in mm {
+                let fam = model_family(&model);
+                ctx.models.entry(fam.clone()).or_insert(model);
+                new_mm.entry(fam).or_default().merge(&usage);
+            }
+            out.model_metrics = Some(new_mm);
+        }
+
+        out.warnings = Vec::new();
+        out
+    }
+}
+
+/// Rekey a `name`-keyed map by hashing each MCP server segment, keeping the
+/// stored `name` field consistent with the new key. Records `hash8 → server`.
+fn rekey_named<V>(
+    map: BTreeMap<String, V>,
+    servers: &mut BTreeMap<String, String>,
+    name_field: impl Fn(&mut V) -> &mut String,
+) -> BTreeMap<String, V> {
+    map.into_iter()
+        .map(|(k, mut v)| {
+            record_mcp_server(&k, servers);
+            let hashed = hash_mcp_tool_name(&k);
+            name_field(&mut v).clone_from(&hashed);
+            (hashed, v)
+        })
+        .collect()
+}
+
 /// Replace a present `Option<String>` with `<redacted>` (keeps `None`).
 fn redact_opt(field: &mut Option<String>) {
     if field.is_some() {
