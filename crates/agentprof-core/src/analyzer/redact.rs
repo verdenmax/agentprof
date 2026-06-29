@@ -160,6 +160,66 @@ impl RedactionMap {
     }
 }
 
+/// Mutable accumulator shared across reports so turn UUIDs stay consistent.
+///
+/// Used by [`AnalysisReport`](crate::analyzer::AnalysisReport) and (later)
+/// episodes so UUIDs map identically between the table and the flamegraph.
+/// Build one, feed it through [`redact_with`](crate::analyzer::AnalysisReport::redact_with),
+/// then consume it via [`RedactionContext::into_map`].
+///
+/// # Examples
+///
+/// ```
+/// use agentprof_core::analyzer::redact::RedactionContext;
+/// let mut c = RedactionContext::default();
+/// assert_eq!(c.redact_uuid("a"), "<uuid-0>");
+/// assert_eq!(c.redact_uuid("a"), "<uuid-0>"); // stable
+/// ```
+#[derive(Debug, Default)]
+#[non_exhaustive]
+pub struct RedactionContext {
+    /// Allocates stable `<uuid-N>` replacements in first-seen order.
+    pub uuids: UuidRedactor,
+    /// family → original model identifier (filled at `Anonymize`).
+    pub models: BTreeMap<String, String>,
+    /// `<hash8>` → original MCP server (filled at `Anonymize`).
+    pub servers: BTreeMap<String, String>,
+}
+
+impl RedactionContext {
+    /// Stable `<uuid-N>` for `original`, delegating to [`UuidRedactor::redact`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::analyzer::redact::RedactionContext;
+    /// let mut c = RedactionContext::default();
+    /// assert_eq!(c.redact_uuid("x"), "<uuid-0>");
+    /// assert_eq!(c.redact_uuid("y"), "<uuid-1>");
+    /// ```
+    pub fn redact_uuid(&mut self, original: &str) -> String {
+        self.uuids.redact(original)
+    }
+
+    /// Consume into the exported [`RedactionMap`] (uuids inverted; models and
+    /// servers carried as-is).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::analyzer::redact::RedactionContext;
+    /// assert!(RedactionContext::default().into_map().is_empty());
+    /// ```
+    #[must_use]
+    pub fn into_map(self) -> RedactionMap {
+        RedactionMap {
+            uuids: self.uuids.into_inverse(),
+            models: self.models,
+            mcp_servers: self.servers,
+        }
+    }
+}
+
 impl crate::analyzer::AnalysisReport {
     /// Return a redacted copy plus a [`RedactionMap`] (non-empty only for
     /// [`PrivacyLevel::Anonymize`]). Pure: never fails, never panics.
@@ -198,17 +258,50 @@ impl crate::analyzer::AnalysisReport {
         if level == PrivacyLevel::None {
             return (self.clone(), RedactionMap::default());
         }
-        let anon = level == PrivacyLevel::Anonymize;
+        let mut ctx = RedactionContext::default();
+        let out = self.redact_with(level, &mut ctx);
+        let map = if level == PrivacyLevel::Anonymize {
+            ctx.into_map()
+        } else {
+            RedactionMap::default()
+        };
+        (out, map)
+    }
+
+    /// Redact into a caller-supplied [`RedactionContext`] so several reports
+    /// share one turn-id mapping. Returns the redacted copy; the map is built
+    /// by the caller from `ctx` (see [`redact`](Self::redact)). Identity at
+    /// [`PrivacyLevel::None`]; otherwise applies the same 🔴 HIGH / Anonymize
+    /// rules documented on [`redact`](Self::redact). Pure: never fails, never
+    /// panics.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::adapter::AgentKind;
+    /// use agentprof_core::analyzer::AnalysisReport;
+    /// use agentprof_core::analyzer::redact::{PrivacyLevel, RedactionContext};
+    /// use agentprof_core::model::SessionMeta;
+    /// use chrono::Utc;
+    ///
+    /// let r = AnalysisReport::new(SessionMeta::new("id".into(), AgentKind::Copilot, Utc::now(), false));
+    /// let mut ctx = RedactionContext::default();
+    /// let red = r.redact_with(PrivacyLevel::Anonymize, &mut ctx);
+    /// assert_eq!(red.meta.id, "<uuid-0>");
+    /// ```
+    #[must_use]
+    pub fn redact_with(&self, level: PrivacyLevel, ctx: &mut RedactionContext) -> Self {
         let mut out = self.clone();
-        let mut uuids = UuidRedactor::default();
-        let mut models: BTreeMap<String, String> = BTreeMap::new();
-        let mut servers: BTreeMap<String, String> = BTreeMap::new();
+        if level == PrivacyLevel::None {
+            return out;
+        }
+        let anon = level == PrivacyLevel::Anonymize;
 
         // meta — 🔴 HIGH (both levels)
         redact_opt(&mut out.meta.cwd);
         redact_opt(&mut out.meta.branch);
         redact_opt(&mut out.meta.repository);
-        out.meta.id = uuids.redact(&out.meta.id);
+        out.meta.id = ctx.uuids.redact(&out.meta.id);
 
         // meta — anonymize-only
         if anon {
@@ -220,10 +313,10 @@ impl crate::analyzer::AnalysisReport {
 
         // turn rows — stable UUIDs (cross-site stable with meta.id) + model→family
         for row in &mut out.turn_summary {
-            row.turn_id = uuids.redact(&row.turn_id);
+            row.turn_id = ctx.uuids.redact(&row.turn_id);
             if let Some(m) = row.model.take() {
                 let fam = model_family(&m);
-                models.entry(fam.clone()).or_insert(m);
+                ctx.models.entry(fam.clone()).or_insert(m);
                 row.model = Some(fam);
             }
         }
@@ -247,7 +340,7 @@ impl crate::analyzer::AnalysisReport {
             let mut new_mm: BTreeMap<String, crate::analyzer::ModelUsage> = BTreeMap::new();
             for (model, usage) in mm {
                 let fam = model_family(&model);
-                models.entry(fam.clone()).or_insert(model);
+                ctx.models.entry(fam.clone()).or_insert(model);
                 let slot = new_mm.entry(fam).or_default();
                 slot.merge(&usage);
             }
@@ -257,7 +350,7 @@ impl crate::analyzer::AnalysisReport {
         // tool names — anonymize-only: hash MCP server segment
         if anon {
             for row in &mut out.tool_rank {
-                record_mcp_server(&row.name, &mut servers);
+                record_mcp_server(&row.name, &mut ctx.servers);
                 row.name = hash_mcp_tool_name(&row.name);
                 // I-1: scrub the parallel raw server in `source` with the
                 // SAME hash already embedded in `name` (no double-record).
@@ -269,7 +362,7 @@ impl crate::analyzer::AnalysisReport {
                 .loaded_mcp_tools
                 .iter()
                 .map(|t| {
-                    record_mcp_server(t, &mut servers);
+                    record_mcp_server(t, &mut ctx.servers);
                     hash_mcp_tool_name(t)
                 })
                 .collect();
@@ -279,16 +372,7 @@ impl crate::analyzer::AnalysisReport {
         out.warnings = Vec::new();
         out.parse_warnings = Vec::new();
 
-        let map = if anon {
-            RedactionMap {
-                uuids: uuids.into_inverse(),
-                models,
-                mcp_servers: servers,
-            }
-        } else {
-            RedactionMap::default()
-        };
-        (out, map)
+        out
     }
 }
 

@@ -468,3 +468,16 @@ fn aggregate_same_family_models_merge_summing_all_fields() {
     assert_eq!(m.total_cache_creation, 77);
     assert_eq!(m.total_duration, Duration::seconds(44));
 }
+
+#[test]
+fn shared_ctx_gives_stable_uuids_across_reports() {
+    use agentprof_core::analyzer::redact::RedactionContext;
+    let mut ctx = RedactionContext::default();
+    let r1 = ctx.redact_uuid("sess-1");
+    let r2 = ctx.redact_uuid("sess-1");
+    let r3 = ctx.redact_uuid("turn-9");
+    assert_eq!(r1, "<uuid-0>");
+    assert_eq!(r2, "<uuid-0>");
+    assert_eq!(r3, "<uuid-1>");
+    assert!(!ctx.into_map().uuids.is_empty());
+}
