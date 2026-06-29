@@ -95,9 +95,10 @@ fn analyze_privacy_anonymize_redacts_html_meta() {
     // epoch (1970). We assert the header carries the redacted forms and that the
     // original session id is gone entirely.
     //
-    // NOTE: per-turn timestamps + flamegraph frame turn-ids are a KNOWN deferred
-    // leak (Part B warn) — `episodes` / turn rows are not yet redacted — so we do
-    // NOT assert the whole document is free of the original date here.
+    // F-10 T3: episodes are now redacted through the same ctx, so the whole
+    // document (header + flamegraph) is redacted. We still assert the header
+    // forms here; the flamegraph-specific assertions live in the dedicated
+    // fully-redacts tests below.
     assert!(
         html.contains("Started: 1970-01-01"),
         "header started_at not redacted to epoch:\n{}",
@@ -110,6 +111,66 @@ fn analyze_privacy_anonymize_redacts_html_meta() {
     assert!(
         html.contains("uuid-0"),
         "expected anonymized session id placeholder in html header"
+    );
+}
+
+#[test]
+fn analyze_privacy_anonymize_html_fully_redacts_flamegraph() {
+    // F-10 T3: episodes are redacted through the same ctx as the report, so the
+    // flamegraph frames carry no original turn-id and no raw MCP server name.
+    let dir = tempfile::tempdir().unwrap();
+    let report = dir.path().join("r.html");
+    Command::cargo_bin("agentprof")
+        .unwrap()
+        .args(["--no-cache", "analyze", "--agent", "copilot", "--root"])
+        .arg(fixtures_root())
+        .args([
+            "--session",
+            "00000000-0000-0000-0000-000000000004",
+            "--export",
+            "html",
+            "--privacy",
+            "anonymize",
+            "--output",
+        ])
+        .arg(&report)
+        .assert()
+        .success();
+    let html = std::fs::read_to_string(&report).unwrap();
+    assert!(
+        !html.contains("00000000-0000-0000-0000-000000000042"),
+        "original turn-id leaked into flamegraph"
+    );
+    assert!(!html.contains("github"), "raw MCP server leaked into html");
+}
+
+#[test]
+fn analyze_privacy_anonymize_speedscope_fully_redacts_flamegraph() {
+    let out = Command::cargo_bin("agentprof")
+        .unwrap()
+        .args(["--no-cache", "analyze", "--agent", "copilot", "--root"])
+        .arg(fixtures_root())
+        .args([
+            "--session",
+            "00000000-0000-0000-0000-000000000004",
+            "--export",
+            "speedscope",
+            "--privacy",
+            "anonymize",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let s = String::from_utf8(out).unwrap();
+    assert!(
+        !s.contains("00000000-0000-0000-0000-000000000042"),
+        "original turn-id leaked into speedscope:\n{s}"
+    );
+    assert!(
+        !s.contains("github"),
+        "raw MCP server leaked into speedscope:\n{s}"
     );
 }
 

@@ -26,9 +26,10 @@ Subcommand wiring (current):
   redaction (L-1). `redact` strips 🔴 HIGH PII (cwd / branch / repository →
   `<redacted>`, UUIDs → stable `<uuid-N>`, model → family); `anonymize` adds
   version / `started_at` zeroing + MCP-server hashing and writes a
-  `agentprof-redaction-map.json` sidecar. `md` / `json` are fully
-  redacted; `html` / `speedscope` flamegraph frames still leak turn-ids / MCP
-  names (deferred — use `md` / `json` for full redaction). See
+  `agentprof-redaction-map.json` sidecar. All `analyze` formats — `md` /
+  `json` / `html` / `speedscope` — are fully redacted: episodes are redacted
+  through the same context as the report, so the flamegraph leaks no original
+  turn-id or MCP server name (F-10). See
   [ADR-0026](../../docs/internals/adr-0026-report-redaction.md) +
   [`docs/features/privacy.md`](../../docs/features/privacy.md) §4.
 - `--section turn-summary,tool-rank,hook-rank[,mcp-waste]` (md / json / html;

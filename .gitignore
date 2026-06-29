@@ -51,3 +51,4 @@ docs/visual-guide/usage/
 docs/visual-guide/wiki/
 !docs/visual-guide/.gitkeep
 !docs/visual-guide/README.md
+agentprof-redaction-map.json
