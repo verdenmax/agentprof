@@ -10,6 +10,7 @@
 use anyhow::Result;
 use clap::Parser;
 
+mod pii;
 mod schema_audit;
 mod visual_guide;
 
@@ -26,6 +27,13 @@ enum Cli {
 
     /// Generate the agentprof visual guide HTML site under `docs/visual-guide/`.
     VisualGuide(visual_guide::VisualGuideCmd),
+
+    /// Scan a path for high-confidence real home directory paths (PII).
+    ///
+    /// Recursively walks `<path>`, skipping `target/`, `.git/`, and binary
+    /// files. Reports `path:line: text` for any `/home/<seg>/`, `/Users/<seg>/`,
+    /// or `C:\Users\<seg>` outside the placeholder allowlist; exits `2` on hits.
+    AuditPii(pii::AuditPiiCmd),
 }
 
 fn main() -> Result<()> {
@@ -33,5 +41,6 @@ fn main() -> Result<()> {
     match cli {
         Cli::SchemaAudit(cmd) => schema_audit::run(cmd),
         Cli::VisualGuide(cmd) => visual_guide::run(cmd),
+        Cli::AuditPii(cmd) => pii::run(cmd),
     }
 }
