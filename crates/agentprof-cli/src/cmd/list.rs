@@ -69,8 +69,9 @@ pub struct ListCmd {
     /// Redact 🔴 HIGH identifiers in the table before printing. `none`
     /// (default) is unchanged; `redact`/`anonymize` replace each session
     /// id with `<uuid-N>` and collapse model→family (cwd/branch are not
-    /// table columns). `list` writes no sidecar map, so `redact` and
-    /// `anonymize` produce identical output here.
+    /// table columns). `list` writes no sidecar map; `anonymize`
+    /// additionally zeroes the `Started` column to the Unix epoch, while
+    /// `redact` keeps the real timestamp.
     #[arg(long, value_enum, default_value_t = agentprof_core::analyzer::redact::PrivacyLevel::None)]
     pub privacy: agentprof_core::analyzer::redact::PrivacyLevel,
 }
@@ -204,7 +205,7 @@ pub fn run(
 
     let use_bold = std::io::stdout().is_terminal();
     if cmd.privacy != agentprof_core::analyzer::redact::PrivacyLevel::None {
-        redact_rows(&mut rows);
+        redact_rows(&mut rows, cmd.privacy);
     }
     let table = format_table(&rows, use_bold);
     print!("{table}");
@@ -302,18 +303,23 @@ fn analyze_one(ds: &dyn SessionDataSource, sref: &SessionRef) -> anyhow::Result<
 ///
 /// Threads ONE [`RedactionContext`](agentprof_core::analyzer::redact::RedactionContext)
 /// so identical session ids collapse to the same `<uuid-N>` within a single
-/// list invocation. The only displayed HIGH fields are the session id
+/// list invocation. The displayed HIGH fields are the session id
 /// (→ stable `<uuid-N>`) and the model (→ family via
 /// [`model_family`](agentprof_core::analyzer::redact::model_family)); cwd and
-/// branch never reach the table. `list` is map-less, so `Redact` and
-/// `Anonymize` behave identically here. Pure: never fails, never panics.
-fn redact_rows(rows: &mut [ListRow]) {
-    use agentprof_core::analyzer::redact::{model_family, RedactionContext};
+/// branch never reach the table. At `Anonymize` the `started_at` timestamp is
+/// zeroed to the Unix epoch (mirroring the report's anonymize), so the table
+/// leaks no real session time; `Redact` keeps the real timestamp. Pure: never
+/// fails, never panics.
+fn redact_rows(rows: &mut [ListRow], level: agentprof_core::analyzer::redact::PrivacyLevel) {
+    use agentprof_core::analyzer::redact::{model_family, PrivacyLevel, RedactionContext};
     let mut ctx = RedactionContext::default();
     for row in rows.iter_mut() {
         row.id = ctx.redact_uuid(&row.id);
         if let Some(model) = &row.model {
             row.model = Some(model_family(model));
+        }
+        if level == PrivacyLevel::Anonymize {
+            row.started_at = DateTime::<Utc>::UNIX_EPOCH;
         }
     }
 }

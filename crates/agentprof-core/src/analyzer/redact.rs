@@ -793,6 +793,52 @@ impl<B: RedactBucket + Clone> AggregateReport<B> {
     }
 }
 
+impl crate::model::WasteReport {
+    /// Redact MCP server + tool names through a shared [`RedactionContext`]
+    /// so the hashes match the report's `tool_rank` and flamegraph.
+    ///
+    /// At [`PrivacyLevel::None`] / [`PrivacyLevel::Redact`] this is the
+    /// identity (clone). At [`PrivacyLevel::Anonymize`] every
+    /// `server_waste[].server` becomes `hash_short(server)` (recording
+    /// `hash8 → server` into `ctx.servers`) and every `tools[].tool_name`
+    /// is rewritten via [`hash_mcp_tool_name`]; `short_name` is the bare
+    /// tool tail and carries no server PII, so it is kept. Pure: never
+    /// fails, never panics.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use agentprof_core::model::WasteReport;
+    /// use agentprof_core::analyzer::redact::{PrivacyLevel, RedactionContext};
+    /// let r: WasteReport = serde_json::from_str(r#"{
+    ///     "server_waste": [], "data_source": "None",
+    ///     "total_loaded_tool_count": 0, "total_unused_tool_count": 0
+    /// }"#).unwrap();
+    /// let mut ctx = RedactionContext::default();
+    /// let out = r.redact_with(PrivacyLevel::Anonymize, &mut ctx);
+    /// assert!(out.server_waste.is_empty());
+    /// ```
+    #[must_use]
+    pub fn redact_with(&self, level: PrivacyLevel, ctx: &mut RedactionContext) -> Self {
+        let mut out = self.clone();
+        if level != PrivacyLevel::Anonymize {
+            return out;
+        }
+        for sw in &mut out.server_waste {
+            let h = crate::observability::pii::hash_short(&sw.server);
+            ctx.servers
+                .entry(h.clone())
+                .or_insert_with(|| sw.server.clone());
+            sw.server = h;
+            for t in &mut sw.tools {
+                record_mcp_server(&t.tool_name, &mut ctx.servers);
+                t.tool_name = hash_mcp_tool_name(&t.tool_name);
+            }
+        }
+        out
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]

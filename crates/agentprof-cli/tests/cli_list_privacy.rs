@@ -74,12 +74,13 @@ fn list_privacy_none_is_byte_identical_to_no_flag() {
     assert_eq!(no_flag, none, "--privacy none must not alter output");
 }
 
-/// `list` writes no sidecar, so anonymize and redact are identical output.
+/// Audit leak B: at `anonymize`, the `Started` column is zeroed to epoch so a
+/// raw 2026-era date never appears; `redact` keeps the real timestamp.
 #[test]
-fn list_privacy_anonymize_matches_redact() {
+fn list_privacy_anonymize_zeroes_started_at_redact_keeps() {
     let root = copilot_fixtures_root();
     let mk = |lvl: &str| {
-        Command::cargo_bin("agentprof")
+        let out = Command::cargo_bin("agentprof")
             .expect("cargo_bin")
             .args(["--no-cache", "list", "--agent", "copilot", "--root"])
             .arg(&root)
@@ -88,7 +89,21 @@ fn list_privacy_anonymize_matches_redact() {
             .success()
             .get_output()
             .stdout
-            .clone()
+            .clone();
+        String::from_utf8(out).expect("utf8")
     };
-    assert_eq!(mk("redact"), mk("anonymize"), "list: redact == anonymize");
+    let anon = mk("anonymize");
+    let red = mk("redact");
+    assert!(
+        anon.contains("1970-01-01"),
+        "anonymize should zero Started to epoch; got:\n{anon}"
+    );
+    assert!(
+        !anon.contains("2026-"),
+        "anonymize leaked a raw started_at date; got:\n{anon}"
+    );
+    assert!(
+        red.contains("2026-"),
+        "redact must keep the real started_at; got:\n{red}"
+    );
 }

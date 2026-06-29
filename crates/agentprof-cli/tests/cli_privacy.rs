@@ -175,6 +175,71 @@ fn analyze_privacy_anonymize_speedscope_fully_redacts_flamegraph() {
 }
 
 #[test]
+fn analyze_section_mcp_waste_anonymize_redacts_server_json() {
+    // Audit leak A: the mcp-waste section must hash MCP server + tool names at
+    // `anonymize`. Session 099 loads `mcp__github__*` tools, so a raw "github"
+    // or `mcp__github__` substring would be a leak.
+    let out = Command::cargo_bin("agentprof")
+        .unwrap()
+        .args(["--no-cache", "analyze", "--agent", "copilot", "--root"])
+        .arg(fixtures_root())
+        .args([
+            "--session",
+            "00000000-0000-0000-0000-000000000099",
+            "--section",
+            "mcp-waste",
+            "--export",
+            "json",
+            "--privacy",
+            "anonymize",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let s = String::from_utf8(out).unwrap();
+    assert!(
+        !s.contains("github"),
+        "raw MCP server leaked into json:\n{s}"
+    );
+    assert!(
+        !s.contains("mcp__github__"),
+        "raw MCP tool name leaked into json:\n{s}"
+    );
+}
+
+#[test]
+fn analyze_section_mcp_waste_anonymize_redacts_server_html() {
+    let dir = tempfile::tempdir().unwrap();
+    let report = dir.path().join("waste.html");
+    Command::cargo_bin("agentprof")
+        .unwrap()
+        .args(["--no-cache", "analyze", "--agent", "copilot", "--root"])
+        .arg(fixtures_root())
+        .args([
+            "--session",
+            "00000000-0000-0000-0000-000000000099",
+            "--section",
+            "mcp-waste",
+            "--export",
+            "html",
+            "--privacy",
+            "anonymize",
+            "--output",
+        ])
+        .arg(&report)
+        .assert()
+        .success();
+    let html = std::fs::read_to_string(&report).unwrap();
+    assert!(!html.contains("github"), "raw MCP server leaked into html");
+    assert!(
+        !html.contains("mcp__github__"),
+        "raw MCP tool name leaked into html"
+    );
+}
+
+#[test]
 fn aggregate_privacy_redact_models_to_family() {
     let out = Command::cargo_bin("agentprof")
         .unwrap()

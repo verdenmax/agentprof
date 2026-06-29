@@ -336,9 +336,11 @@ pub fn run(
     }
 
     // Redact AFTER the cache write-through above so the cache always stores
-    // the original (real) data. Thread ONE context through both reports so the
-    // table + flamegraph share turn-ids and the flamegraph is fully redacted.
-    let (report, episodes, redaction_map) = redact_pair(&report, &episodes, cmd.privacy);
+    // the original (real) data. Thread ONE context through both reports AND
+    // the waste section so the table + flamegraph + mcp-waste share turn-ids
+    // and server hashes; the flamegraph and waste are fully redacted.
+    let (report, episodes, waste, redaction_map) =
+        redact_all(&report, &episodes, waste.as_ref(), cmd.privacy);
 
     // Pass the REDACTED report's meta (not `raw.meta`) so html/speedscope render
     // the redacted session id + started_at. At `PrivacyLevel::None` it is
@@ -348,40 +350,45 @@ pub fn run(
     crate::cmd::privacy::emit_redaction_sidecar(&redaction_map, cmd.privacy, cmd.output.as_deref())
 }
 
-/// Redact a report and its episodes through a single shared context.
+/// Redact a report, its episodes, and the MCP-waste section through a single
+/// shared context.
 ///
 /// Threading one [`RedactionContext`](agentprof_core::analyzer::redact::RedactionContext)
-/// through both the [`AnalysisReport`] and its [`Episodes`] keeps turn-ids
-/// consistent, so the table and the flamegraph share identifiers and the
-/// flamegraph carries no original turn-id or raw MCP server name. At
-/// [`PrivacyLevel::None`](agentprof_core::analyzer::redact::PrivacyLevel) this
-/// is the identity (clone) and the map is empty. The non-empty map is returned
-/// only for `Anonymize`.
+/// through the [`AnalysisReport`], its [`Episodes`] and the
+/// [`WasteReport`](agentprof_core::model::WasteReport) keeps turn-ids and
+/// server hashes consistent, so the table, the flamegraph and the mcp-waste
+/// section share identifiers and carry no original turn-id or raw MCP server
+/// name. At [`PrivacyLevel::None`](agentprof_core::analyzer::redact::PrivacyLevel)
+/// this is the identity (clone) and the map is empty. The non-empty map is
+/// returned only for `Anonymize`.
 ///
 /// # Examples
 ///
 /// ```text
-/// let (report, episodes, map) = redact_pair(report, episodes, PrivacyLevel::Anonymize);
+/// let (report, episodes, waste, map) = redact_all(report, episodes, waste, PrivacyLevel::Anonymize);
 /// ```
-fn redact_pair(
+fn redact_all(
     report: &AnalysisReport,
     episodes: &Episodes,
+    waste: Option<&agentprof_core::model::WasteReport>,
     level: agentprof_core::analyzer::redact::PrivacyLevel,
 ) -> (
     AnalysisReport,
     Episodes,
+    Option<agentprof_core::model::WasteReport>,
     agentprof_core::analyzer::redact::RedactionMap,
 ) {
     use agentprof_core::analyzer::redact::{PrivacyLevel, RedactionContext, RedactionMap};
     let mut ctx = RedactionContext::default();
     let report = report.redact_with(level, &mut ctx);
     let episodes = episodes.redact_with(level, &mut ctx);
+    let waste = waste.map(|w| w.redact_with(level, &mut ctx));
     let map = if level == PrivacyLevel::Anonymize {
         ctx.into_map()
     } else {
         RedactionMap::default()
     };
-    (report, episodes, map)
+    (report, episodes, waste, map)
 }
 
 /// Write the freshly-computed `AnalysisReport` and `Episodes` into the
