@@ -4,7 +4,7 @@
 **Context:** L-1 closure (`docs/superpowers/specs/2026-06-28-privacy-redaction-design.md`, `docs/features/privacy.md` §2 PII tiers)
 **Implements:** L-1 (🔴 HIGH PII exposed by default in `analyze` / `aggregate` reports) — `tasks/ROADMAP.md` §6.1
 **Supersedes:** the `--redact` / `--anonymize` two-flag draft sketched in `docs/features/privacy.md` §4
-**Superseded by:** None
+**Superseded by:** None — the deferred-scope consequence (Episodes / flamegraph leak) is **CLOSED by F-10 / ADR-0028**
 **Related:** ADR-0008 (aggregate report shape + buckets), ADR-0017 (unified session-id namespace — the UUIDs being redacted), ADR-0016 (MCP token cost — the MCP server names being hashed)
 
 ## Context
@@ -20,8 +20,9 @@ privacy.md §4 sketched `--redact` / `--anonymize` flags but they were never
 implemented; this was tracked limitation **L-1 (HIGH severity)**.
 
 This ADR codifies the opt-in report-redaction design now shipped: where the
-transform lives, the level semantics, the per-field rules, and the
-explicitly *deferred* surface. It does **not** touch the separate
+transform lives, the level semantics, and the per-field rules. The surface
+once deferred here (analyze flamegraph + `list`) is now closed by
+F-10/ADR-0028. It does **not** touch the separate
 *log-output* PII surface, which has had a default-on hashing model since
 M1.6.4 (privacy.md §7).
 
@@ -109,24 +110,21 @@ already emitted).
 because free-form diagnostic strings may embed un-modeled paths / ids that
 the structured walk does not reach.
 
-## Deferred scope (documented limitation)
+## Deferred scope — CLOSED by F-10 / ADR-0028
 
-The redaction pass covers the **report** (`meta`, summary tables, ranks,
-model metrics). It does **not** yet cover `episodes`, from which the
-html SVG flamegraph and speedscope frames are built — there is no
-`Episodes::redact` yet. Consequently, at `--privacy redact|anonymize`:
+> **Historical (M-original).** L-1 shipped with the redaction pass covering
+> only the **report** (`meta`, summary tables, ranks, model metrics) — it did
+> **not** cover `episodes`, from which the html SVG flamegraph and speedscope
+> frames are built. F-10 ([ADR-0028](./adr-0028-episodes-redaction.md)) closed
+> this gap: a shared `RedactionContext` now threads through both the report and
+> its episodes, so analyze `html` / `speedscope` are fully redacted and `list`
+> gained `--privacy`. `Episodes::redact` and the `warn_unredacted_flamegraph`
+> warning described below no longer reflect shipped behavior.
 
-- **html flamegraph SVG** retains original turn UUIDs (`turn-…62`) **and**
-  raw MCP server names (`mcp:github::search_issues`).
-- **speedscope** uses ordinal frame names (turn-1/2/3 — **no** turn-id leak)
-  but raw MCP server names still leak in the frame table.
-- Wall-clock instants do **not** leak in the flamegraph (frame positions are
-  relative durations, not absolute timestamps).
-
-`analyze` fires a `tracing::warn!` (`warn_unredacted_flamegraph`) under
-`html|speedscope` + any privacy level, steering fully-redacted sharing to
-`md` / `json`. **`Episodes::redact`** (closing this gap) and **`list
---privacy`** are tracked future work (`tasks/ROADMAP.md` §6.2).
+The L-1 redaction pass originally left html/speedscope flamegraph frames as a
+residual leak surface; under `--privacy redact|anonymize` they retained turn
+UUIDs + raw MCP server names, and `analyze` fired a `tracing::warn!` steering
+sharing to `md` / `json`. This is superseded by ADR-0028.
 
 **Skill names** are deliberately preserved (🟢 LOW per privacy.md §2 — the
 ROI signal is the point of redaction).
@@ -143,9 +141,9 @@ ROI signal is the point of redaction).
 
 **Negative:**
 
-- html / speedscope **flamegraph frames** remain a documented residual leak
-  surface until `Episodes::redact` lands. The `tracing::warn!` + docs +
-  this ADR make the gap explicit; `md` / `json` are the safe-share formats.
+- ~~html / speedscope flamegraph frames remain a documented residual leak
+  surface until `Episodes::redact` lands.~~ **CLOSED by F-10 / ADR-0028** —
+  episodes now share the report's `RedactionContext`; all formats redacted.
 
 **Neutral:**
 

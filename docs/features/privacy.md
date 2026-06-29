@@ -200,10 +200,18 @@ one-way and are **not** in the map.
 > table-only (no flamegraph) and likewise fully redacted, as are aggregate
 > `csv` / `md` / `json`.
 
-### 4.4 Not yet covered (future work)
+### 4.4 `list --privacy` (shipped, F-10)
 
-- **`list --privacy`** — `list` has a far smaller per-session-row PII面 and is
-  rarely shared; deferred.
+- **`list --privacy <none|redact|anonymize>`** redacts per-session rows:
+  session id → stable `<uuid-N>`, model → family. `cwd` / `branch` never
+  reach the table, so `list` writes no sidecar and `redact` / `anonymize`
+  behave identically. (ADR-0028)
+
+### 4.5 Not yet covered (future work)
+
+- **Tool arguments** are kept verbatim at every level — `ToolCall.arguments`
+  carry path/secret PII (§8). Tool-arg scrubbing is a separate RFC, so JSON
+  export of anonymized episodes may still leak args.
 
 Tracked in [`tasks/ROADMAP.md`](../../tasks/ROADMAP.md) §6.2.
 

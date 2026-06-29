@@ -3,7 +3,7 @@
 //! Discovers Copilot sessions in the default session-state root (or
 //! `--root` override), filters by `--since DURATION` (mtime), truncates
 //! to `--limit N`, runs the full `analyze` pipeline per session, and
-//! prints a 7-column plain-text table to stdout. Per-session failures
+//! prints an 8-column plain-text table to stdout. Per-session failures
 //! degrade gracefully (skipped row, summary line to stderr at end).
 //!
 //! Defaults `--since 7d --limit 20` keep typical invocations bounded

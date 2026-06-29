@@ -31,6 +31,7 @@ Subcommand wiring (current):
   through the same context as the report, so the flamegraph leaks no original
   turn-id or MCP server name (F-10). See
   [ADR-0026](../../docs/internals/adr-0026-report-redaction.md) +
+  [ADR-0028](../../docs/internals/adr-0028-episodes-redaction.md) +
   [`docs/features/privacy.md`](../../docs/features/privacy.md) §4.
 - `--section turn-summary,tool-rank,hook-rank[,mcp-waste]` (md / json / html;
   Session header + Warnings always included. `mcp-waste` is **opt-in only**
