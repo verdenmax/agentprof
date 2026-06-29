@@ -335,6 +335,7 @@ fn html_escape(s: &str) -> String {
 /// assert!(chunk.starts_with("<style>"));
 /// assert!(!chunk.contains("<!DOCTYPE"));
 /// ```
+#[cfg(feature = "web")]
 #[must_use]
 pub fn render_body_only(
     report: &AnyAggregateReport,

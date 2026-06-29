@@ -782,6 +782,7 @@ fn render_html(
 /// assert!(agg.sessions <= usize::MAX);
 /// # Ok(()) }
 /// ```
+#[cfg(feature = "web")]
 pub fn compute_aggregate_waste_from_store(
     db: &agentprof_storage::Db,
     since: std::time::Duration,

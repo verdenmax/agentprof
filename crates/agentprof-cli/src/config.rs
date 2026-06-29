@@ -1,7 +1,8 @@
 //! CLI configuration file parsing.
 //!
-//! `agentprof` reads an optional TOML config file (resolution lives in a
-//! later task) describing user defaults: log level, storage path, etc.
+//! `agentprof` reads an optional TOML config file (path resolved by
+//! [`resolve_config_path`]) describing user defaults: log level, storage
+//! path, etc.
 //! This module defines the top-level [`PartialConfig`] wire-format struct
 //! plus the helper [`resolve_storage_config`] that merges a parsed
 //! `[storage]` section with command-line overrides into a fully-resolved

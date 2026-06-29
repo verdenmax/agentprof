@@ -42,7 +42,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Args;
 
 use agentprof_storage::config::PartialStorageConfig;
@@ -165,7 +165,9 @@ pub fn run(cmd: IngestOtlpCmd, storage_path: Option<PathBuf>) -> Result<()> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
-        .context("build tokio runtime for ingest-otlp")?;
+        .map_err(|e| {
+            ExitKind::OutputError.into_anyhow(format!("build tokio runtime for ingest-otlp: {e}"))
+        })?;
     runtime.block_on(run_async(cmd, storage_path))
 }
 

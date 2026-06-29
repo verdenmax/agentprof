@@ -235,11 +235,11 @@ pub fn run(
     // Render.
     let output = match cmd.export {
         AggExportFormat::Md => format::aggregate_md::render(&any_report),
-        AggExportFormat::Json => serde_json::to_string_pretty(&any_report)
-            .context("serialize AnyAggregateReport to JSON")?,
-        AggExportFormat::Csv => {
-            format::aggregate_csv::render(&any_report).context("render aggregate CSV")?
-        }
+        AggExportFormat::Json => serde_json::to_string_pretty(&any_report).map_err(|e| {
+            ExitKind::OutputError.into_anyhow(format!("serialize AnyAggregateReport to JSON: {e}"))
+        })?,
+        AggExportFormat::Csv => format::aggregate_csv::render(&any_report)
+            .map_err(|e| ExitKind::OutputError.into_anyhow(format!("render aggregate CSV: {e}")))?,
         AggExportFormat::Html => format::aggregate_html::render(
             &any_report,
             cmd.low_utilization_threshold,
@@ -721,6 +721,7 @@ fn compute_phase2(
 ///     &db, AggregateKey::Model, Duration::from_secs(7 * 86_400), 20.0, 20,
 /// );
 /// ```
+#[cfg(feature = "web")]
 pub fn compute_aggregate_from_store(
     db: &agentprof_storage::Db,
     key: AggregateKey,
