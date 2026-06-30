@@ -49,3 +49,22 @@ cargo run -p xtask -- audit-pii crates
 The CI `pii-guard` job runs this on every PR, blocking the most common
 accidental PII leak. Use the placeholder `/home/USER/...` in docs/tests/doctests
 instead of a real username. See `docs/features/privacy.md` §5.
+
+### `visual-guide`
+
+Generate or validate the static HTML visual guide under `docs/visual-guide/`.
+
+```bash
+# build generated HTML files locally
+cargo run -p xtask -- visual-guide
+
+# CI/PR mode: verify generated output is up to date
+cargo run -p xtask -- visual-guide --check
+
+# remove generated HTML before rebuilding
+cargo run -p xtask -- visual-guide --clean
+```
+
+The source of truth is `xtask/src/visual_guide/`,
+`xtask/templates/visual_guide/`, and `docs/visual-guide/assets/`; generated
+`docs/visual-guide/*.html` and subdirectories are ignored by git.

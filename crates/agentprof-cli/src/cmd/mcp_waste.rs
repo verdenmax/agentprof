@@ -228,11 +228,14 @@ pub fn run(
     //    Copilot is still the only supported agent (spec §7.3); resolve
     //    the default session-state root via `CopilotAdapter` so the
     //    `~/.copilot/...` convention is owned by exactly one crate.
-    let root = args.root.clone().unwrap_or_else(|| {
-        CopilotAdapter
-            .default_session_root()
-            .unwrap_or_else(|| PathBuf::from(".copilot/session-state"))
-    });
+    let root = args
+        .root
+        .clone()
+        .or_else(|| CopilotAdapter.default_session_root())
+        .ok_or_else(|| {
+            crate::cmd::exit::ExitKind::UserError
+                .into_anyhow("could not determine session root; pass --root explicitly".to_string())
+        })?;
     let storage_cfg = agentprof_cli::config::resolve_storage_config(
         agentprof_storage::config::PartialStorageConfig::default(),
         storage_path,
@@ -470,7 +473,7 @@ fn drain_and_emit_warnings(
     }
     for w in &warnings {
         eprintln!(
-            "agentprof: warn: session {}: {} fields differ ({}); using adapter; will re-upsert",
+            "agentprof: warn: session {}: {} fields differ ({}); using adapter",
             w.session_id,
             w.differing_fields.len(),
             w.differing_fields.join(", "),
@@ -815,7 +818,7 @@ pub fn compute_aggregate_waste_from_store(
             Ok(r) => r,
             Err(e) => {
                 tracing::warn!(
-                    session_id = %sref.id,
+                    session = %agentprof_core::observability::pii::hash_short(&sref.id),
                     error = %e,
                     "load_session failed during mcp-waste; skipping"
                 );

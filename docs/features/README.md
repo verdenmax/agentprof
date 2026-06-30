@@ -28,7 +28,8 @@ documentation system.
 
 | File | Purpose |
 |---|---|
-| [`privacy.md`](./privacy.md) | PII tier table for `AnalysisReport` output fields + manual `sed`/`jq` redaction recipes + planned `--redact` / `--anonymize` CLI flags. Touches `agentprof-core::analyzer` (which fields exist) and `agentprof-cli::cmd::format` (which fields get rendered). |
+| [`privacy.md`](./privacy.md) | PII tier table for report/list/log output + shipped `--privacy <none\|redact\|anonymize>` behavior. Touches `agentprof-core::analyzer::redact` and CLI render/log surfaces. |
+| [`web-dashboard.md`](./web-dashboard.md) | L2 cross-crate guide for `agentprof serve`, its store-backed dashboard routes, config, feature gate, and tests. |
 
 ## Planned files
 

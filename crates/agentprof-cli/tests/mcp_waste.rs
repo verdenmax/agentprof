@@ -4,6 +4,7 @@
 
 use assert_cmd::Command;
 use predicates::str::contains;
+use tempfile::TempDir;
 
 fn fixture_root() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -83,6 +84,21 @@ fn mcp_waste_json_default_is_valid_json() {
     assert!(parsed.get("sessions").is_some());
     assert!(parsed.get("per_server").is_some());
     assert!(parsed.get("never_called_tools").is_some());
+}
+
+#[test]
+fn mcp_waste_missing_home_requires_explicit_root() {
+    let tmp = TempDir::new().unwrap();
+    std::fs::create_dir_all(tmp.path().join(".copilot/session-state")).unwrap();
+
+    Command::cargo_bin("agentprof")
+        .unwrap()
+        .env_remove("HOME")
+        .current_dir(tmp.path())
+        .args(["--no-cache", "mcp-waste", "--since", "all"])
+        .assert()
+        .code(1)
+        .stderr(contains("could not determine session root"));
 }
 
 #[test]

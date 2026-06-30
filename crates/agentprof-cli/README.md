@@ -184,7 +184,7 @@ agentprof list --since 24h --limit 5
 | `--root` | adapter default | Override default session-state root |
 | `--since` | `7d` | Filter by mtime; accepts `<N>d/h/m/s` or `all` |
 | `--limit` | `20` | Max sessions shown; `0` = unlimited |
-| `--privacy` | `none` | F-10 — redact displayed identifiers before printing. `redact`/`anonymize` replace each session id with `<uuid-N>` (stable within one invocation) and collapse model→family. No sidecar map is written for `list`. `anonymize` additionally zeroes the `Started` column to the Unix epoch; `redact` keeps the real timestamp. |
+| `--privacy` | `none` | F-10 — redact displayed identifiers before printing. `redact`/`anonymize` replace each session id with `<uuid-N>` (stable within one invocation), collapse model→family, and redact empty-root / dual-path diagnostics. No sidecar map is written for `list`. `anonymize` additionally zeroes the `Started` column to the Unix epoch; `redact` keeps the real timestamp. |
 
 **Error handling:** per-session parse failures degrade gracefully — successful rows still printed; failures summarized to stderr at end. All-failure case exits `DataError` (2).
 
@@ -506,7 +506,7 @@ Live localhost dashboard backed by the SQLite store. Auto-polls every
 
 ```bash
 agentprof serve \
-  --storage-path ~/.local/share/agentprof/store.db
+  --storage-path ~/.local/share/agentprof/store.sqlite
 ```
 
 Then visit `http://127.0.0.1:4329/sessions` (the browser opens
@@ -532,9 +532,10 @@ auto_open        = true
 ```
 
 Loaded from `$AGENTPROF_CONFIG` or
-`$XDG_CONFIG_HOME/agentprof/config.toml`. **Precedence:** CLI flag > env >
-file > built-in defaults — same semantics as the `[otlp]` block (M2.2
-T8.2).
+`$XDG_CONFIG_HOME/agentprof/config.toml`. **Precedence:** CLI flag >
+`[serve]` file block > built-in defaults. `--storage-path` is separate:
+it is required via CLI flag or `AGENTPROF_STORAGE_PATH` env var and does
+not fall back to `[storage].path`.
 
 ### Views
 
@@ -588,7 +589,7 @@ agentprof config init [--force]       # write a commented default template
 | Action | Behaviour |
 |---|---|
 | `path` | Prints the resolved path + `[exists]` / `[not found]`. Appends ` (from $AGENTPROF_CONFIG)` when that env override is set. Exit `0` even when the file is absent. |
-| `show` | Prints the **effective** configuration — built-in defaults merged with file overrides — annotating each value `(default)` or `(from file)`. Reuses the real resolvers (`resolve_storage_config`, `OtlpServerConfig::from_partial`) so the shown defaults can't drift from runtime. When the binary is built without `otlp` / `web`, the `[otlp]` / `[serve]` header reads `(feature not enabled in this build)`. A malformed file → exit `2`. |
+| `show` | Prints the **effective** configuration — built-in defaults merged with file overrides — annotating each value `(default)` or `(from file)`. Secret values such as `[otlp].listen_token` are always rendered as `"<redacted>"`. Reuses the real resolvers (`resolve_storage_config`, `OtlpServerConfig::from_partial`) so the shown defaults can't drift from runtime. When the binary is built without `otlp` / `web`, the `[otlp]` / `[serve]` header reads `(feature not enabled in this build)`. A malformed file → exit `2`. |
 | `edit` | Opens the file in `$VISUAL` (preferred) then `$EDITOR`; an **empty** var is treated as unset and falls through. Neither set → exit `1`. Self-heals: writes the commented template first when the file is absent, then never re-templates an existing file. A non-zero editor status → exit `1`. |
 | `init` | Writes a commented default template (only `[storage]` active; `[otlp]` / `[serve]` commented so it parses in any build). Refuses an existing file without `--force` → exit `1`. |
 
@@ -648,7 +649,7 @@ See [`docs/architecture.md`](../../docs/architecture.md) §8 for the canonical s
 | `cmd::watch` | The `watch` subcommand: single-session + `watch aggregate` cross-session live-refresh TUI. Owns the `notify-debouncer-mini` thread and drives `agentprof_tui::watch::WatchRunner` via an mpsc channel + reload closure. | ✓ shipped (M1.6.3) |
 | `cmd::mcp_waste` | The `mcp-waste` subcommand: cross-session report of MCP tools loaded but never called. Per-session `compute_waste` + cross-session `aggregate_waste` + md/json/html renderers. Also owns the shared `resolve_mcp_config_path` helper consumed by `analyze --section mcp-waste`. | ✓ shipped (M1.6.5) |
 | `exit` | `ExitKind` enum + `classify_error` downcast | ✓ shipped (M1.4) |
-| `data_source` | `DualPathDataSource` composer — fans out `SessionDataSource` calls to an adapter + optional `SQLite` store, merges by session id (adapter wins), and records divergence warnings. (An async re-upsert callback was prototyped in M2.1 T4.2 and removed by the M2.1 audit followup — see `data_source.rs` module docs; proper async refresh is deferred to M2.1.1.) | ✓ shipped (M2.1 T4.2; re-upsert callback removed in audit followup) |
+| `data_source` | `DualPathDataSource` composer — fans out `SessionDataSource` calls to an adapter + optional `SQLite` store, merges by session id (adapter wins), and records divergence warnings. An async re-upsert callback was prototyped in M2.1 T4.2 and removed by the M2.1 audit followup; current behavior is warning-only, with no automatic refresh. | ✓ shipped (M2.1 T4.2; re-upsert callback removed in audit followup) |
 | `data_source_factory` | `build_data_source(agent, root, &StorageConfig, no_cache) -> anyhow::Result<(Box<dyn SessionDataSource>, WarningsHandle)>` — single composition seam used by every subcommand. Returns a `DualPathDataSource` when storage is reachable, falls back to a bare `AdapterDataSource` when `--no-cache` is set **or** storage open fails (`tracing::warn!` + graceful degradation, never a hard error). The second tuple element is an `Arc<Mutex<Vec<DualPathWarning>>>` shared with the inner dual-path source (empty for adapter-only returns) — callers drain it and emit one stderr line per warning unless `--quiet`. | ✓ shipped (M2.1 T5.1, warnings handle M2.1 T5.2) |
 | `cmd::ingest_otlp` | The `ingest-otlp` subcommand: reads the `[otlp]` block from `~/.config/agentprof/config.toml` (or `$AGENTPROF_CONFIG`), folds CLI flags + env on top to build an `OtlpServerConfig` (priority: CLI > env > file > defaults), opens the SQLite store, wires `StorageFlushSink → SessionRouter → IngestPipeline → serve_{grpc,http}` + `spawn_idle_sweeper`, and drains gracefully on SIGINT / SIGTERM. Feature-gated under `otlp`; dispatcher in `main.rs` spins a multi-thread tokio runtime via `block_on` so the rest of the CLI stays sync. A hidden `--sweeper-interval-seconds` flag (test-only, omitted from `--help`) overrides the 30 s sweeper tick so end-to-end tests in `tests/cli_ingest_otlp_e2e.rs` can fire idle flushes within a few seconds. | ✓ shipped (M2.2 T8.1 + T8.2; e2e tests M2.2 T9.1) |
 | `cmd::serve` (feature `web`) | The `serve` subcommand: reads the `[serve]` block (`bind` / `interval_default` / `auto_open`), folds CLI flags on top, opens the SQLite store, builds the axum `Router` (12 routes: 5 dashboard pages × 2 chunk endpoints + `/healthz` + `/static/:name` + `/` → `/sessions` redirect), and drives `axum::serve(...).with_graceful_shutdown(...)` until SIGINT / SIGTERM. Submodules: `mod` (clap + entry + signal), `state` (`Arc<Mutex<Db>>` + `interval_default`), `router`, `handlers` (5 views × 2 routes), `static_assets` (`include_str!` / `include_bytes!` bundling). Templates under `templates/dashboard/**`. Adds `format::html::render_body_only` + `format::aggregate_html::render_body_only` for embedding the existing static HTML report markup inside the dashboard chrome, plus `cmd::aggregate::compute_aggregate_from_store` and `cmd::mcp_waste::compute_aggregate_waste_from_store` (store-mode parallels to the existing adapter-mode `compute_*` fns). See [ADR-0024](../../docs/internals/adr-0024-web-dashboard-architecture.md). | ✓ shipped (M2.3; e2e tests `tests/cli_serve_e2e.rs`) |

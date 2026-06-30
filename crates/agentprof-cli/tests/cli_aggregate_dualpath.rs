@@ -7,6 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use assert_cmd::Command;
+use predicates::str::contains;
 use tempfile::TempDir;
 
 fn fixture() -> std::path::PathBuf {
@@ -232,4 +233,53 @@ fn aggregate_tolerates_empty_episodes_column() {
         ])
         .assert()
         .success();
+}
+
+#[test]
+fn aggregate_reports_corrupt_episodes_json_as_data_error() {
+    let tmp = TempDir::new().unwrap();
+    let db_path = tmp.path().join("c.sqlite");
+    let fx = fixture();
+
+    Command::cargo_bin("agentprof")
+        .unwrap()
+        .args([
+            "--storage-path",
+            db_path.to_str().unwrap(),
+            "db",
+            "ingest",
+            "--agent",
+            "copilot",
+            "--root",
+            fx.to_str().unwrap(),
+            "--all",
+        ])
+        .assert()
+        .success();
+
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute("UPDATE sessions SET episodes_json = 'not json'", [])
+        .unwrap();
+    drop(conn);
+
+    Command::cargo_bin("agentprof")
+        .unwrap()
+        .args([
+            "--storage-path",
+            db_path.to_str().unwrap(),
+            "aggregate",
+            "--agent",
+            "copilot",
+            "--root",
+            fx.to_str().unwrap(),
+            "--by",
+            "tool",
+            "--since",
+            "9999d",
+            "--export",
+            "md",
+        ])
+        .assert()
+        .code(2)
+        .stderr(contains("load_episodes"));
 }

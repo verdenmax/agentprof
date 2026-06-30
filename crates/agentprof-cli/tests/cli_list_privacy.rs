@@ -14,6 +14,7 @@ use std::path::PathBuf;
 
 use assert_cmd::Command;
 use predicates::str::contains;
+use tempfile::TempDir;
 
 /// Absolute path to the committed Copilot fixtures directory.
 fn copilot_fixtures_root() -> PathBuf {
@@ -105,5 +106,27 @@ fn list_privacy_anonymize_zeroes_started_at_redact_keeps() {
     assert!(
         red.contains("2026-"),
         "redact must keep the real started_at; got:\n{red}"
+    );
+}
+
+#[test]
+fn list_privacy_redacts_empty_root_diagnostic() {
+    let empty = TempDir::new().expect("tempdir");
+    let raw_root = empty.path().display().to_string();
+    let out = Command::cargo_bin("agentprof")
+        .expect("cargo_bin")
+        .args(["--no-cache", "list", "--agent", "copilot", "--root"])
+        .arg(empty.path())
+        .args(["--since", "all", "--privacy", "anonymize"])
+        .assert()
+        .success()
+        .stdout(contains("<redacted>"))
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).expect("utf8");
+    assert!(
+        !text.contains(&raw_root),
+        "privacy mode should not print raw empty root path; got:\n{text}"
     );
 }

@@ -269,8 +269,10 @@ impl SessionDataSource for DualPathDataSource {
         id: &str,
     ) -> Result<agentprof_core::episode::Episodes, DataSourceError> {
         if let Some(storage) = self.storage.as_deref() {
-            if let Ok(eps) = storage.load_episodes(id) {
-                return Ok(eps);
+            match storage.load_episodes(id) {
+                Ok(eps) => return Ok(eps),
+                Err(DataSourceError::NotFound { .. }) => {}
+                Err(e) => return Err(e),
             }
         }
         self.adapter.load_episodes(id)

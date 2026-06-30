@@ -152,7 +152,7 @@ impl FlushSink for StorageFlushSink {
             Ok(_) => {
                 debug!(
                     target: "agentprof::otlp::sink_storage",
-                    session_id = %session_id,
+                    session = %agentprof_core::observability::pii::hash_short(session_id),
                     close_reason = ?close_reason,
                     "otlp session persisted",
                 );
@@ -161,7 +161,7 @@ impl FlushSink for StorageFlushSink {
             Err(e) => {
                 warn!(
                     target: "agentprof::otlp::sink_storage",
-                    session_id = %session_id,
+                    session = %agentprof_core::observability::pii::hash_short(session_id),
                     close_reason = ?close_reason,
                     error = %e,
                     "failed to persist otlp session; row will be missing from `agentprof list`",
@@ -310,7 +310,7 @@ fn persistable_to_report(session_id: &str, persistable: PersistableSession) -> A
                     target: "agentprof::otlp::sink_storage",
                     %identity,
                     ?signal,
-                    session_id = %session_id,
+                    session = %agentprof_core::observability::pii::hash_short(session_id),
                     "dropping unrecognized otlp event",
                 );
             }
@@ -320,7 +320,7 @@ fn persistable_to_report(session_id: &str, persistable: PersistableSession) -> A
     if unrecognized > 0 || user_prompts > 0 {
         debug!(
             target: "agentprof::otlp::sink_storage",
-            session_id = %session_id,
+            session = %agentprof_core::observability::pii::hash_short(session_id),
             user_prompts,
             unrecognized,
             "otlp lossy mapping summary",

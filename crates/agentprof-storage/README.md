@@ -52,7 +52,7 @@ and §15.4 (feature flags).
 | [`upsert::upsert_episodes`] | `fn upsert_episodes(db, id, &Episodes, _ingested_at_secs)` — UPDATE the `episodes_json` column. Pairs with `upsert_report` (which must run first to insert the session row); returns 0 if no row matched (caller MUST pair the two). M2.1.1. | Stable |
 | [`query::query_sessions_since`] | Enumerate `agentprof_core::datasource::SessionRef`s with `started_at >= cutoff`, newest first. Backs `list --since`. | Stable |
 | [`query::load_session`] | Hydrate a full `AnalysisReport` from `sessions.analysis_report_json` by id. `QueryReturnedNoRows` → `SqliteError::NotFound`. | Stable |
-| [`query::load_episodes`] | SELECT the `episodes_json` column, deserialize to `Episodes`. Returns `Episodes::default()` for pre-M2.1.1 rows whose column holds the migration-default `'{}'` blob (backed by `#[serde(default)]` on `Episodes`' required fields). `QueryReturnedNoRows` for unknown id. M2.1.1. | Stable |
+| [`query::load_episodes`] | SELECT the `episodes_json` column, deserialize to `Episodes`. Returns `Episodes::default()` for pre-M2.1.1 rows whose column holds the migration-default `'{}'` blob (backed by `#[serde(default)]` on `Episodes`' required fields). `QueryReturnedNoRows` for unknown id; `SqliteError::Serde` for corrupt JSON/schema drift. M2.1.1. | Stable |
 | [`SqliteDataSource`] | Implements [`agentprof_core::datasource::SessionDataSource`]. Wraps an `Arc<Mutex<Db>>`; maps `NotFound` → `DataSourceError::NotFound`, other `SqliteError`s → `DataSourceError::Storage { source: "sqlite", … }`. Consumed by the cli's `DualPathDataSource` composer per [ADR-0018](../../docs/internals/adr-0018-session-datasource-trait.md). | Stable |
 | [`admin::stats`] | `DbStats { mode, path, file_size_bytes, sessions_count, tools_loaded_count, turn_buckets_count, oldest_started_at, newest_started_at }` for `agentprof db stats`. | Stable |
 | [`admin::prune_before`] | Cascading delete by `started_at`. Cache mode honours `auto_prune_days`; store mode never auto-prunes. Backs `agentprof db prune`. | Stable |
@@ -127,18 +127,18 @@ cache-vs-store policy.
 
 | Feature | Default | Effect |
 |---|---|---|
-| `otlp` | off | Pulls in `opentelemetry-proto`, `tonic`, `prost`, `tokio`, `axum`, `bytes`, `dashmap`, `rustls`, `rustls-pemfile`, `tower`, **`subtle`** (M2.4 T5: constant-time bearer compare); compiles the OTLP collector `.proto`s into server stubs at build time (build-dep on `tonic-build` + `prost-build`); enables the receiver subsystem under `agentprof_storage::otlp` (M2.2 ✅ — full gRPC + HTTP/protobuf transport, per-`session.id` buffering with OOM caps, idle/size/shutdown flush, bearer + TLS + mTLS auth, `StorageFlushSink` reusing `upsert_report`; **M2.4 ✅ hardened** — constant-time bearer, per-signal request size caps wired on both transports, LRU session eviction with `CloseReason::CapacityEvict`, 256-byte `session.id` cap in mapper). See [ADR-0021](../../docs/internals/adr-0021-otlp-receiver-architecture.md) + [ADR-0022](../../docs/internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md). |
+| `otlp` | off | Pulls in `opentelemetry`, `opentelemetry-otlp`, `opentelemetry_sdk`, `tonic`, `prost`, `tokio`, `axum`, `axum-server`, `bytes`, `dashmap`, `rustls`, `tower`, and **`subtle`** (M2.4 T5: constant-time bearer compare); compiles the OTLP collector `.proto`s into server stubs at build time (build-dep on `tonic-build` + `prost-build` + `protoc-bin-vendored`); enables the receiver subsystem under `agentprof_storage::otlp` (M2.2 ✅ — full gRPC + HTTP/protobuf transport, per-`session.id` buffering with OOM caps, idle/size/shutdown flush, bearer + TLS + mTLS auth, `StorageFlushSink` reusing `upsert_report`; **M2.4 ✅ hardened** — constant-time bearer, per-signal request size caps wired on both transports, LRU session eviction with `CloseReason::CapacityEvict`, 256-byte `session.id` cap in mapper). See [ADR-0021](../../docs/internals/adr-0021-otlp-receiver-architecture.md) + [ADR-0022](../../docs/internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md). |
 
 ## Dependencies
 
 - Workspace internal: `agentprof-core`
 - External: `serde`, `serde_json`, `thiserror`, `tracing`, `chrono`,
   `directories`, `rusqlite` (bundled)
-- Optional (feature `otlp`): `opentelemetry-proto`, `tonic`, `prost`,
-  `tokio`, `axum`, `bytes`, `dashmap`, `rustls`, `rustls-pemfile`,
-  `tower`, `subtle` (M2.4 T5 — constant-time bearer compare,
+- Optional (feature `otlp`): `opentelemetry`, `opentelemetry-otlp`,
+  `opentelemetry_sdk`, `tonic`, `prost`, `tokio`, `axum`, `axum-server`,
+  `bytes`, `dashmap`, `rustls`, `tower`, `subtle` (M2.4 T5 — constant-time bearer compare,
   [ADR-0022](../../docs/internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md) D-4);
-  build-dep `tonic-build` + `prost-build` for `.proto` codegen
+  build-dep `tonic-build` + `prost-build` + `protoc-bin-vendored` for `.proto` codegen
 
 ## Local commands
 

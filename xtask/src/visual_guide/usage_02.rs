@@ -91,11 +91,9 @@ pub fn render() -> String {
         r#"<div class="qa">
 <div class="q">🧪 命令</div>
 <div class="a"><pre class="code">curl -fsSL https://github.com/verdenmax/agentprof/releases/latest/download/agentprof-cli-installer.sh | sh
-# 自动检测 OS/arch，拉对应预编译 binary 到 ~/.cargo/bin/agentprof
-# Windows PowerShell：
-#   irm https://github.com/verdenmax/agentprof/releases/latest/download/agentprof-cli-installer.ps1 | iex</pre></div>
+# 自动检测 OS/arch，拉对应预编译 binary 到 ~/.cargo/bin/agentprof</pre></div>
 <div class="q">🤔 为什么必要</div>
-<div class="a">你<strong>不需要装 Rust toolchain</strong>。脚本走 <a href="https://opensource.axo.dev/cargo-dist/">cargo-dist</a> 发布的 GitHub Release，支持 Linux x86_64 / aarch64、macOS Intel / Apple Silicon、Windows MSVC 共 5 个 target triple。安装时间 &lt; 10 秒。</div>
+<div class="a">你<strong>不需要装 Rust toolchain</strong>。脚本走 <a href="https://opensource.axo.dev/cargo-dist/">cargo-dist</a> 发布的 GitHub Release，支持 Linux x86_64 / aarch64、macOS Intel / Apple Silicon 共 4 个 target triple。安装时间 &lt; 10 秒。</div>
 <div class="q">✅ agentprof 怎么做</div>
 <div class="a">CI 在 tag push 时用 <code>cargo dist build</code> 交叉编译并签名打包，每个 binary 自带 <strong>所有默认 feature</strong>（含 <code>full</code>）。SHA256 sums 一并发布到 Release assets 里方便手工校验。<code>latest/download/</code> 会自动跳到含 asset 的最新 release —— 如果当前 tag 还没跑完 release workflow，会回退到上一个有 asset 的版本（详见 <strong>ADR-0014</strong>）。</div>
 <div class="q">🔀 其他选择</div>

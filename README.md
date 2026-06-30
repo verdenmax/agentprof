@@ -35,7 +35,9 @@ agentprof --version                         # agentprof 0.3.3
 agentprof analyze --agent copilot           # latest session → markdown
 agentprof analyze --export tui              # interactive flamegraph + ROI
 agentprof mcp-waste --since 7d              # loaded-but-uncalled across a week
-agentprof serve                             # live localhost dashboard
+agentprof db init --storage-path ~/.local/share/agentprof/store.sqlite
+agentprof db ingest --agent copilot --all --storage-path ~/.local/share/agentprof/store.sqlite
+agentprof serve --storage-path ~/.local/share/agentprof/store.sqlite
 agentprof analyze --export json --privacy anonymize   # safe to share
 ```
 

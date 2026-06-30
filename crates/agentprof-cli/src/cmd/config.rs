@@ -343,7 +343,7 @@ fn render_otlp(
         "listen_token",
         &c.listen_token
             .as_deref()
-            .map_or_else(|| "(unset)".to_string(), |t| format!("\"{t}\"")),
+            .map_or_else(|| "(unset)".to_string(), |_| "\"<redacted>\"".to_string()),
         f_token,
     );
     show_line("tls_cert", &opt_path(c.tls_cert.as_deref()), f_cert);

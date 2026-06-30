@@ -65,6 +65,34 @@ jobs:
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1
       - run: cargo doc --workspace --no-deps --all-features
 
+  snapshots:
+    name: insta snapshots
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      # Rolling ref intentionally NOT SHA-pinned (ADR-0014 D-6): we want each
+      # CI run to pick up the current stable Rust toolchain.
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1
+      - run: cargo install cargo-insta --locked
+      - run: cargo insta test --check
+
+  feature-matrix:
+    name: feature matrix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      # Rolling ref intentionally NOT SHA-pinned (ADR-0014 D-6): we want each
+      # CI run to pick up the current stable Rust toolchain.
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1
+      - run: cargo check -p agentprof-cli --no-default-features
+      - run: cargo check -p agentprof-cli --no-default-features --features otlp
+      - run: cargo check -p agentprof-cli --no-default-features --features web
+      - run: cargo check -p agentprof-storage --no-default-features
+      - run: cargo check -p agentprof-storage --no-default-features --features otlp
+      - run: cargo check -p agentprof-storage --no-default-features --features progress
+
   deny:
     name: cargo-deny
     runs-on: ubuntu-latest

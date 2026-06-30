@@ -4,7 +4,7 @@
 //!
 //! Depends only on [`agentprof-core`](../agentprof_core/index.html). The
 //! `SQLite` schema is normative in
-//! [`docs/architecture.md`](https://github.com/agentprof/agentprof/blob/main/docs/architecture.md#9-sqlite-schema)
+//! [`docs/architecture.md`](https://github.com/verdenmax/agentprof/blob/main/docs/architecture.md#9-sqlite-schema)
 //! §9; migrations under `src/sqlite/migrations/` must keep that schema in sync.
 //!
 //! ## Modules
@@ -32,7 +32,8 @@
 //!
 //! - `otlp` (off by default) — enables the OTLP receiver used by
 //!   `agentprof ingest-otlp`.
-//! - `progress` (off by default) — enables the CLI ingest progress bar.
+//! - `progress` (off by default) — reserved for future CLI progress reporting;
+//!   no current command enables it.
 //!
 //! ## Examples
 //!

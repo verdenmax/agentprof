@@ -744,15 +744,23 @@ pub fn compute_aggregate_from_store(
     let mut failure_count: usize = 0;
     for sref in &refs {
         match agentprof_storage::query::load_session(db, &sref.id) {
-            Ok(report) => {
-                let episodes =
-                    agentprof_storage::query::load_episodes(db, &sref.id).unwrap_or_default();
-                reports.push(report);
-                episodes_vec.push(episodes);
-            }
+            Ok(report) => match agentprof_storage::query::load_episodes(db, &sref.id) {
+                Ok(episodes) => {
+                    reports.push(report);
+                    episodes_vec.push(episodes);
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        session = %agentprof_core::observability::pii::hash_short(&sref.id),
+                        error = %e,
+                        "load_episodes failed during aggregate; skipping"
+                    );
+                    failure_count += 1;
+                }
+            },
             Err(e) => {
                 tracing::warn!(
-                    session_id = %sref.id,
+                    session = %agentprof_core::observability::pii::hash_short(&sref.id),
                     error = %e,
                     "load_session failed during aggregate; skipping"
                 );
@@ -798,8 +806,9 @@ pub fn compute_aggregate_from_store(
 /// as `list` / `mcp-waste` / `analyze`), discovers + sorts refs, then
 /// for each ref calls both `load_session` (for the rollup report) and
 /// `load_episodes` (for the per-call vec aggregate's percentile pool
-/// needs). `load_episodes` failure is non-fatal — falls back to
-/// `Episodes::default()` (skipped from the percentile pool).
+/// needs). Empty pre-M2.1.1 episode blobs are valid; corrupt blobs are
+/// treated as per-session load failures instead of silently skewing
+/// aggregate durations.
 ///
 /// Drains dual-path divergence warnings to stderr (unless `quiet`) at
 /// the end of the load loop, matching `list` / `mcp-waste` UX.
@@ -875,9 +884,10 @@ fn compute_aggregate_via_ds(
                 tracing::warn!(
                     session = %agentprof_core::observability::pii::hash_short(&sref.id),
                     error = %e,
-                    "load_episodes failed; using empty Episodes for percentile pool"
+                    "load_episodes failed; skipping session"
                 );
-                Episodes::default()
+                failure_count += 1;
+                continue;
             }
         };
         reports.push(report);
