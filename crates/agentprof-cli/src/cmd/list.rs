@@ -34,6 +34,7 @@ use clap::Args;
 
 use agentprof_adapters::copilot::CopilotAdapter;
 use agentprof_core::adapter::{Adapter, AgentKind};
+use agentprof_core::analyzer::redact::{PrivacyLevel, RedactionContext};
 use agentprof_core::analyzer::AnalysisReport;
 use agentprof_core::datasource::{SessionDataSource, SessionRef};
 
@@ -179,12 +180,16 @@ pub fn run(
         .collect();
 
     if filtered.is_empty() {
+        let root_display = if cmd.privacy == PrivacyLevel::None {
+            root.display().to_string()
+        } else {
+            "<redacted>".to_string()
+        };
         println!(
             "(no sessions matching --since={} in {})",
-            cmd.since,
-            root.display()
+            cmd.since, root_display
         );
-        drain_and_emit_warnings(&warnings_handle, quiet);
+        drain_and_emit_warnings_with_privacy(&warnings_handle, quiet, cmd.privacy);
         return Ok(());
     }
 
@@ -198,7 +203,7 @@ pub fn run(
     }
 
     if rows.is_empty() {
-        drain_and_emit_warnings(&warnings_handle, quiet);
+        drain_and_emit_warnings_with_privacy(&warnings_handle, quiet, cmd.privacy);
         return Err(ExitKind::DataError
             .into_anyhow(format!("all {} session(s) failed to parse", failures.len())));
     }
@@ -225,7 +230,7 @@ pub fn run(
             tracing::warn!(session = %agentprof_core::observability::pii::hash_short(id), error = %format_args!("{e:#}"), "parse failure detail");
         }
     }
-    drain_and_emit_warnings(&warnings_handle, quiet);
+    drain_and_emit_warnings_with_privacy(&warnings_handle, quiet, cmd.privacy);
     Ok(())
 }
 
@@ -237,11 +242,21 @@ pub fn run(
 /// matches spec §7.3:
 ///
 /// ```text
-/// agentprof: warn: session <id>: N fields differ (<a>, <b>, …); using adapter; will re-upsert
+/// agentprof: warn: session <id>: N fields differ (<a>, <b>, …); using adapter
 /// ```
 pub fn drain_and_emit_warnings(
     handle: &agentprof_cli::data_source_factory::WarningsHandle,
     quiet: bool,
+) {
+    drain_and_emit_warnings_with_privacy(handle, quiet, PrivacyLevel::None);
+}
+
+/// Drain accumulated dual-path warnings while redacting session identifiers
+/// when the caller is rendering privacy-safe output.
+pub fn drain_and_emit_warnings_with_privacy(
+    handle: &agentprof_cli::data_source_factory::WarningsHandle,
+    quiet: bool,
+    privacy: PrivacyLevel,
 ) {
     let warnings = {
         let mut guard = handle
@@ -252,10 +267,16 @@ pub fn drain_and_emit_warnings(
     if quiet || warnings.is_empty() {
         return;
     }
+    let mut ctx = RedactionContext::default();
     for w in &warnings {
+        let session_id = if privacy == PrivacyLevel::None {
+            w.session_id.clone()
+        } else {
+            ctx.redact_uuid(&w.session_id)
+        };
         eprintln!(
-            "agentprof: warn: session {}: {} fields differ ({}); using adapter; will re-upsert",
-            w.session_id,
+            "agentprof: warn: session {}: {} fields differ ({}); using adapter",
+            session_id,
             w.differing_fields.len(),
             w.differing_fields.join(", "),
         );
@@ -301,11 +322,11 @@ fn analyze_one(ds: &dyn SessionDataSource, sref: &SessionRef) -> anyhow::Result<
 
 /// Redact the displayed 🔴 HIGH identifiers in-place across all rows.
 ///
-/// Threads ONE [`RedactionContext`](agentprof_core::analyzer::redact::RedactionContext)
+/// Threads ONE [`agentprof_core::analyzer::redact::RedactionContext`]
 /// so identical session ids collapse to the same `<uuid-N>` within a single
 /// list invocation. The displayed HIGH fields are the session id
 /// (→ stable `<uuid-N>`) and the model (→ family via
-/// [`model_family`](agentprof_core::analyzer::redact::model_family)); cwd and
+/// [`agentprof_core::analyzer::redact::model_family`]); cwd and
 /// branch never reach the table. At `Anonymize` the `started_at` timestamp is
 /// zeroed to the Unix epoch (mirroring the report's anonymize), so the table
 /// leaks no real session time; `Redact` keeps the real timestamp. Pure: never

@@ -114,6 +114,49 @@ fn dualpath_warns_on_stale_db() {
         stderr.contains("agentprof: warn") && stderr.contains("fields differ"),
         "expected divergence warn in stderr, got: {stderr}"
     );
+    assert!(
+        !stderr.contains("will re-upsert"),
+        "warning must not promise an automatic refresh path that no longer exists: {stderr}"
+    );
+}
+
+#[test]
+fn dualpath_warning_redacts_session_id_under_list_privacy() {
+    let tmp = TempDir::new().unwrap();
+    let db_path = tmp.path().join("c.sqlite");
+    let db = db_path.to_str().unwrap();
+    let root = fixture();
+    let root_s = root.to_str().unwrap();
+
+    ingest_all(db, root_s);
+    make_stale(db);
+
+    let out = Command::cargo_bin("agentprof")
+        .unwrap()
+        .args([
+            "--storage-path",
+            db,
+            "list",
+            "--agent",
+            "copilot",
+            "--root",
+            root_s,
+            "--since",
+            "9999d",
+            "--privacy",
+            "anonymize",
+        ])
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("agentprof: warn") && stderr.contains("fields differ"),
+        "expected divergence warn in stderr, got: {stderr}"
+    );
+    assert!(
+        !stderr.contains("00000000-0000-0000-0000-"),
+        "privacy mode should not print raw session ids in warnings, got: {stderr}"
+    );
 }
 
 #[test]

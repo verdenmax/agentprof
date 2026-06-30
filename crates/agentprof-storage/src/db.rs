@@ -9,7 +9,7 @@
 //!
 //! The DDL is normative in [`docs/architecture.md`] §9.
 //!
-//! [`docs/architecture.md`]: https://github.com/agentprof/agentprof/blob/main/docs/architecture.md#9-sqlite-schema
+//! [`docs/architecture.md`]: https://github.com/verdenmax/agentprof/blob/main/docs/architecture.md#9-sqlite-schema
 
 use std::fs;
 use std::path::Path;

@@ -134,8 +134,8 @@ for the strategic decisions behind this flow.
    `## [X.Y.Z] - YYYY-MM-DD` section; leave an empty `## [Unreleased]`
    above. Append link references at the bottom:
    ```
-   [Unreleased]: https://github.com/agentprof/agentprof/compare/vX.Y.Z...HEAD
-   [X.Y.Z]: https://github.com/agentprof/agentprof/releases/tag/vX.Y.Z
+   [Unreleased]: https://github.com/verdenmax/agentprof/compare/vX.Y.Z...HEAD
+   [X.Y.Z]: https://github.com/verdenmax/agentprof/releases/tag/vX.Y.Z
    ```
 2. Bump `Cargo.toml` `[workspace.package].version` to `X.Y.Z` AND update
    the four `[workspace.dependencies]` version pins for
@@ -162,7 +162,7 @@ for the strategic decisions behind this flow.
    + per-file `.sha256` checksums (cargo-dist default).
 9. Test the installer from a clean shell:
    ```sh
-   curl -fsSL https://github.com/agentprof/agentprof/releases/latest/download/agentprof-installer.sh | sh
+   curl -fsSL https://github.com/verdenmax/agentprof/releases/latest/download/agentprof-cli-installer.sh | sh
    agentprof --version        # → agentprof X.Y.Z
    ```
 

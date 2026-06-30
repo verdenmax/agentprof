@@ -14,7 +14,7 @@ workspace = true
 
 [features]
 default = []
-# Enable the CLI ingest progress bar (used by `agentprof ingest`).
+# Reserved for future CLI progress reporting; no current command enables it.
 progress = ["dep:indicatif"]
 # Enable the OTLP receiver (subscribes to Claude Code telemetry).
 otlp = [

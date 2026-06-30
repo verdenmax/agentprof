@@ -138,7 +138,11 @@ fn load_sessions(state: &AppState) -> Vec<SessionRow> {
         match agentprof_storage::query::load_session(&db_guard, &sref.id) {
             Ok(report) => rows.push(session_row_from_report(sref, &report)),
             Err(e) => {
-                tracing::warn!(session_id = %sref.id, error = %e, "load_session failed; skipping row");
+                tracing::warn!(
+                    session = %agentprof_core::observability::pii::hash_short(&sref.id),
+                    error = %e,
+                    "load_session failed; skipping row"
+                );
             }
         }
     }
@@ -361,11 +365,25 @@ fn load_session_for_dashboard(state: &AppState, id: &str) -> SessionLoadOutcome 
             return SessionLoadOutcome::NotFound;
         }
         Err(e) => {
-            tracing::error!(session_id = %id, error = %e, "load_session failed");
+            tracing::error!(
+                session = %agentprof_core::observability::pii::hash_short(id),
+                error = %e,
+                "load_session failed"
+            );
             return SessionLoadOutcome::Error(format!("load_session: {e}"));
         }
     };
-    let episodes = agentprof_storage::query::load_episodes(&db_guard, id).unwrap_or_default();
+    let episodes = match agentprof_storage::query::load_episodes(&db_guard, id) {
+        Ok(eps) => eps,
+        Err(e) => {
+            tracing::error!(
+                session = %agentprof_core::observability::pii::hash_short(id),
+                error = %e,
+                "load_episodes failed"
+            );
+            return SessionLoadOutcome::Error(format!("load_episodes: {e}"));
+        }
+    };
     drop(db_guard); // release lock before the (heavy) render
 
     // Render ALL non-MCP analysis sections — the dashboard chunk

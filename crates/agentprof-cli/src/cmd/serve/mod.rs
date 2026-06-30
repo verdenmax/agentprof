@@ -37,10 +37,9 @@ pub struct ServeCmd {
     pub bind: Option<SocketAddr>,
 
     /// Path to the `SQLite` store. Resolution order: CLI flag >
-    /// `AGENTPROF_STORAGE_PATH` env var (clap-handled). The
-    /// `[storage] path` config-file key is **not** consumed by
-    /// `agentprof serve` yet — exits `UserError` if neither CLI
-    /// flag nor env var is set.
+    /// `AGENTPROF_STORAGE_PATH` env var (clap-handled). The `[storage]`
+    /// config-file block is not consumed by `agentprof serve`; exits
+    /// `UserError` if neither CLI flag nor env var is set.
     #[arg(long, value_name = "PATH", env = "AGENTPROF_STORAGE_PATH")]
     pub storage_path: Option<PathBuf>,
 
@@ -102,8 +101,9 @@ async fn run_async(cmd: ServeCmd) -> Result<()> {
     // T4-config-file storage-path resolution is out of scope for T5.
     let storage_path = cmd.storage_path.ok_or_else(|| {
         crate::cmd::exit::ExitKind::UserError.into_anyhow(
-            "agentprof serve requires --storage-path (or AGENTPROF_STORAGE_PATH env / [storage] path config); \
-             run `agentprof db init` then `agentprof db ingest` first".to_string(),
+            "agentprof serve requires --storage-path (or AGENTPROF_STORAGE_PATH env); \
+             run `agentprof db init` then `agentprof db ingest` first"
+                .to_string(),
         )
     })?;
     if !storage_path.exists() {
@@ -708,6 +708,28 @@ mod router_tests {
         assert!(body.contains("<!DOCTYPE html>"), "missing doctype");
         assert!(body.contains("Session"), "missing Session label");
         assert!(body.contains("abc12345"), "missing short id");
+    }
+
+    #[tokio::test]
+    async fn session_page_returns_500_for_corrupt_episodes_json() {
+        let (tmp, state) = empty_db_state();
+        seed_one_session(&state, "bad-eps-fixture");
+        let conn = rusqlite::Connection::open(tmp.path()).expect("open side conn");
+        conn.execute(
+            "UPDATE sessions SET episodes_json = 'not json' WHERE id = ?1",
+            ["bad-eps-fixture"],
+        )
+        .expect("corrupt episodes_json");
+        drop(conn);
+
+        let app = build_router(state);
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/session/bad-eps-fixture")
+            .body(Body::empty())
+            .expect("build req");
+        let resp = app.oneshot(req).await.expect("oneshot");
+        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 
     #[tokio::test]

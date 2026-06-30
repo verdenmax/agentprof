@@ -197,12 +197,7 @@ pub fn run(
     // honours `AGENTPROF_LOG_FULL_PATHS=1` at every emission layer
     // (M1.6.4 final-review follow-up — see CHANGELOG entry
     // `m1.6.4-final-followup-full-paths-l2-l3-gap`).
-    let session_field = match &cmd.session {
-        SessionSelector::Path(p) => agentprof_core::observability::pii::hash_path(p),
-        SessionSelector::Latest => "latest".to_string(),
-        SessionSelector::Previous => "previous".to_string(),
-        SessionSelector::Uuid(u) => u.clone(),
-    };
+    let session_field = session_span_field(&cmd.session);
     // Manual `info_span!` (NOT `#[tracing::instrument]`) so the runtime
     // `cfg`-aware redaction above can populate `session`.
     let _cmd_span = tracing::info_span!(
@@ -353,12 +348,12 @@ pub fn run(
 /// Redact a report, its episodes, and the MCP-waste section through a single
 /// shared context.
 ///
-/// Threading one [`RedactionContext`](agentprof_core::analyzer::redact::RedactionContext)
+/// Threading one [`agentprof_core::analyzer::redact::RedactionContext`]
 /// through the [`AnalysisReport`], its [`Episodes`] and the
-/// [`WasteReport`](agentprof_core::model::WasteReport) keeps turn-ids and
+/// [`agentprof_core::model::WasteReport`] keeps turn-ids and
 /// server hashes consistent, so the table, the flamegraph and the mcp-waste
 /// section share identifiers and carry no original turn-id or raw MCP server
-/// name. At [`PrivacyLevel::None`](agentprof_core::analyzer::redact::PrivacyLevel)
+/// name. At [`agentprof_core::analyzer::redact::PrivacyLevel::None`]
 /// this is the identity (clone) and the map is empty. The non-empty map is
 /// returned only for `Anonymize`.
 ///
@@ -681,6 +676,15 @@ fn write_output(content: &str, path: Option<&Path>) -> Result<()> {
     }
 }
 
+fn session_span_field(selector: &SessionSelector) -> String {
+    match selector {
+        SessionSelector::Path(p) => agentprof_core::observability::pii::hash_path(p),
+        SessionSelector::Latest => "latest".to_string(),
+        SessionSelector::Previous => "previous".to_string(),
+        SessionSelector::Uuid(u) => agentprof_core::observability::pii::hash_short(u),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -720,6 +724,14 @@ mod tests {
             SessionSelector::Path(p) => assert_eq!(p, PathBuf::from("/tmp/sess/events.jsonl")),
             other => panic!("expected Path, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn session_span_field_hashes_uuid_selector() {
+        let raw = "00000000-0000-0000-0000-000000000001";
+        let field = session_span_field(&SessionSelector::Uuid(raw.to_owned()));
+        assert_ne!(field, raw);
+        assert_eq!(field.len(), 8);
     }
 
     #[test]

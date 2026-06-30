@@ -96,7 +96,8 @@ fn show_marks_otlp_and_serve_overrides() {
         .args(["config", "show"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("listen_token = \"sek\"  (from file)"))
+        .stdout(predicate::str::contains("listen_token = \"<redacted>\"  (from file)"))
+        .stdout(predicate::str::contains("sek").not())
         // Non-overridden neighbor stays (default) — guards against a swap.
         .stdout(predicate::str::contains("listen_http = \"127.0.0.1:4318\"  (default)"))
         .stdout(predicate::str::contains("auto_open = false  (from file)"));

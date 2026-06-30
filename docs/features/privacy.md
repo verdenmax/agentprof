@@ -16,7 +16,7 @@
 > redacted through the same context as the report, so turn-ids stay consistent
 > and no original turn-id or raw MCP server name survives.
 > The manual cheat sheet in [§3](#3-manual-redaction-cheat-sheet) remains
-> useful for `list` (not yet covered) and for ad-hoc one-off scrubbing.
+> useful for ad-hoc one-off scrubbing outside the built-in report/list surfaces.
 >
 > The separate *log output* surface (`tracing` stderr / `--log-file` /
 > TUI-mode `$XDG_STATE_HOME/agentprof/agentprof.log`) **does** carry a
@@ -82,9 +82,9 @@ information (SII), graded by sensitivity.
 
 ## 3. Manual redaction cheat sheet
 
-Until `--privacy` covered every format ([§4](#4---privacy-noneredactanonymize-shipped-l-1)),
-manual scrubbing was the only option. It remains useful for `list` (not yet
-covered) and for ad-hoc one-off scrubbing; the following
+Until `--privacy` covered the shareable report/list formats
+([§4](#4---privacy-noneredactanonymize-shipped-l-1)), manual scrubbing was
+the only option. It remains useful for ad-hoc one-off scrubbing; the following
 patterns cover most cases for sharing a report publicly.
 
 ### 3.1 `--export md` output
@@ -204,8 +204,9 @@ one-way and are **not** in the map.
 
 - **`list --privacy <none|redact|anonymize>`** redacts per-session rows:
   session id → stable `<uuid-N>`, model → family. `cwd` / `branch` never
-  reach the table, so `list` writes no sidecar and `redact` / `anonymize`
-  behave identically. (ADR-0028)
+  reach the table, so `list` writes no sidecar. `redact` / `anonymize` also
+  redact empty-root and dual-path diagnostics instead of printing raw paths or
+  session ids. `anonymize` additionally zeroes the Started column. (ADR-0028)
 
 ### 4.5 Not yet covered (future work)
 

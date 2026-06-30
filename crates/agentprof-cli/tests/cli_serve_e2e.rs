@@ -12,6 +12,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
 use assert_cmd::cargo::cargo_bin;
+use predicates::prelude::PredicateBooleanExt;
 
 // Sub-second monotonic counter to avoid collisions between concurrently
 // running e2e tests (cargo test runs tests on a thread-pool by default).
@@ -117,7 +118,9 @@ fn e2e_serve_with_missing_storage_path_exits_user_error() {
         .args(["serve", "--bind", "127.0.0.1:0", "--no-open", "--quiet"])
         .assert()
         .failure()
-        .code(1); // ExitKind::UserError
+        .code(1) // ExitKind::UserError
+        .stderr(predicates::str::contains("AGENTPROF_STORAGE_PATH"))
+        .stderr(predicates::str::contains("[storage]").not());
 }
 
 #[test]

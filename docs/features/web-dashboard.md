@@ -30,11 +30,11 @@ gained new public API.
 
 ```bash
 # 1. Ingest some sessions into the SQLite store (one-time per checkout)
-agentprof db init
-agentprof db ingest --agent copilot --all
+agentprof db init --storage-path ~/.local/share/agentprof/store.sqlite
+agentprof db ingest --agent copilot --all --storage-path ~/.local/share/agentprof/store.sqlite
 
 # 2. Start the dashboard
-agentprof serve --storage-path ~/.local/share/agentprof/store.db
+agentprof serve --storage-path ~/.local/share/agentprof/store.sqlite
 
 # 3. Browser opens automatically to http://127.0.0.1:4329/sessions
 #    Suppress with --no-open.
@@ -101,8 +101,9 @@ Two config surfaces:
   [`crates/agentprof-cli/README.md`](../../crates/agentprof-cli/README.md#agentprof-serve)
   for the exact flag table.
 - **`[serve]` block in `agentprof.toml`** — `bind` / `interval_default` /
-  `auto_open`. Same precedence semantics as the `[otlp]` block from M2.2:
-  CLI flag > env > file > built-in default.
+  `auto_open`. Precedence: CLI flag > file > built-in default. The
+  storage path is separate: pass `--storage-path` or set
+  `AGENTPROF_STORAGE_PATH`; `[storage].path` is not used by `serve`.
 
 ```toml
 # Example $XDG_CONFIG_HOME/agentprof/config.toml fragment

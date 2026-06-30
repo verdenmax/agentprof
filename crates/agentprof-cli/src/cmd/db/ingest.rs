@@ -168,7 +168,7 @@ pub fn run(args: IngestArgs, storage_path: Option<PathBuf>) -> Result<()> {
                 // episodes_json holds the migration-default '{}' blob.
                 let episodes = ds.load_episodes_by_ref(sref).unwrap_or_else(|e| {
                     tracing::warn!(
-                        session = %id,
+                        session = %agentprof_core::observability::pii::hash_short(id),
                         error = %e,
                         "load_episodes_by_ref failed; storing empty Episodes"
                     );
@@ -180,7 +180,7 @@ pub fn run(args: IngestArgs, storage_path: Option<PathBuf>) -> Result<()> {
                             upsert_episodes(&mut db, &report.meta.id, &episodes, now_secs)
                         {
                             tracing::warn!(
-                                session = %report.meta.id,
+                                session = %agentprof_core::observability::pii::hash_short(&report.meta.id),
                                 error = %e,
                                 "upsert_episodes failed; sessions row still written"
                             );
@@ -188,13 +188,21 @@ pub fn run(args: IngestArgs, storage_path: Option<PathBuf>) -> Result<()> {
                         ok += 1;
                     }
                     Err(e) => {
-                        tracing::error!(session = %id, error = %e, "upsert failed");
+                        tracing::error!(
+                            session = %agentprof_core::observability::pii::hash_short(id),
+                            error = %e,
+                            "upsert failed"
+                        );
                         fail += 1;
                     }
                 }
             }
             Err(e) => {
-                tracing::warn!(session = %id, error = %e, "load failed");
+                tracing::warn!(
+                    session = %agentprof_core::observability::pii::hash_short(id),
+                    error = %e,
+                    "load failed"
+                );
                 fail += 1;
             }
         }

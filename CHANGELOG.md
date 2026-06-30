@@ -45,6 +45,24 @@ prefix used in commit messages).
 
 ### Fixed
 
+- **cli/security:** `agentprof config show` now redacts `[otlp].listen_token`
+  as `"<redacted>"` while preserving `(from file)` / `(default)` source
+  annotations.
+- **core:** `tool.user_requested` events now pair by `tool_call_id`, including
+  the real Copilot ordering where the user-request marker arrives before the
+  matching `tool.execution_start`; unrelated open tools are no longer marked.
+- **cli/storage:** corrupt `episodes_json` in SQLite is treated as a
+  per-session data error for aggregate/dashboard paths instead of silently
+  falling back to empty `Episodes`.
+- **cli/privacy:** `list --privacy` redacts empty-root diagnostics and
+  dual-path divergence warning session ids.
+- **cli/privacy:** tracing fields for session ids in serve/db-ingest/OTLP
+  storage paths now use `hash_short` instead of raw session ids.
+- **cli:** `mcp-waste` now returns `UserError` when the default Copilot root
+  cannot be resolved, rather than scanning relative `.copilot/session-state`.
+- **docs/ci:** synchronized serve quickstarts, repository/release links,
+  feature docs, storage feature dependency lists, and dual-path semantics with
+  the current implementation.
 - **cli:** `analyze --section mcp-waste --privacy anonymize` no longer leaks raw MCP server + tool names — the `WasteReport` is now redacted (`WasteReport::redact_with`) through the *same* `RedactionContext` as the report/episodes, so server hashes match `tool-rank`/flamegraph and md/json/html show only `hash_short` server + `mcp__<hash8>__` tool names (audit leak A).
 - **cli:** `list --privacy anonymize` now zeroes the `Started` column to the Unix epoch (mirroring report anonymize); `redact` keeps the real timestamp (audit leak B).
 
@@ -1820,5 +1838,11 @@ Reference: spec `docs/superpowers/specs/2026-05-29-m1.4-cli-and-analyzer-design.
 - L1/L2/L3 documentation system definition (see `docs/architecture.md` §14).
 - Repository configuration: `rust-toolchain.toml`, `rustfmt.toml`, `clippy.toml`, `deny.toml`, `.editorconfig`, `.gitignore`, dual `LICENSE-*` files.
 
-[Unreleased]: https://github.com/agentprof/agentprof/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/agentprof/agentprof/releases/tag/v0.1.0
+[Unreleased]: https://github.com/verdenmax/agentprof/compare/v0.3.3...HEAD
+[0.3.3]: https://github.com/verdenmax/agentprof/releases/tag/v0.3.3
+[0.3.2]: https://github.com/verdenmax/agentprof/releases/tag/v0.3.2
+[0.3.1]: https://github.com/verdenmax/agentprof/releases/tag/v0.3.1
+[0.3.0]: https://github.com/verdenmax/agentprof/releases/tag/v0.3.0
+[0.2.1]: https://github.com/verdenmax/agentprof/releases/tag/v0.2.1
+[0.2.0]: https://github.com/verdenmax/agentprof/releases/tag/v0.2.0
+[0.1.0]: https://github.com/verdenmax/agentprof/releases/tag/v0.1.0

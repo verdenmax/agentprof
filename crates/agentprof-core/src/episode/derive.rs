@@ -191,6 +191,10 @@ struct DeriveState {
     /// derive. ADR-0015 D-2 semantics: removal notices do not
     /// decrement.
     loaded_mcp_tools: BTreeSet<String>,
+    /// Tool-call ids that saw `tool.user_requested` before their
+    /// corresponding `tool.execution_start` arrived. Real Copilot wire
+    /// commonly emits the request marker first, so start consumes this set.
+    pending_user_requested_tool_call_ids: BTreeSet<String>,
 }
 
 struct OpenToolCall {
@@ -249,6 +253,7 @@ impl DeriveState {
             args_by_call_id,
             model_metrics: None,
             loaded_mcp_tools: BTreeSet::new(),
+            pending_user_requested_tool_call_ids: BTreeSet::new(),
         }
     }
 
@@ -359,13 +364,17 @@ impl DeriveState {
         let name = self.resolve_payload_name(ev, EventKind::ToolExecStart);
         let source = ToolSource::infer(&name);
         let turn_id = self.open_turn_idx.map(|i| self.turns[i].id.clone());
+        let tool_call_id = ev.tool_call_id().map(str::to_owned);
+        let user_requested = tool_call_id
+            .as_deref()
+            .is_some_and(|id| self.pending_user_requested_tool_call_ids.remove(id));
         self.open_tool_calls.push(OpenToolCall {
             name,
             source,
             started_at: ev.timestamp(),
             turn_id,
-            user_requested: false,
-            tool_call_id: ev.tool_call_id().map(str::to_owned),
+            user_requested,
+            tool_call_id,
         });
     }
 
@@ -437,11 +446,20 @@ impl DeriveState {
         }
     }
 
-    fn on_tool_user_requested<E: Event>(&mut self, _ev: &E) {
-        // User-requested marker; flag the most-recent OpenToolCall if any.
-        // Simplification: in real Copilot data, ToolUserRequested arrives
-        // BEFORE the related ToolExecStart. Task 10b will pair properly.
-        if let Some(call) = self.open_tool_calls.last_mut() {
+    fn on_tool_user_requested<E: Event>(&mut self, ev: &E) {
+        if let Some(id) = ev.tool_call_id() {
+            if let Some(call) = self
+                .open_tool_calls
+                .iter_mut()
+                .rev()
+                .find(|call| call.tool_call_id.as_deref() == Some(id))
+            {
+                call.user_requested = true;
+            } else {
+                self.pending_user_requested_tool_call_ids
+                    .insert(id.to_string());
+            }
+        } else if let Some(call) = self.open_tool_calls.last_mut() {
             call.user_requested = true;
         }
     }
@@ -960,6 +978,99 @@ mod tests {
             .next()
             .expect("exactly one tool episode expected");
         assert_eq!(tool_ep.calls[0].turn_id.as_deref(), Some("turn-A"));
+    }
+
+    #[test]
+    fn user_requested_event_pairs_by_tool_call_id_before_start() {
+        struct ToolIdE {
+            id: &'static str,
+            kind: EventKind,
+            ts: DateTime<Utc>,
+            name: Option<&'static str>,
+            call_id: Option<&'static str>,
+        }
+        impl Event for ToolIdE {
+            fn id(&self) -> &str {
+                self.id
+            }
+            fn kind(&self) -> EventKind {
+                self.kind
+            }
+            fn timestamp(&self) -> DateTime<Utc> {
+                self.ts
+            }
+            fn parent_id(&self) -> Option<&str> {
+                None
+            }
+            fn payload_name(&self) -> Option<&str> {
+                self.name
+            }
+            fn tool_call_id(&self) -> Option<&str> {
+                self.call_id
+            }
+        }
+
+        let events = vec![
+            ToolIdE {
+                id: "turn",
+                kind: EventKind::TurnStart,
+                ts: at(1),
+                name: None,
+                call_id: None,
+            },
+            ToolIdE {
+                id: "other-start",
+                kind: EventKind::ToolExecStart,
+                ts: at(2),
+                name: Some("bash"),
+                call_id: Some("other"),
+            },
+            ToolIdE {
+                id: "requested-marker",
+                kind: EventKind::ToolUserRequested,
+                ts: at(3),
+                name: Some("read_file"),
+                call_id: Some("requested"),
+            },
+            ToolIdE {
+                id: "requested-start",
+                kind: EventKind::ToolExecStart,
+                ts: at(4),
+                name: Some("read_file"),
+                call_id: Some("requested"),
+            },
+            ToolIdE {
+                id: "requested-end",
+                kind: EventKind::ToolExecComplete,
+                ts: at(5),
+                name: None,
+                call_id: Some("requested"),
+            },
+            ToolIdE {
+                id: "other-end",
+                kind: EventKind::ToolExecComplete,
+                ts: at(6),
+                name: None,
+                call_id: Some("other"),
+            },
+            ToolIdE {
+                id: "turn-end",
+                kind: EventKind::TurnEnd,
+                ts: at(7),
+                name: None,
+                call_id: None,
+            },
+        ];
+        let ep = derive_episodes(&events, &meta());
+
+        assert!(
+            ep.tools["read_file"].calls[0].user_requested,
+            "the marker should apply to the matching future tool_call_id"
+        );
+        assert!(
+            !ep.tools["bash"].calls[0].user_requested,
+            "the marker must not be applied to an unrelated open tool"
+        );
     }
 
     #[test]

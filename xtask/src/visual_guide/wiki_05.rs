@@ -118,7 +118,7 @@ agentprof 的持久化层只有<strong>一个文件 + 一个 enum</strong>：<co
         ],
     ));
 
-    s.push_str(r#"<p style="font-size:.88rem;color:var(--muted)">⚠️ Recon 校正：「dual-path」在 agentprof 里指 <strong>read-path 融合</strong>（ADR-0018 + ADR-0020），不是「写到两个 DB」。OTLP receiver 写的是<strong>单一</strong>当前 storage（由 <code>--storage-mode</code> 决定 cache 或 store）。<code>aggregate</code> 子命令暂未接入 dual-path —— 它需要 <code>Episodes</code> 数据，目前由 <code>002_episodes_column</code> 这一列承担。</p>"#);
+    s.push_str(r#"<p style="font-size:.88rem;color:var(--muted)">⚠️ Recon 校正：「dual-path」在 agentprof 里指 <strong>read-path 融合</strong>（ADR-0018 + ADR-0020），不是「写到两个 DB」。OTLP receiver 写的是<strong>单一</strong>当前 storage（由 <code>--storage-mode</code> 决定 cache 或 store）。<code>aggregate</code> 已接入 dual-path；它需要的 <code>Episodes</code> 数据由 <code>002_episodes_column</code> 这一列承担。</p>"#);
 
     s.push_str(r#"<p class="acc-intro" style="color:var(--muted);font-size:.92rem">👇 三张卡片：① SQLite schema 真实 DDL（3 表 + episodes 列）· ② cache vs store 决策维度对比 · ③ ADR-0019 摘要 + dual-path 读路径解释。</p>"#);
 

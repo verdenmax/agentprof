@@ -54,7 +54,7 @@ use crate::{error::SqliteError, Db};
 /// assert!(refs.is_empty()); // fresh in-memory db
 /// ```
 ///
-/// [`docs/architecture.md`]: https://github.com/agentprof/agentprof/blob/main/docs/architecture.md#9-sqlite-schema
+/// [`docs/architecture.md`]: https://github.com/verdenmax/agentprof/blob/main/docs/architecture.md#9-sqlite-schema
 pub fn query_sessions_since(
     db: &Db,
     since: Duration,

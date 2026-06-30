@@ -26,7 +26,7 @@
 | TUI | `ratatui` + `crossterm` | 火焰图、ROI 表、聚合视图 |
 | Tokenizer | `tiktoken-rs`（本地）+ Anthropic `count_tokens` API（可选） | 本地优先策略，离线可用 |
 | 存储 | `rusqlite`（bundled） | 单文件 SQLite，XDG 路径 |
-| Telemetry receiver | `tonic` + `axum` + `opentelemetry-proto`（feature gated `otlp`） | Phase 2 ✅ shipped (v0.2.1 unhardened / v0.3.0 hardened) |
+| Telemetry receiver | `tonic` + `axum` + `opentelemetry-otlp`（feature gated `otlp`） | Phase 2 ✅ shipped (v0.2.1 unhardened / v0.3.0 hardened) |
 | HTML 渲染 | `askama`（编译期模板） + 内嵌 d3.js | 单文件 HTML 报告 |
 | CLI 解析 | `clap` derive | env + 默认值整合 |
 | 错误模型 | `thiserror`（lib） / `anyhow`（bin） | 严格分层 |
@@ -90,7 +90,7 @@ agentprof-cli  ──▶  agentprof-tui
 |---|---|---|---|
 | `agentprof-core` | lib | `model` (+ `model::waste` M1.6.5), `episode`, `analyzer` (+ `analyzer::aggregate` M1.6.2 + `analyzer::cache` M2.5), `datasource` (M2.1 `SessionDataSource` trait), `adapter`, `export` (M1.6.4: speedscope JSON + SVG flamegraph), `observability::pii::{hash_path, hash_short}` (M1.6.4 tracing), `error` | `serde`, `serde_json`, `tiktoken-rs` (analyzer::waste tokenizer), `chrono`, `thiserror`, **`sha2`** (M1.6.4 tracing), `reqwest`(opt, feature `anthropic-api`) |
 | `agentprof-adapters` | lib | `copilot`, `registry`, `datasource` (current); `claude`, `codex` (planned, Phase 3) | `serde_json`, `walkdir`, `globset` |
-| `agentprof-storage` | lib | SQLite persistence layer with hybrid cache/store mode (M2.1 ✅): `config::{StorageConfig, StorageMode, PartialStorageConfig}` (XDG-aware path resolution per [ADR-0019](internals/adr-0019-hybrid-storage-mode.md)), `db::Db` (handle + embedded migrations under `migrations/001_initial.sql`; pragmas `journal_mode=WAL` / `synchronous=NORMAL` / `foreign_keys=ON`), `upsert::upsert_report(db, report, raw_path, ingested_at_secs)` (atomic 3-table write), `query::{query_sessions_since, load_session}` (read API), `datasource::SqliteDataSource` (impl of `agentprof_core::datasource::SessionDataSource`, see [ADR-0018](internals/adr-0018-session-datasource-trait.md)), `admin::{stats, prune_before, vacuum, export_session_json}` (backs the `agentprof db` family), `error::SqliteError` (thiserror); **`otlp` submodule (feature `otlp`, M2.2 ✅)** — OTLP receiver: `config` / `error` / `typed` / `mapper` / `router` (per-session `SessionBuffer` + OOM caps) / `sweeper` / `sink_storage` (`StorageFlushSink` reusing `upsert_report`) / `pipeline` (`IngestPipeline`) / `server_grpc` (tonic 4317) / `server_http` (axum 4318, `/v1/{logs,metrics,traces}`) / `auth` (shared bearer interceptor + middleware) / `tls` (rustls + optional mTLS) / `proto` (generated stubs); see [ADR-0021](internals/adr-0021-otlp-receiver-architecture.md) | `rusqlite`(bundled), `serde_json`, `chrono`, `directories`; (feature `otlp`) `tonic`, `prost`, `axum`, `tokio`, `opentelemetry-proto`, `dashmap`, `rustls`, `rustls-pemfile`, `tower`, `bytes` |
+| `agentprof-storage` | lib | SQLite persistence layer with hybrid cache/store mode (M2.1 ✅): `config::{StorageConfig, StorageMode, PartialStorageConfig}` (XDG-aware path resolution per [ADR-0019](internals/adr-0019-hybrid-storage-mode.md)), `db::Db` (handle + embedded migrations under `migrations/001_initial.sql`; pragmas `journal_mode=WAL` / `synchronous=NORMAL` / `foreign_keys=ON`), `upsert::upsert_report(db, report, raw_path, ingested_at_secs)` (atomic 3-table write), `query::{query_sessions_since, load_session}` (read API), `datasource::SqliteDataSource` (impl of `agentprof_core::datasource::SessionDataSource`, see [ADR-0018](internals/adr-0018-session-datasource-trait.md)), `admin::{stats, prune_before, vacuum, export_session_json}` (backs the `agentprof db` family), `error::SqliteError` (thiserror); **`otlp` submodule (feature `otlp`, M2.2 ✅)** — OTLP receiver: `config` / `error` / `typed` / `mapper` / `router` (per-session `SessionBuffer` + OOM caps) / `sweeper` / `sink_storage` (`StorageFlushSink` reusing `upsert_report`) / `pipeline` (`IngestPipeline`) / `server_grpc` (tonic 4317) / `server_http` (axum 4318, `/v1/{logs,metrics,traces}`) / `auth` (shared bearer interceptor + middleware) / `tls` (rustls + optional mTLS) / `proto` (generated stubs); see [ADR-0021](internals/adr-0021-otlp-receiver-architecture.md) | `rusqlite`(bundled), `serde_json`, `chrono`, `directories`; (feature `otlp`) `opentelemetry`, `opentelemetry-otlp`, `opentelemetry_sdk`, `tonic`, `prost`, `axum`, `axum-server`, `tokio`, `dashmap`, `rustls`, `tower`, `bytes`, `subtle` |
 | `agentprof-tui` | lib | `app` (with `AppRunner`) + `app::{terminal,event,state}`, `views::{flamegraph, roi, aggregate, models, turn_detail, format}`, `theme`, `error` — **shipped M1.5** ([`README`](../crates/agentprof-tui/README.md), [ADR-0006](internals/adr-0006-panic-safe-tui.md)); + `watch::{WatchRunner, WatchData, RefreshKind, ReloadError, AggSortKey}` + cross-session arm in `views::aggregate` + `Event::Refresh` — **shipped M1.6.3** ([ADR-0009](internals/adr-0009-watch-runner-and-notify.md)); + `views::turn_detail` (F1 Enter-to-open) + `views::models` (F1.7 Models view, key `4`, surfaces session-level per-model token totals — see [ADR-0012](internals/adr-0012-session-model-metrics-and-models-view.md)) — post-MVP UX waves F1, F1.5–F1.19 layered on the M1.5 base | `ratatui 0.29`, `crossterm 0.28` |
 | `agentprof-cli` | bin (`agentprof`) | `cmd::analyze` ✅ M1.4 + `--export tui` (M1.5) + `--export speedscope\|html` ✅ M1.6.4，`cmd::list` ✅ M1.6.1，`cmd::aggregate` ✅ M1.6.2 (--by tool\|mcp-server\|day\|model, --export md\|json\|csv\|html) + `--export tui` ✅ M1.6.3（deferred from M1.6.2），`cmd::watch` ✅ M1.6.3 (单 session + `watch aggregate ...` 子模式)，`observability::{config, init, tui_guard}` ✅ M1.6.4 (tracing infra — global `--log-level` / `--log-file` + TUI auto-redirect + reload-Layer)，**`cmd::serve` ✅ M2.3 (feature `web`)** — live localhost dashboard: `mod` (clap `ServeCmd` + `resolve_serve_config` + `run`/`run_async` + SIGINT/SIGTERM graceful shutdown) / `state` (`Arc<Mutex<Db>>` + `interval_default`) / `router` (axum::Router with 12 routes) / `handlers` (5 dashboard views × 2 routes each + `/healthz` + `/static/:name`) / `static_assets` (`include_str!`/`include_bytes!` bundled CSS/JS/favicon); templates under `templates/dashboard/{layout,sessions,session,aggregate,mcp_waste_list,mcp_waste_detail}.html` + `chunks/*` + `static/*`. Also adds `format::html::render_body_only` + `format::aggregate_html::render_body_only` (sliced renderers for chunk embedding), `cmd::aggregate::compute_aggregate_from_store`, `cmd::mcp_waste::compute_aggregate_waste_from_store`. See [ADR-0024](internals/adr-0024-web-dashboard-architecture.md) + [`docs/features/web-dashboard.md`](features/web-dashboard.md). 其它子命令：`cmd::config` ✅ L-4（`path` / `show` / `edit` / `init`，[ADR-0027](internals/adr-0027-config-subcommand.md)），`export` 已取消（与 `analyze --export` 重复），`main` | `clap`, `tracing`, `tracing-subscriber`, **`tracing-appender`**（M1.6.4 tracing，rolling-file writer），`anyhow`, `directories`, **`askama`**, **`csv`**, **`notify-debouncer-mini`**（M1.6.3，含 `notify` v6.1.1 transitive）; (feature `web`, M2.3) `axum`, `tower`, `tower-http`, `tokio`, `open` |
 | `xtask` | bin | `schema-audit`, `visual-guide` (M2.3.x, [ADR-0025](internals/adr-0025-visual-guide.md)) | `clap`, `askama`, `base64`, `serde`, `serde_json`, `chrono`, `agentprof-core`, `agentprof-adapters` |
@@ -506,7 +506,8 @@ config  <path | show | edit | init>            # ✅ L-4 (ADR-0027) — manage ~
                                                #   设了 $AGENTPROF_CONFIG 时附 (from $AGENTPROF_CONFIG)
     show                                        # 打印 effective 配置（built-in defaults 合并 file overrides），
                                                #   每行标注 (default) / (from file)；复用真实 resolver 避免 drift；
-                                               #   未编进本 build 的 [otlp]/[serve] 显示 (feature not enabled in this build)
+                                               #   未编进本 build 的 [otlp]/[serve] 显示 (feature not enabled in this build)；
+                                               #   secret 字段（如 [otlp].listen_token）显示为 "<redacted>"
     edit                                        # 在 $VISUAL（优先）/$EDITOR 打开（空值视为未设）；文件缺失时先写模板再打开
     init [--force]                              # 写带注释的默认模板（仅 [storage] 生效）；已存在且无 --force → 退出 1
     XDG 配置：$AGENTPROF_CONFIG，否则 ~/.config/agentprof/config.toml。
@@ -533,8 +534,9 @@ serve   [OPTIONS]                              # ✅ M2.3 (v0.3.3, feature: web)
     `/aggregate?by=mcp-server` 返回 HTTP 400 并指向 `/mcp-waste`
     （MCP 侧 sidecar 在 dashboard 走 heuristic-only，详细 token 计数走 CLI）。
     Receiver 启动时读 `[serve]` 块（`bind` / `interval_default` /
-    `auto_open`）作为默认；CLI flag > env > config-file > built-in defaults
-    （沿用 M2.2 `[otlp]` precedence）。SIGINT/SIGTERM 通过 axum graceful
+    `auto_open`）作为默认；CLI flag > config-file > built-in defaults。
+    `--storage-path` 独立解析（CLI flag 或 `AGENTPROF_STORAGE_PATH` env），不读取
+    `[storage].path`。SIGINT/SIGTERM 通过 axum graceful
     shutdown drain in-flight 请求后退出。
     架构 + 7 条决策 D-1..D-7 见
     [ADR-0024](internals/adr-0024-web-dashboard-architecture.md)，跨 crate
@@ -599,15 +601,15 @@ multi-tenant CI 场景需要。
 `--quiet`（M2.1） — 抑制 `agentprof: warn: session <id>: N fields differ …`
 divergence warning lines（stderr）。结构化 `tracing` 事件不受影响。
 背景：`DualPathDataSource` 检测到 adapter 与 storage 同一 id 的字段不一致
-时（id-namespace 已由 ADR-0017 统一），会按 adapter-wins 规则提示并
-opportunistic re-upsert。详见 [ADR-0018](internals/adr-0018-session-datasource-trait.md)。
+时（id-namespace 已由 ADR-0017 统一），会按 adapter-wins 规则提示；
+不会自动 re-upsert（早期 callback 原型已移除）。详见 [ADR-0018](internals/adr-0018-session-datasource-trait.md)。
 
 > **M2.1 缓存覆盖范围**：`list` / `mcp-waste` 走 dual-path（adapter +
 > SQLite，read-fast、write-through-on-analyze、warn-on-drift）；
 > `analyze` write-through 缓存 + `watch` 长持连接（spec §10.2）；
-> `aggregate` **暂未** 接入 dual-path —— 需要 `Episodes` 数据而当前
-> `AnalysisReport` 不携带，hoist 是 M2.1.1 的工作。用户运行
-> `agentprof aggregate ...` 暂时不会看到来自 SQLite 缓存的加速。
+> `aggregate` 已在 M2.1.1 接入 dual-path：SQLite `episodes_json` 列和
+> `SessionDataSource::load_episodes` 让跨 session percentile pool 可从缓存读取；
+> corrupt `episodes_json` 会作为 per-session 数据错误跳过/汇总，而不是静默降为空。
 
 详见 [ADR-0010](internals/adr-0010-tracing-infrastructure.md) 与 §15.5 Observability。
 
@@ -790,7 +792,7 @@ bind = "127.0.0.1:4329"
 interval_default = 5
 # Whether `serve` calls xdg-open on startup.
 auto_open = true
-# Priority: CLI flag > env > this config-file block > built-in defaults.
+# Priority: CLI flag > this config-file block > built-in defaults.
 ```
 
 > 🚧 **Planned, not yet wired.** `[paths]`、`[tokenizer]`、`[pricing]` 曾被
@@ -1045,7 +1047,7 @@ pub fn compute_roi(/* ... */) -> Result<Vec<RoiRow>, CoreError> {
 | 0015 | MCP waste architecture — `compute_waste` + `aggregate_waste` + provenance + 5th TUI view (M1.6.5) | Accepted | 2026-06-08 |
 | 0016 | MCP tool token-cost — `WasteComputeContext` builder + heuristic/sidecar fallback + tokenizer auto-inference (M1.6.6) | Accepted | 2026-06-08 |
 | 0017 | Unify session id namespace across adapter and storage (M2.1 hotfix — P0) | Accepted | 2026-06-10 |
-| 0018 | `SessionDataSource` trait abstraction + dual-path semantics (warn + adapter-wins + async re-upsert) (M2.1) | Accepted | 2026-06-10 |
+| 0018 | `SessionDataSource` trait abstraction + dual-path semantics (warn + adapter-wins; async re-upsert prototype removed) (M2.1) | Accepted | 2026-06-10 |
 | 0019 | Hybrid storage mode — cache (default, `$XDG_CACHE_HOME`) vs store (opt-in, `$XDG_DATA_HOME`) (M2.1) | Accepted | 2026-06-10 |
 | 0020 | aggregate dual-path via separate `Episodes` storage (`episodes_json` column + `load_episodes` trait method) (M2.1.1) | Accepted | 2026-06-09 |
 | 0021 | OTLP receiver architecture — axum HTTP + tonic gRPC + `SessionBuffer` per-session router + drain-on-signal (M2.2) | Accepted | 2026-06-11 |
@@ -1059,12 +1061,14 @@ pub fn compute_roi(/* ... */) -> Result<Vec<RoiRow>, CoreError> {
 
 ### 14.5 文档同步的 CI 强制
 
-启发式检查（`ci.yml` 中一个 `docs-sync` job）：
+当前 CI 强制项：
 
-1. **rustdoc 缺失** → `RUSTDOCFLAGS=-Dwarnings cargo doc --no-deps --workspace`（`missing_docs` warn 已升级为 error）
-2. **新建 crate 但无 `README.md`** → 检测 `crates/<name>/Cargo.toml` 存在而 `crates/<name>/README.md` 不存在 → fail
-3. **`pub fn` / `pub struct` / `pub trait` 新增但无 `# Examples`** → 用 `cargo-rdme` 或脚本 grep `pub (fn|struct|trait)` 后检查 rustdoc 段
-4. **API 改动但 CHANGELOG 未变** → `git diff` 检测 `pub fn` 签名变化 但 `CHANGELOG.md` 未在本 PR 修改 → warn（PR 必填一条豁免理由）
+1. **rustdoc 缺失 / broken doctest doc build** → `RUSTDOCFLAGS=-Dwarnings cargo doc --no-deps --workspace --all-features`（`missing_docs` warn 已升级为 error）。
+2. **新建 crate 但无 `README.md`** → `docs-sync` 检测 `crates/<name>/Cargo.toml` / `xtask/` 存在而 `README.md` 不存在 → fail。
+3. **lib crate 缺顶层 `//!`** → `docs-sync` 检查 `crates/*/src/lib.rs` 前 5 行 → fail。
+4. **snapshot drift** → `snapshots` job 运行 `cargo insta test --check`。
+
+仍由 reviewer/PR checklist 执行的政策项：新增 public API 必须有 `# Examples`，API 语义变化必须同步 CHANGELOG。未来可引入 `cargo-rdme` 或 diff-aware 脚本把这两项升级为机械 CI gate。
 
 ### 14.6 工作流：边写代码边写文档的实际步骤
 
@@ -1148,9 +1152,9 @@ agentprof/
 │   ├── architecture.md           # L1：代码架构（本文档）
 │   ├── adapters.md               # L2：怎么加新 agent
 │   ├── features/                 # L2：跨 crate feature 文档
-│   │   ├── otlp-receiver.md
-│   │   ├── html-report.md
-│   │   └── ...
+│   │   ├── README.md
+│   │   ├── privacy.md
+│   │   └── web-dashboard.md
 │   ├── internals/                # L3：算法/决策记录（ADR 风格）
 │   │   ├── waste-formula.md
 │   │   ├── tokenizer-strategy.md
@@ -1227,10 +1231,13 @@ todo        = "warn"
 | Job | 触发 | 步骤 |
 |---|---|---|
 | `lint` | PR + push | `cargo fmt --check`、`cargo clippy --workspace --all-targets --all-features -- -D warnings` |
-| `test` | PR + push | matrix: Linux/macOS/Windows × stable/beta；`cargo test --workspace --all-features`、`cargo insta test --check` |
+| `test` | PR + push | matrix: Linux/macOS/Windows × stable/beta；`cargo test --workspace --all-features` |
+| `snapshots` | PR + push | Ubuntu stable；安装 `cargo-insta` 后跑 `cargo insta test --check` |
+| `feature-matrix` | PR + push | Ubuntu stable；`agentprof-cli` 的 no-default / otlp-only / web-only，以及 `agentprof-storage` 的 no-default / otlp / progress |
 | `deny` | PR + push | `cargo deny check` |
+| `pii-guard` | PR + push | `cargo run -p xtask -- audit-pii crates` |
 | `msrv` | weekly | `cargo +1.78 check --workspace` |
-| `docs` | PR + push | `RUSTDOCFLAGS=-Dwarnings cargo doc --no-deps --workspace` |
+| `docs` | PR + push | `RUSTDOCFLAGS=-Dwarnings cargo doc --no-deps --workspace --all-features` |
 | `docs-sync` | PR + push | 见 §14.5：rustdoc 完整性、L2 README 存在性、CHANGELOG 联动检查 |
 | `visual-guide` | PR + push（路径过滤）| PR 跑 `cargo run -p xtask -- visual-guide --check`；main push 额外 build + `actions/deploy-pages@v4` → <https://verdenmax.github.io/agentprof/> |
 | `release` | tag `v*` | `cargo-dist`：x86_64/aarch64 × Linux/macOS/Windows |
@@ -1238,7 +1245,7 @@ todo        = "warn"
 ### 15.4 Feature flags
 
 - `agentprof-core/features = ["anthropic-api"]` —— 启用真实 token API 精确化
-- `agentprof-storage/features = ["otlp"]` —— **启用 OTLP receiver 子系统**（M2.2 ✅，M2.4 hardened ✅，feature-gated）。打开后编译 `agentprof_storage::otlp` 整个 module 树（config / error / typed / mapper / router / sweeper / sink_storage / pipeline / server_grpc / server_http / auth / tls / proto），引入 `tonic` + `prost` + `axum` + `tokio` + `opentelemetry-proto` + `dashmap` + `rustls` + `subtle`（M2.4 T5：constant-time bearer compare，[ADR-0022](internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md) D-4）等运行时依赖，以及 `tonic-build` + `prost-build` 的 build-deps（OTLP collector `.proto` 编译生成 server stubs）。架构总览见 [ADR-0021](internals/adr-0021-otlp-receiver-architecture.md)；M2.4 容量加固见 [ADR-0022](internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md)。无 feature 时这些依赖完全不编译，binary 显著瘦身。
+- `agentprof-storage/features = ["otlp"]` —— **启用 OTLP receiver 子系统**（M2.2 ✅，M2.4 hardened ✅，feature-gated）。打开后编译 `agentprof_storage::otlp` 整个 module 树（config / error / typed / mapper / router / sweeper / sink_storage / pipeline / server_grpc / server_http / auth / tls / proto），引入 `opentelemetry` + `opentelemetry-otlp` + `opentelemetry_sdk` + `tonic` + `prost` + `axum` + `axum-server` + `tokio` + `dashmap` + `rustls` + `tower` + `bytes` + `subtle`（M2.4 T5：constant-time bearer compare，[ADR-0022](internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md) D-4）等运行时依赖，以及 `tonic-build` + `prost-build` + `protoc-bin-vendored` 的 build-deps（OTLP collector `.proto` 编译生成 server stubs）。架构总览见 [ADR-0021](internals/adr-0021-otlp-receiver-architecture.md)；M2.4 容量加固见 [ADR-0022](internals/adr-0022-otlp-capacity-caps-and-lru-eviction.md)。无 feature 时这些依赖完全不编译，binary 显著瘦身。
 - `agentprof-cli/features = ["web"]` —— **启用 M2.3 web dashboard** (`agentprof serve` 子命令)。打开后编译 `cmd::serve` 整个 module 树（`mod` / `state` / `router` / `handlers` / `static_assets`）+ askama dashboard templates (`templates/dashboard/**`) + bundled CSS/JS/favicon (`include_str!`/`include_bytes!`)。引入 `axum` + `tower` + `tower-http` + `tokio` + `open` 五个运行时依赖（其中 `axum` / `tower` / `tokio` 与 `agentprof-storage/otlp` 共享，已开 `otlp` 时不会双重编译）。架构见 [ADR-0024](internals/adr-0024-web-dashboard-architecture.md)；feature 入口见 [`docs/features/web-dashboard.md`](features/web-dashboard.md)。
 - `agentprof-cli/features = ["full"]` = `core/anthropic-api + storage/otlp + cli/web`（默认 on）。`ingest-otlp` 子命令需要 `otlp`；`serve` 子命令需要 `web`；关闭 `full` 后两者均在 dispatcher 中被 cfg-gated 移除。
 
