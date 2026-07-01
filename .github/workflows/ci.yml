@@ -19,7 +19,7 @@ jobs:
     name: fmt + clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
       # Rolling ref intentionally NOT SHA-pinned (ADR-0014 D-6): we want each
       # CI run to pick up the current stable Rust toolchain.
       - uses: dtolnay/rust-toolchain@stable
@@ -41,7 +41,7 @@ jobs:
           - os: ubuntu-latest
             rust: beta
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
       # Rolling ref intentionally NOT SHA-pinned (ADR-0014 D-6).
       # Note: dtolnay/rust-toolchain's @stable/@beta/@nightly tags ignore
       # the `toolchain:` input; only @master honors it, so non-stable
@@ -58,7 +58,7 @@ jobs:
     env:
       RUSTDOCFLAGS: -D warnings
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
       # Rolling ref intentionally NOT SHA-pinned (ADR-0014 D-6): we want each
       # CI run to pick up the current stable Rust toolchain.
       - uses: dtolnay/rust-toolchain@stable
@@ -69,7 +69,7 @@ jobs:
     name: insta snapshots
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
       # Rolling ref intentionally NOT SHA-pinned (ADR-0014 D-6): we want each
       # CI run to pick up the current stable Rust toolchain.
       - uses: dtolnay/rust-toolchain@stable
@@ -81,7 +81,7 @@ jobs:
     name: feature matrix
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
       # Rolling ref intentionally NOT SHA-pinned (ADR-0014 D-6): we want each
       # CI run to pick up the current stable Rust toolchain.
       - uses: dtolnay/rust-toolchain@stable
@@ -97,14 +97,14 @@ jobs:
     name: cargo-deny
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
       - uses: EmbarkStudios/cargo-deny-action@bb137d7af7e4fb67e5f82a49c4fce4fad40782fe  # v2.0.20
 
   pii-guard:
     name: pii-guard
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
       # Rolling ref intentionally NOT SHA-pinned (ADR-0014 D-6): we want each
       # CI run to pick up the current stable Rust toolchain.
       - uses: dtolnay/rust-toolchain@stable
@@ -115,7 +115,7 @@ jobs:
     name: docs-sync (L1/L2/L3 enforcement)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
       - name: Every crate must have a README.md (L2)
         shell: bash
         run: |
